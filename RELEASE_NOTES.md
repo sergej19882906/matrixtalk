@@ -1,5 +1,33 @@
 # Matrix Talk — История версий
 
+## 1.5.0
+**Дата релиза:** 2026-10-02
+
+### 🚀 Kotlin Multiplatform — единая кодовая база
+- Проект мигрирован на **Kotlin Multiplatform**: модули `:shared`, `:app`, `:desktop-app`.
+- Весь UI и бизнес-логика (экраны, ViewModel'и, навигация, тема) перенесены в `commonMain` на **Compose Multiplatform**.
+- 🆕 **Новый таргет: Desktop (Windows/Linux/macOS)** — модуль `desktop-app` с Compose Window.
+
+### Matrix SDK: Trixnity
+- `matrix-android-sdk2` (Android-only) заменён на **Trixnity 4.11** — чисто Kotlin KMP SDK.
+- Реализовано: логин (пароль и access token), синхронизация, список комнат, timeline сообщений, отправка текста/файлов/реакций, редактирование и удаление сообщений, typing-индикаторы, read markers, создание/вход/выход из комнат, профиль (имя, аватар).
+- 🆕 **Персистентность сессии** — DataStore Preferences (токен, deviceId), автовход при перезапуске приложения.
+- Realm удалён из зависимостей (in-memory репозитории Trixnity).
+
+### Архитектура
+- Hilt заменён на **Koin 4** — общий DI для всех платформ.
+- Платформенные абстракции через expect/actual (файлы, пути хранения, открытие URL).
+
+### CI/CD
+- 🆕 **Release workflow** — на тег `v*`: Android APK (signed, если настроены секреты) + Desktop-инсталляторы (MSI/DEB/DMG), GitHub Release с заметками из RELEASE_NOTES.md.
+- CI на push/PR в main: сборка Android APK + Desktop, валидация docker-compose.
+
+### Сборка
+- `versionCode`: 8, `versionName`: 1.5.0, Desktop `packageVersion`: 1.5.0
+- iOS-таргет — в планах.
+
+---
+
 ## 1.1.4
 **Дата релиза:** 2026-10-01
 
