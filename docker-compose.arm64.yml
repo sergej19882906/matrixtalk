@@ -1,0 +1,21 @@
+services:
+  synapse:
+    platform: linux/arm64
+
+  postgres:
+    platform: linux/arm64
+
+  coturn:
+    platform: linux/arm64
+
+  init-bridges-db:
+    platform: linux/arm64
+
+  telegram-bridge:
+    platform: linux/arm64
+
+  whatsapp-bridge:
+    platform: linux/arm64
+
+  signal-bridge:
+    platform: linux/arm64

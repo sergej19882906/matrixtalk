@@ -1,0 +1,141 @@
+services:
+  synapse:
+    image: ghcr.io/sergej19882906/matrix-talk-synapse:latest
+    build:
+      context: docker/synapse
+    container_name: matrix-talk-synapse
+    restart: unless-stopped
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./server-data/synapse:/data
+      - ./server-data/mautrix-telegram:/data/mautrix-telegram:ro
+      - ./server-data/mautrix-whatsapp:/data/mautrix-whatsapp:ro
+      - ./server-data/mautrix-signal:/data/mautrix-signal:ro
+    environment:
+      SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME:?Set MATRIX_SERVER_NAME in .env}
+      SYNAPSE_REPORT_STATS: "no"
+      POSTGRES_USER: ${POSTGRES_USER:-synapse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-synapse}
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: matrix-talk-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-synapse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-synapse}
+    volumes:
+      - ./server-data/postgres:/var/lib/postgresql/data
+      - ./docker/postgres/init-bridges.sh:/docker-entrypoint-initdb.d/init-bridges.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-synapse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  init-bridges-db:
+    image: postgres:16-alpine
+    container_name: matrix-talk-init-bridges-db
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-synapse}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    entrypoint: >
+      sh -c "psql -c 'CREATE DATABASE mautrix_telegram;' 2>/dev/null; psql -c 'CREATE DATABASE mautrix_whatsapp;' 2>/dev/null; psql -c 'CREATE DATABASE mautrix_signal;' 2>/dev/null; echo 'Bridge databases ready.'"
+
+  coturn:
+    image: coturn/coturn:latest
+    container_name: matrix-talk-coturn
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./server-data/coturn:/etc/coturn
+    command:
+      - "--listening-port=${TURN_PORT:-3478}"
+      - "--tls-listening-port=${TURN_TLS_PORT:-5349}"
+      - "--realm=${MATRIX_SERVER_NAME:?Set MATRIX_SERVER_NAME in .env}"
+      - "--server-name=${MATRIX_SERVER_NAME:?Set MATRIX_SERVER_NAME in .env}"
+      - "--use-auth-secret"
+      - "--static-auth-secret=${TURN_SHARED_SECRET:?Set TURN_SHARED_SECRET in .env}"
+      - "--min-port=${TURN_MIN_PORT:-49152}"
+      - "--max-port=${TURN_MAX_PORT:-65535}"
+      - "--log-file=stdout"
+      - "--fingerprint"
+      - "--no-multicast-peers"
+      - "--no-cli"
+
+  telegram-bridge:
+    image: ghcr.io/sergej19882906/matrix-talk-mautrix-telegram:latest
+    build:
+      context: docker/mautrix-telegram
+    container_name: matrix-talk-telegram-bridge
+    restart: unless-stopped
+    profiles: ["bridges"]
+    volumes:
+      - ./server-data/mautrix-telegram:/data
+    environment:
+      HOMESERVER_ADDRESS: http://synapse:8008
+      HOMESERVER_DOMAIN: ${MATRIX_SERVER_NAME:?Set MATRIX_SERVER_NAME in .env}
+      POSTGRES_USER: ${POSTGRES_USER:-synapse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      BRIDGE_ADMIN: ${BRIDGE_ADMIN:-}
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+    depends_on:
+      synapse:
+        condition: service_started
+      init-bridges-db:
+        condition: service_completed_successfully
+
+  whatsapp-bridge:
+    image: ghcr.io/sergej19882906/matrix-talk-mautrix-whatsapp:latest
+    build:
+      context: docker/mautrix-whatsapp
+    container_name: matrix-talk-whatsapp-bridge
+    restart: unless-stopped
+    profiles: ["bridges"]
+    volumes:
+      - ./server-data/mautrix-whatsapp:/data
+    environment:
+      HOMESERVER_ADDRESS: http://synapse:8008
+      HOMESERVER_DOMAIN: ${MATRIX_SERVER_NAME:?Set MATRIX_SERVER_NAME in .env}
+      POSTGRES_USER: ${POSTGRES_USER:-synapse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      BRIDGE_ADMIN: ${BRIDGE_ADMIN:-}
+    depends_on:
+      synapse:
+        condition: service_started
+      init-bridges-db:
+        condition: service_completed_successfully
+
+  signal-bridge:
+    image: ghcr.io/sergej19882906/matrix-talk-mautrix-signal:latest
+    build:
+      context: docker/mautrix-signal
+    container_name: matrix-talk-signal-bridge
+    restart: unless-stopped
+    profiles: ["bridges"]
+    volumes:
+      - ./server-data/mautrix-signal:/data
+    environment:
+      HOMESERVER_ADDRESS: http://synapse:8008
+      HOMESERVER_DOMAIN: ${MATRIX_SERVER_NAME:?Set MATRIX_SERVER_NAME in .env}
+      POSTGRES_USER: ${POSTGRES_USER:-synapse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      BRIDGE_ADMIN: ${BRIDGE_ADMIN:-}
+    depends_on:
+      synapse:
+        condition: service_started
+      init-bridges-db:
+        condition: service_completed_successfully

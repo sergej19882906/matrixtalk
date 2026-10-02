@@ -1,0 +1,45 @@
+# Version control
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+*.iml
+
+# Gradle
+.gradle/
+build/
+app/build/
+.gradle/
+
+# Android SDK / build output
+*.apk
+*.aab
+local.properties
+
+# Signing — never in Docker context
+*.jks
+*.keystore
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker server data (runtime, not build context)
+server-data/
+
+# Docs and screenshots
+docs/
+
+# Qwen Code
+.qwen/
+
+# CI
+.github/
+
+# Misc
+*.hprof
+*.env
+!.env.example

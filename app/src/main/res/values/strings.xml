@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Matrix Talk</string>
+    <string name="login">Войти</string>
+    <string name="logout">Выйти</string>
+    <string name="username">Имя пользователя</string>
+    <string name="password">Пароль</string>
+    <string name="home_server">Home Server</string>
+    <string name="send">Отправить</string>
+    <string name="message">Сообщение</string>
+    <string name="create_chat">Создать чат</string>
+    <string name="join_room">Войти в комнату</string>
+    <string name="leave_room">Покинуть комнату</string>
+    <string name="settings">Настройки</string>
+    <string name="search">Поиск</string>
+    <string name="no_chats">Нет чатов</string>
+    <string name="no_messages">Нет сообщений</string>
+    <string name="error_login_failed">Ошибка входа</string>
+    <string name="error_network">Ошибка сети</string>
+    <string name="loading">Загрузка...</string>
+</resources>

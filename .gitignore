@@ -1,0 +1,54 @@
+# Android Studio and IntelliJ
+*.iml
+.idea/
+.vscode/
+
+# Local machine configuration
+local.properties
+
+# Gradle and Android build output
+.gradle/
+build/
+/captures/
+.externalNativeBuild/
+.cxx/
+.kotlin/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local secrets and service configuration
+google-services.json
+*.properties.local
+*.env
+!.env.example
+server-data/
+
+# Signing and release artifacts
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Lint and reports
+lint/
+*.hprof
+
+# Generated tooling files
+freeline.py
+freeline/
+freeline_project_description.json
+
+# Fastlane generated files
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+fastlane/readme.md
+
+# Keep the Gradle wrapper JAR under version control.
+!gradle/wrapper/gradle-wrapper.jar
+
+# Agent/tooling configs
+.qwen/
