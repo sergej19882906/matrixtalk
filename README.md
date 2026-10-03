@@ -44,16 +44,16 @@ Android-клиент Matrix Talk для децентрализованной с�
 ## Сервер
 
 `docker-compose.bridges.yml` — готовый стек для собственного Matrix-сервера.
-Кастомные Docker-образы с авто-конфигурацией из env-переменных публикуются в [ghcr.io](https://github.com/sergej19882906/matrix-talk-android/pkgs/container/).
+Кастомные Docker-образы с авто-конфигурацией из env-переменных публикуются в [ghcr.io](https://github.com/sergej19882906/matrixtalk/pkgs/container/).
 
 | Сервис | Образ | Назначение |
 |--------|-------|------------|
-| **Synapse** | `ghcr.io/sergej19882906/matrix-talk-synapse` | Matrix homeserver |
+| **Synapse** | `ghcr.io/sergej19882906/matrixtalk-synapse` | Matrix homeserver |
 | **PostgreSQL** | `postgres:16-alpine` | База данных |
 | **Coturn** | `coturn/coturn:latest` | TURN/STUN сервер для VoIP-звонков |
-| **mautrix-telegram** | `ghcr.io/sergej19882906/matrix-talk-mautrix-telegram` | Мост Telegram |
-| **mautrix-whatsapp** | `ghcr.io/sergej19882906/matrix-talk-mautrix-whatsapp` | Мост WhatsApp |
-| **mautrix-signal** | `ghcr.io/sergej19882906/matrix-talk-mautrix-signal` | Мост Signal |
+| **mautrix-telegram** | `ghcr.io/sergej19882906/matrixtalk-mautrix-telegram` | Мост Telegram |
+| **mautrix-whatsapp** | `ghcr.io/sergej19882906/matrixtalk-mautrix-whatsapp` | Мост WhatsApp |
+| **mautrix-signal** | `ghcr.io/sergej19882906/matrixtalk-mautrix-signal` | Мост Signal |
 
 Пошаговая инструкция по установке и настройке — в [`docs/bridges.md`](docs/bridges.md).
 

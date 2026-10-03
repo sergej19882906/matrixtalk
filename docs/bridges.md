@@ -4,7 +4,7 @@
 мессенджера, аудио/видео звонков и опциональных мостов Telegram, WhatsApp и Signal.
 
 Кастомные Docker-образы с авто-конфигурацией публикуются в
-[ghcr.io](https://github.com/sergej19882906/matrix-talk-android/pkgs/container/)
+[ghcr.io](https://github.com/sergej19882906/matrixtalk/pkgs/container/)
 — **не нужно вручную генерировать и редактировать конфиги.**
 
 ---
@@ -15,13 +15,13 @@
 
 | Сервис | Образ | Назначение |
 |--------|-------|------------|
-| **Synapse** | `ghcr.io/sergej19882906/matrix-talk-synapse` | Matrix homeserver — ядро мессенджера |
+| **Synapse** | `ghcr.io/sergej19882906/matrixtalk-synapse` | Matrix homeserver — ядро мессенджера |
 | **PostgreSQL** | `postgres:16-alpine` | База данных Synapse + мосты |
 | **init-bridges-db** | `postgres:16-alpine` | Создание БД для мостов (однократный) |
 | **Coturn** | `coturn/coturn:latest` | TURN/STUN сервер для VoIP-звонков |
-| **mautrix-telegram** | `ghcr.io/sergej19882906/matrix-talk-mautrix-telegram` | Мост Telegram |
-| **mautrix-whatsapp** | `ghcr.io/sergej19882906/matrix-talk-mautrix-whatsapp` | Мост WhatsApp |
-| **mautrix-signal** | `ghcr.io/sergej19882906/matrix-talk-mautrix-signal` | Мост Signal |
+| **mautrix-telegram** | `ghcr.io/sergej19882906/matrixtalk-mautrix-telegram` | Мост Telegram |
+| **mautrix-whatsapp** | `ghcr.io/sergej19882906/matrixtalk-mautrix-whatsapp` | Мост WhatsApp |
+| **mautrix-signal** | `ghcr.io/sergej19882906/matrixtalk-mautrix-signal` | Мост Signal |
 
 Кастомные образы автоматически:
 - Генерируют `homeserver.yaml` / `config.yaml` при первом запуске
@@ -122,7 +122,7 @@ curl http://localhost:8008/_matrix/client/versions
 ## Шаг 3. Создание администратора
 
 ```bash
-docker exec -it matrix-talk-synapse register_new_matrix_user \
+docker exec -it matrixtalk-synapse register_new_matrix_user \
   -c /data/homeserver.yaml \
   --admin \
   --password-prompt \

@@ -1,9 +1,9 @@
 services:
   synapse:
-    image: ghcr.io/sergej19882906/matrix-talk-synapse:latest
+    image: ghcr.io/sergej19882906/matrixtalk-synapse:latest
     build:
       context: docker/synapse
-    container_name: matrix-talk-synapse
+    container_name: matrixtalk-synapse
     restart: unless-stopped
     ports:
       - "8008:8008"
@@ -76,7 +76,7 @@ services:
       - "--no-cli"
 
   telegram-bridge:
-    image: ghcr.io/sergej19882906/matrix-talk-mautrix-telegram:latest
+    image: ghcr.io/sergej19882906/matrixtalk-mautrix-telegram:latest
     build:
       context: docker/mautrix-telegram
     container_name: matrix-talk-telegram-bridge
@@ -99,7 +99,7 @@ services:
         condition: service_completed_successfully
 
   whatsapp-bridge:
-    image: ghcr.io/sergej19882906/matrix-talk-mautrix-whatsapp:latest
+    image: ghcr.io/sergej19882906/matrixtalk-mautrix-whatsapp:latest
     build:
       context: docker/mautrix-whatsapp
     container_name: matrix-talk-whatsapp-bridge
@@ -120,7 +120,7 @@ services:
         condition: service_completed_successfully
 
   signal-bridge:
-    image: ghcr.io/sergej19882906/matrix-talk-mautrix-signal:latest
+    image: ghcr.io/sergej19882906/matrixtalk-mautrix-signal:latest
     build:
       context: docker/mautrix-signal
     container_name: matrix-talk-signal-bridge
