@@ -33,6 +33,10 @@ interface MatrixRepository {
 
     fun getMessagesFlow(roomId: String): Flow<List<Message>>
 
+    suspend fun loadEarlierMessages(roomId: String)
+
+    suspend fun canLoadMoreMessages(roomId: String): Boolean
+
     suspend fun sendTextMessage(roomId: String, text: String)
 
     suspend fun sendFileMessage(

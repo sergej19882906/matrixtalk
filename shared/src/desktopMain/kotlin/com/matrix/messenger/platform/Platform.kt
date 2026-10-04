@@ -46,3 +46,13 @@ actual fun sessionStorePath(): String {
     val dir = File(home, ".matrixtalk").apply { mkdirs() }
     return File(dir, "session.preferences_pb").absolutePath
 }
+
+actual fun createTrixnityRepositoriesModule(): org.koin.core.module.Module {
+    val dir = File(
+        System.getProperty("user.home") ?: error("user.home is not set"),
+        ".matrixtalk/realm"
+    ).apply { mkdirs() }
+    return net.folivo.trixnity.client.store.repository.realm.createRealmRepositoriesModule {
+        directory(dir.absolutePath)
+    }
+}

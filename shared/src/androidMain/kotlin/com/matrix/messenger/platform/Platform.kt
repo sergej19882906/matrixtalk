@@ -35,6 +35,16 @@ actual fun sessionStorePath(): String {
     return java.io.File(context.filesDir, "session.preferences_pb").absolutePath
 }
 
+actual fun createTrixnityRepositoriesModule(): org.koin.core.module.Module {
+    val dir = java.io.File(
+        appContext?.filesDir ?: error("Application context not initialized"),
+        "realm"
+    ).apply { mkdirs() }
+    return net.folivo.trixnity.client.store.repository.realm.createRealmRepositoriesModule {
+        directory(dir.absolutePath)
+    }
+}
+
 fun openUrlWith(context: Context, url: String) {
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

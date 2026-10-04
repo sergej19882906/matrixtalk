@@ -40,9 +40,10 @@ kotlin {
             implementation("io.insert-koin:koin-compose-viewmodel:4.0.0")
             implementation("io.insert-koin:koin-compose-viewmodel-navigation:4.0.0")
 
-            // Trixnity Matrix SDK
-            implementation("net.folivo:trixnity-client:4.11.0")
-            implementation("net.folivo:trixnity-core:4.11.0")
+            // Trixnity Matrix SDK (4.9.2 is the latest version with persistent repository modules)
+            implementation("net.folivo:trixnity-client:4.9.2")
+            implementation("net.folivo:trixnity-core:4.9.2")
+            implementation("net.folivo:trixnity-client-repository-realm:4.9.2")
 
             // Ktor (required by Trixnity)
             implementation("io.ktor:ktor-client-core:3.0.1")
@@ -64,6 +65,7 @@ kotlin {
             implementation("io.insert-koin:koin-androidx-compose:4.0.0")
             implementation("androidx.activity:activity-compose:1.9.3")
             implementation("androidx.core:core-ktx:1.15.0")
+            implementation("androidx.work:work-runtime-ktx:2.9.1")
         }
 
         val desktopMain by getting {

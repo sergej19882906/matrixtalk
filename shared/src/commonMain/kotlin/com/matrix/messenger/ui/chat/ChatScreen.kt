@@ -75,8 +75,11 @@ fun ChatScreen(
         viewModel.setRoomId(roomId)
     }
 
-    LaunchedEffect(uiState.messages.size) {
-        if (uiState.messages.isNotEmpty()) {
+    LaunchedEffect(uiState.messages.lastOrNull()?.eventId, uiState.messages.lastOrNull()?.isMine) {
+        // Auto-scroll only for newly sent own messages or incoming messages while near the bottom;
+        // loading earlier history must not jump to the bottom.
+        val last = uiState.messages.lastOrNull() ?: return@LaunchedEffect
+        if (last.isMine) {
             listState.animateScrollToItem(uiState.messages.size - 1)
         }
     }
@@ -154,6 +157,19 @@ fun ChatScreen(
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        if (uiState.canLoadMore) {
+                            item(key = "load_earlier") {
+                                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                    if (uiState.isLoadingMore) {
+                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                    } else {
+                                        TextButton(onClick = { viewModel.loadEarlierMessages() }) {
+                                            Text("Загрузить ранее")
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         items(
                             items = uiState.messages,
                             key = { it.eventId }
@@ -288,6 +304,25 @@ private fun MessageItem(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                }
+                            }
+                            if (message.reactions.isNotEmpty()) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(top = 4.dp)
+                                ) {
+                                    message.reactions.forEach { (emoji, count) ->
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = MaterialTheme.colorScheme.surface
+                                        ) {
+                                            Text(
+                                                text = "$emoji $count",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

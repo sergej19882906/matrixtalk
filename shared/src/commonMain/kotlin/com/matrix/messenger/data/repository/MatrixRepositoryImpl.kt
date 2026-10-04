@@ -7,6 +7,7 @@ import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
+import com.matrix.messenger.platform.createTrixnityRepositoriesModule
 import com.matrix.messenger.platform.readFileBytes
 import io.ktor.http.ContentType
 import io.ktor.http.Url
@@ -27,6 +28,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import net.folivo.trixnity.client.MatrixClient
 import net.folivo.trixnity.client.flattenValues
+import net.folivo.trixnity.client.fromStore
 import net.folivo.trixnity.client.loginWith
 import net.folivo.trixnity.client.loginWithPassword
 import net.folivo.trixnity.client.media
@@ -43,7 +45,6 @@ import net.folivo.trixnity.client.store.eventId
 import net.folivo.trixnity.client.store.hasBeenReplaced
 import net.folivo.trixnity.client.store.isReplaced
 import net.folivo.trixnity.client.store.originTimestamp
-import net.folivo.trixnity.client.store.repository.createInMemoryRepositoriesModule
 import net.folivo.trixnity.client.store.roomId
 import net.folivo.trixnity.client.store.sender
 import net.folivo.trixnity.client.user
@@ -55,6 +56,7 @@ import net.folivo.trixnity.core.model.RoomId
 import net.folivo.trixnity.core.model.UserId
 import net.folivo.trixnity.core.model.events.RedactedEventContent
 import net.folivo.trixnity.core.model.events.RoomEventContent
+import net.folivo.trixnity.core.model.events.m.ReactionEventContent
 import net.folivo.trixnity.core.model.events.m.RelatesTo
 import net.folivo.trixnity.core.model.events.m.room.AudioInfo
 import net.folivo.trixnity.core.model.events.m.room.FileInfo
@@ -68,7 +70,6 @@ import net.folivo.trixnity.utils.toByteArrayFlow
 class MatrixRepositoryImpl : MatrixRepository {
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
     private val _clientState = MutableStateFlow<MatrixClient?>(null)
     private var client: MatrixClient? = null
         set(value) {
@@ -79,6 +80,7 @@ class MatrixRepositoryImpl : MatrixRepository {
     private var baseUrl: String = ""
     private val userNameCache = mutableMapOf<String, String>()
     private val eventRoomMap = mutableMapOf<String, String>()
+    private val pageSizes = mutableMapOf<String, MutableStateFlow<Int>>()
 
     private val _currentUser = MutableStateFlow<MatrixUser?>(null)
     override val currentUser: Flow<MatrixUser?> = _currentUser.asStateFlow()
@@ -88,6 +90,21 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     override suspend fun initialize() {
         if (client != null) return
+        // With the persistent store a session survives restarts: restore the client
+        // from the local database (fast incremental sync) without any network call.
+        try {
+            val restored = MatrixClient.fromStore(
+                repositoriesModule = createTrixnityRepositoriesModule(),
+                mediaStore = InMemoryMediaStore(),
+            ).getOrThrow()
+            if (restored != null) {
+                attachClient(restored, restored.baseUrl.toString().trimEnd('/'))
+                return
+            }
+        } catch (e: Exception) {
+            // corrupted or incompatible store: fall through to token-based restore
+        }
+        // No persisted store yet: fall back to the persisted session token.
         val session = SessionStore.read()
         if (session == null) {
             _connectionState.value = ConnectionState.Disconnected("No active session")
@@ -97,7 +114,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             _connectionState.value = ConnectionState.Connecting
             val restored = MatrixClient.loginWith(
                 baseUrl = Url(session.homeServer),
-                repositoriesModuleFactory = { createInMemoryRepositoriesModule() },
+                repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
                 mediaStoreFactory = { InMemoryMediaStore() },
                 getLoginInfo = {
                     Result.success(
@@ -127,7 +144,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 identifier = IdentifierType.User(username),
                 password = password,
                 initialDeviceDisplayName = "MatrixTalk",
-                repositoriesModuleFactory = { createInMemoryRepositoriesModule() },
+                repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
                 mediaStoreFactory = { InMemoryMediaStore() },
             )
             result.fold(
@@ -153,7 +170,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             _connectionState.value = ConnectionState.Connecting
             val result = MatrixClient.loginWith(
                 baseUrl = Url(url),
-                repositoriesModuleFactory = { createInMemoryRepositoriesModule() },
+                repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
                 mediaStoreFactory = { InMemoryMediaStore() },
                 getLoginInfo = { api ->
                     api.accessToken.value = accessToken
@@ -195,11 +212,6 @@ class MatrixRepositoryImpl : MatrixRepository {
             } catch (e: Exception) {
                 // best effort
             }
-            try {
-                c.close()
-            } catch (e: Exception) {
-                // best effort
-            }
         }
         _connectionState.value = ConnectionState.Disconnected("Logged out")
     }
@@ -224,16 +236,48 @@ class MatrixRepositoryImpl : MatrixRepository {
         } else {
             val rId = RoomId(roomId)
             c.room.getLastTimelineEvents(rId)
-                .toFlowList(MutableStateFlow(MESSAGE_PAGE_SIZE))
+                .toFlowList(pageSizeFor(roomId))
                 .mapLatest { eventFlows ->
                     if (eventFlows.isEmpty()) {
                         flowOf(emptyList())
                     } else {
                         combine(eventFlows) { events -> events.toList() }
-                            .mapLatest { events -> events.mapNotNull { it.toMessageOrNull(c) } }
+                            .mapLatest { events ->
+                                val reactions = aggregateReactions(events)
+                                events.mapNotNull { it.toMessageOrNull(c) }
+                                    .map { message ->
+                                        val counts = reactions[message.eventId]
+                                        if (counts.isNullOrEmpty()) message
+                                        else message.copy(reactions = counts)
+                                    }
+                            }
                     }
                 }
                 .flatMapLatest { it }
+        }
+    }
+
+    override suspend fun loadEarlierMessages(roomId: String) {
+        pageSizeFor(roomId).value += MESSAGE_PAGE_SIZE
+    }
+
+    override suspend fun canLoadMoreMessages(roomId: String): Boolean = true
+
+    private fun pageSizeFor(roomId: String) =
+        pageSizes.getOrPut(roomId) { MutableStateFlow(MESSAGE_PAGE_SIZE) }
+
+    private fun aggregateReactions(events: List<TimelineEvent>): Map<String, Map<String, Int>> {
+        val aggregated = mutableMapOf<String, MutableMap<String, MutableSet<String>>>()
+        events.forEach { timelineEvent ->
+            val content = timelineEvent.content?.getOrNull() as? ReactionEventContent ?: return@forEach
+            val annotation = content.relatesTo as? RelatesTo.Annotation ?: return@forEach
+            val key = annotation.key ?: return@forEach
+            aggregated.getOrPut(annotation.eventId.full) { mutableMapOf() }
+                .getOrPut(key) { mutableSetOf() }
+                .add(timelineEvent.sender.full)
+        }
+        return aggregated.mapValues { (_, byKey) ->
+            byKey.mapValues { (_, senders) -> senders.size }
         }
     }
 
@@ -365,11 +409,6 @@ class MatrixRepositoryImpl : MatrixRepository {
         client?.let { old ->
             try {
                 old.stopSync()
-            } catch (e: Exception) {
-                // best effort
-            }
-            try {
-                old.close()
             } catch (e: Exception) {
                 // best effort
             }

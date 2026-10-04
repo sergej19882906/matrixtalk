@@ -19,6 +19,8 @@ data class ChatUiState(
     val messages: List<Message> = emptyList(),
     val messageInput: String = "",
     val isLoading: Boolean = true,
+    val canLoadMore: Boolean = false,
+    val isLoadingMore: Boolean = false,
     val isTyping: Boolean = false,
     val error: String? = null,
     val replyingTo: Message? = null
@@ -49,7 +51,9 @@ class ChatViewModel(
             matrixRepository.getMessagesFlow(roomId).collect { messages ->
                 _uiState.value = _uiState.value.copy(
                     messages = messages.sortedBy { it.timestamp },
-                    isLoading = false
+                    isLoading = false,
+                    isLoadingMore = false,
+                    canLoadMore = matrixRepository.canLoadMoreMessages(roomId)
                 )
                 _uiStateSealed.value = UiState.Success(messages)
             }
@@ -58,6 +62,20 @@ class ChatViewModel(
         viewModelScope.launch {
             val roomInfo = matrixRepository.getRoomInfo(roomId)
             _uiState.value = _uiState.value.copy(roomName = roomInfo?.name)
+        }
+    }
+
+    fun loadEarlierMessages() {
+        val roomId = _uiState.value.roomId
+        if (roomId.isBlank() || _uiState.value.isLoadingMore) return
+        _uiState.value = _uiState.value.copy(isLoadingMore = true)
+        viewModelScope.launch {
+            try {
+                matrixRepository.loadEarlierMessages(roomId)
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isLoadingMore = false)
+                _events.send(UiEvent.ShowSnackbar("Ошибка загрузки: ${e.message}"))
+            }
         }
     }
 
