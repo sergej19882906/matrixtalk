@@ -519,6 +519,8 @@ class MatrixRepositoryImpl : MatrixRepository {
             messageContent != null -> messageContent.body
             else -> return null
         }
+        val mediaUrl = (messageContent as? RoomMessageEventContent.FileBased)
+            ?.url?.takeIf { messageContent.file == null }?.let(::mxcToHttp)
         eventRoomMap[eventId.full] = roomId.full
         if (eventRoomMap.size > EVENT_ROOM_MAP_MAX) {
             eventRoomMap.entries.take(EVENT_ROOM_MAP_MAX / 2).forEach { eventRoomMap.remove(it.key) }
@@ -532,7 +534,8 @@ class MatrixRepositoryImpl : MatrixRepository {
             messageType = if (isDeleted) MessageType.TEXT else eventContent.toMessageType(),
             isMine = sender == c.userId,
             isEdited = !isDeleted && isReplaced,
-            isDeleted = isDeleted
+            isDeleted = isDeleted,
+            mediaUrl = mediaUrl
         )
     }
 

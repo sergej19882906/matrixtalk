@@ -1,5 +1,6 @@
 package com.matrix.messenger.ui.chat
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -51,10 +53,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import com.matrix.messenger.data.model.Message
+import com.matrix.messenger.data.model.MessageType
 import com.matrix.messenger.data.model.UiEvent
+import com.matrix.messenger.platform.openUrl
 import com.matrix.messenger.platform.pickFile
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -283,11 +289,44 @@ private fun MessageItem(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             } else {
-                                Text(
-                                    text = message.body,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                when {
+                                    message.messageType == MessageType.IMAGE && message.mediaUrl != null -> {
+                                        AsyncImage(
+                                            model = message.mediaUrl,
+                                            contentDescription = message.body,
+                                            modifier = Modifier
+                                                .widthIn(max = 280.dp)
+                                                .clip(RoundedCornerShape(8.dp)),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+
+                                    message.mediaUrl != null -> {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.clickable { openUrl(message.mediaUrl!!) }
+                                        ) {
+                                            Icon(
+                                                Icons.Default.AttachFile,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(20.dp),
+                                                tint = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = message.body,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+
+                                    else -> Text(
+                                        text = message.body,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),

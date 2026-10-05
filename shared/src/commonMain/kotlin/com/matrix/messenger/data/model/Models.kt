@@ -47,7 +47,8 @@ data class Message(
     val isMine: Boolean,
     val isEdited: Boolean,
     val isDeleted: Boolean,
-    val reactions: Map<String, Int> = emptyMap()
+    val reactions: Map<String, Int> = emptyMap(),
+    val mediaUrl: String? = null
 )
 
 sealed class LoginResult {
