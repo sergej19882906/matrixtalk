@@ -1,5 +1,7 @@
 package com.matrix.messenger.data.repository
 
+import com.matrix.messenger.data.call.CallSignalingCommand
+import com.matrix.messenger.data.call.CallSignalingEvent
 import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.LoginResult
@@ -12,6 +14,11 @@ interface MatrixRepository {
     val currentUser: Flow<MatrixUser?>
 
     val connectionState: Flow<ConnectionState>
+
+    /** VoIP signaling events (m.call.*) from other users, live timeline only. */
+    val callEvents: Flow<CallSignalingEvent>
+
+    suspend fun sendCallEvent(roomId: String, command: CallSignalingCommand)
 
     suspend fun initialize()
 

@@ -1,5 +1,9 @@
 package com.matrix.messenger.data.repository
 
+import com.matrix.messenger.data.call.CallSignalingCommand
+import com.matrix.messenger.data.call.CallSignalingEvent
+import com.matrix.messenger.data.call.buildCallContent
+import com.matrix.messenger.data.call.parseCallEvent
 import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.LastMessage
@@ -27,6 +31,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import net.folivo.trixnity.client.MatrixClient
@@ -59,6 +64,7 @@ import net.folivo.trixnity.core.model.RoomId
 import net.folivo.trixnity.core.model.UserId
 import net.folivo.trixnity.core.model.events.RedactedEventContent
 import net.folivo.trixnity.core.model.events.RoomEventContent
+import net.folivo.trixnity.core.model.events.UnknownEventContent
 import net.folivo.trixnity.core.model.events.m.ReactionEventContent
 import net.folivo.trixnity.core.model.events.m.RelatesTo
 import net.folivo.trixnity.core.model.events.m.room.AudioInfo
@@ -92,6 +98,24 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected("Not connected"))
     override val connectionState: Flow<ConnectionState> = _connectionState.asStateFlow()
+
+    override val callEvents: Flow<CallSignalingEvent> = _clientState.flatMapLatest { c ->
+        if (c == null) {
+            flowOf()
+        } else {
+            c.room.getTimelineEventsFromNowOn().mapNotNull { timelineEvent ->
+                if (client !== c) return@mapNotNull null
+                if (timelineEvent.sender == c.userId) return@mapNotNull null
+                val content = timelineEvent.content?.getOrNull() as? UnknownEventContent
+                    ?: return@mapNotNull null
+                parseCallEvent(content.eventType, content.raw, timelineEvent.roomId.full, timelineEvent.sender.full)
+            }
+        }
+    }
+
+    override suspend fun sendCallEvent(roomId: String, command: CallSignalingCommand) {
+        requireClient().room.sendMessage(RoomId(roomId)) { content(buildCallContent(command)) }
+    }
 
     override suspend fun initialize() {
         if (client != null) return
