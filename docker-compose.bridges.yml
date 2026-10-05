@@ -23,6 +23,16 @@ services:
       postgres:
         condition: service_healthy
 
+  synapse-admin:
+    image: awesometechnologies/synapse-admin:latest
+    container_name: matrix-talk-synapse-admin
+    restart: unless-stopped
+    ports:
+      - "${SYNAPSE_ADMIN_PORT:-8080}:80"
+    depends_on:
+      synapse:
+        condition: service_started
+
   postgres:
     image: postgres:16-alpine
     container_name: matrix-talk-postgres

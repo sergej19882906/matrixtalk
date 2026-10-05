@@ -44,6 +44,7 @@
 | Сервис | Образ | Назначение |
 |--------|-------|------------|
 | **Synapse** | `ghcr.io/sergej19882906/matrixtalk-synapse` | Matrix homeserver |
+| **synapse-admin** | `awesometechnologies/synapse-admin` | Веб-интерфейс администрирования (порт 8080) |
 | **PostgreSQL** | `postgres:16-alpine` | База данных |
 | **Coturn** | `coturn/coturn:latest` | TURN/STUN сервер для VoIP-звонков |
 | **mautrix-telegram** | `ghcr.io/sergej19882906/matrixtalk-mautrix-telegram` | Мост Telegram |

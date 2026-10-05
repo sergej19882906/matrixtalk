@@ -11,6 +11,9 @@ services:
   init-bridges-db:
     platform: linux/arm64
 
+  synapse-admin:
+    platform: linux/arm64
+
   telegram-bridge:
     platform: linux/arm64
 

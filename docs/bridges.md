@@ -11,11 +11,12 @@
 
 ## Что входит в сервер
 
-`docker-compose.bridges.yml` определяет 7 сервисов:
+`docker-compose.bridges.yml` определяет 8 сервисов:
 
 | Сервис | Образ | Назначение |
 |--------|-------|------------|
 | **Synapse** | `ghcr.io/sergej19882906/matrixtalk-synapse` | Matrix homeserver — ядро мессенджера |
+| **synapse-admin** | `awesometechnologies/synapse-admin` | Веб-интерфейс администрирования сервера |
 | **PostgreSQL** | `postgres:16-alpine` | База данных Synapse + мосты |
 | **init-bridges-db** | `postgres:16-alpine` | Создание БД для мостов (однократный) |
 | **Coturn** | `coturn/coturn:latest` | TURN/STUN сервер для VoIP-звонков |
@@ -117,6 +118,10 @@ curl http://localhost:8008/_matrix/client/versions
 
 Должен вернуть JSON с версиями API (v1.1–v1.12).
 
+### Администрирование через веб-интерфейс
+
+`synapse-admin` запускается вместе со стеком и доступен на порту `SYNAPSE_ADMIN_PORT` (по умолчанию **8080**): откройте `http://<адрес сервера>:8080`, введите URL хомсервера `http://<адрес сервера>:8008` и войдите учётной записью администратора. Через интерфейс можно управлять пользователями, комнатами, чёрными списками и просматривать статистику сервера.
+
 ---
 
 ## Шаг 3. Создание администратора
@@ -142,6 +147,7 @@ docker exec -it matrixtalk-synapse register_new_matrix_user \
 |------|----------|--------|------------|
 | 8008 | TCP | Synapse | Client API + Federation API |
 | 8448 | TCP | Synapse | Federation (если прямой TLS) |
+| 8080 | TCP | synapse-admin | Веб-интерфейс администрирования |
 | 3478 | UDP | Coturn | TURN/STUN |
 | 5349 | TCP | Coturn | TURN over TLS (если есть сертификаты) |
 | 49152–65535 | UDP | Coturn | Медиа-релей для VoIP |
