@@ -30,6 +30,15 @@ actual fun readFileBytes(path: String): ByteArray {
     }
 }
 
+actual fun writeFileBytes(path: String, bytes: ByteArray) {
+    java.io.File(path).writeBytes(bytes)
+}
+
+actual fun attachmentsDir(): String {
+    val context = appContext ?: error("Application context not initialized")
+    return java.io.File(context.cacheDir, "attachments").apply { mkdirs() }.absolutePath
+}
+
 actual fun sessionStorePath(): String {
     val context = appContext ?: error("Application context not initialized")
     return java.io.File(context.filesDir, "session.preferences_pb").absolutePath

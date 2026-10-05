@@ -1,5 +1,7 @@
 package com.matrix.messenger.data.model
 
+import net.folivo.trixnity.core.model.events.m.room.EncryptedFile
+
 data class MatrixUser(
     val userId: String,
     val displayName: String?,
@@ -48,7 +50,8 @@ data class Message(
     val isEdited: Boolean,
     val isDeleted: Boolean,
     val reactions: Map<String, Int> = emptyMap(),
-    val mediaUrl: String? = null
+    val mediaUrl: String? = null,
+    val encryptedFile: EncryptedFile? = null
 )
 
 sealed class LoginResult {

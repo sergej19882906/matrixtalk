@@ -15,6 +15,10 @@ expect fun openUrl(url: String)
 
 expect fun readFileBytes(path: String): ByteArray
 
+expect fun writeFileBytes(path: String, bytes: ByteArray)
+
+expect fun attachmentsDir(): String
+
 expect fun sessionStorePath(): String
 
 expect fun createTrixnityRepositoriesModule(): org.koin.core.module.Module

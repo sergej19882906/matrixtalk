@@ -11,6 +11,7 @@ import androidx.compose.ui.window.rememberWindowState
 import androidx.navigation.compose.rememberNavController
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.di.sharedModule
+import com.matrix.messenger.media.setupImageLoader
 import com.matrix.messenger.ui.navigation.AppNavigation
 import com.matrix.messenger.ui.navigation.Screen
 import com.matrix.messenger.ui.theme.MatrixMessengerTheme
@@ -22,6 +23,7 @@ fun main() = application {
     startKoin {
         modules(sharedModule)
     }
+    setupImageLoader()
 
     val matrixRepository: MatrixRepository = koinInject()
     var isReady by remember { mutableStateOf(false) }

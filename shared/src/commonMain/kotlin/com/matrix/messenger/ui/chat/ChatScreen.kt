@@ -60,7 +60,7 @@ import coil3.compose.AsyncImage
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
 import com.matrix.messenger.data.model.UiEvent
-import com.matrix.messenger.platform.openUrl
+import com.matrix.messenger.media.MatrixMedia
 import com.matrix.messenger.platform.pickFile
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -187,7 +187,8 @@ fun ChatScreen(
                                     editText = message.body
                                     editingMessage = message
                                 },
-                                onDelete = { viewModel.deleteMessage(message.eventId) }
+                                onDelete = { viewModel.deleteMessage(message.eventId) },
+                                onOpenAttachment = { viewModel.openAttachment(message) }
                             )
                         }
                     }
@@ -233,7 +234,8 @@ private fun MessageItem(
     message: Message,
     onReaction: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onOpenAttachment: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
@@ -290,9 +292,10 @@ private fun MessageItem(
                                 )
                             } else {
                                 when {
-                                    message.messageType == MessageType.IMAGE && message.mediaUrl != null -> {
+                                    message.messageType == MessageType.IMAGE &&
+                                        (message.mediaUrl != null || message.encryptedFile != null) -> {
                                         AsyncImage(
-                                            model = message.mediaUrl,
+                                            model = MatrixMedia(message.mediaUrl, message.encryptedFile),
                                             contentDescription = message.body,
                                             modifier = Modifier
                                                 .widthIn(max = 280.dp)
@@ -301,10 +304,10 @@ private fun MessageItem(
                                         )
                                     }
 
-                                    message.mediaUrl != null -> {
+                                    message.mediaUrl != null || message.encryptedFile != null -> {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.clickable { openUrl(message.mediaUrl!!) }
+                                            modifier = Modifier.clickable { onOpenAttachment() }
                                         ) {
                                             Icon(
                                                 Icons.Default.AttachFile,

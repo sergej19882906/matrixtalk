@@ -6,6 +6,7 @@ import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.UiState
 import com.matrix.messenger.data.repository.MatrixRepository
+import com.matrix.messenger.platform.openUrl
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -170,6 +171,25 @@ class ChatViewModel(
                 )
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки файла: ${e.message}"))
+            }
+        }
+    }
+
+    fun openAttachment(message: Message) {
+        if (message.encryptedFile == null) {
+            message.mediaUrl?.let { openUrl(it) }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val path = matrixRepository.resolveMediaFile(message.eventId, message.body)
+                if (path != null) {
+                    openUrl("file://$path")
+                } else {
+                    _events.send(UiEvent.ShowSnackbar("Не удалось открыть файл"))
+                }
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка открытия файла: ${e.message}"))
             }
         }
     }

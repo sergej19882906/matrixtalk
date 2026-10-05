@@ -7,8 +7,11 @@ import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
+import com.matrix.messenger.media.MediaBytesProvider
+import com.matrix.messenger.platform.attachmentsDir
 import com.matrix.messenger.platform.createTrixnityRepositoriesModule
 import com.matrix.messenger.platform.readFileBytes
+import com.matrix.messenger.platform.writeFileBytes
 import io.ktor.http.ContentType
 import io.ktor.http.Url
 import kotlinx.coroutines.CoroutineScope
@@ -65,6 +68,7 @@ import net.folivo.trixnity.core.model.events.m.room.Membership
 import net.folivo.trixnity.core.model.events.m.room.RoomMessageEventContent
 import net.folivo.trixnity.core.model.events.m.room.TopicEventContent
 import net.folivo.trixnity.core.model.events.m.room.VideoInfo
+import net.folivo.trixnity.utils.toByteArray
 import net.folivo.trixnity.utils.toByteArrayFlow
 
 class MatrixRepositoryImpl : MatrixRepository {
@@ -81,6 +85,7 @@ class MatrixRepositoryImpl : MatrixRepository {
     private val userNameCache = mutableMapOf<String, String>()
     private val eventRoomMap = mutableMapOf<String, String>()
     private val pageSizes = mutableMapOf<String, MutableStateFlow<Int>>()
+    private val encryptedFiles = mutableMapOf<String, net.folivo.trixnity.core.model.events.m.room.EncryptedFile>()
 
     private val _currentUser = MutableStateFlow<MatrixUser?>(null)
     override val currentUser: Flow<MatrixUser?> = _currentUser.asStateFlow()
@@ -205,6 +210,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         client = null
         _currentUser.value = null
         userNameCache.clear()
+        MediaBytesProvider.resolver = null
         SessionStore.clear()
         if (c != null) {
             try {
@@ -262,6 +268,16 @@ class MatrixRepositoryImpl : MatrixRepository {
     }
 
     override suspend fun canLoadMoreMessages(roomId: String): Boolean = true
+
+    override suspend fun resolveMediaFile(eventId: String, fileName: String): String? {
+        val c = client ?: return null
+        val encryptedFile = encryptedFiles[eventId] ?: return null
+        val bytes = c.media.getEncryptedMedia(encryptedFile).getOrThrow().toByteArray()
+        val safeName = fileName.replace('/', '_').replace('\\', '_')
+        val path = "${attachmentsDir()}/${eventId.removePrefix("$")}_$safeName"
+        writeFileBytes(path, bytes)
+        return path
+    }
 
     private fun pageSizeFor(roomId: String) =
         pageSizes.getOrPut(roomId) { MutableStateFlow(MESSAGE_PAGE_SIZE) }
@@ -416,6 +432,9 @@ class MatrixRepositoryImpl : MatrixRepository {
         userNameCache.clear()
         baseUrl = url.trimEnd('/')
         client = c
+        MediaBytesProvider.resolver = { file ->
+            c.media.getEncryptedMedia(file).getOrThrow().toByteArray()
+        }
         _currentUser.value = MatrixUser(
             userId = c.userId.full,
             displayName = c.displayName.value,
@@ -521,6 +540,8 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
         val mediaUrl = (messageContent as? RoomMessageEventContent.FileBased)
             ?.url?.takeIf { messageContent.file == null }?.let(::mxcToHttp)
+        val encryptedFile = (messageContent as? RoomMessageEventContent.FileBased)?.file
+        if (encryptedFile != null) encryptedFiles[eventId.full] = encryptedFile
         eventRoomMap[eventId.full] = roomId.full
         if (eventRoomMap.size > EVENT_ROOM_MAP_MAX) {
             eventRoomMap.entries.take(EVENT_ROOM_MAP_MAX / 2).forEach { eventRoomMap.remove(it.key) }
@@ -535,7 +556,8 @@ class MatrixRepositoryImpl : MatrixRepository {
             isMine = sender == c.userId,
             isEdited = !isDeleted && isReplaced,
             isDeleted = isDeleted,
-            mediaUrl = mediaUrl
+            mediaUrl = mediaUrl,
+            encryptedFile = encryptedFile
         )
     }
 

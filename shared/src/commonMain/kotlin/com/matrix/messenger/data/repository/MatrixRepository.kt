@@ -37,6 +37,9 @@ interface MatrixRepository {
 
     suspend fun canLoadMoreMessages(roomId: String): Boolean
 
+    /** Downloads and decrypts an encrypted attachment to a local file; returns its path. */
+    suspend fun resolveMediaFile(eventId: String, fileName: String): String?
+
     suspend fun sendTextMessage(roomId: String, text: String)
 
     suspend fun sendFileMessage(

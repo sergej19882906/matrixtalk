@@ -41,6 +41,15 @@ actual fun openUrl(url: String) {
 
 actual fun readFileBytes(path: String): ByteArray = File(path).readBytes()
 
+actual fun writeFileBytes(path: String, bytes: ByteArray) {
+    File(path).writeBytes(bytes)
+}
+
+actual fun attachmentsDir(): String {
+    val home = System.getProperty("user.home") ?: error("user.home is not set")
+    return File(home, ".matrixtalk/attachments").apply { mkdirs() }.absolutePath
+}
+
 actual fun sessionStorePath(): String {
     val home = System.getProperty("user.home") ?: error("user.home is not set")
     val dir = File(home, ".matrixtalk").apply { mkdirs() }
