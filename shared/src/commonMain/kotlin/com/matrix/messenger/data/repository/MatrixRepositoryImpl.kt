@@ -106,8 +106,8 @@ class MatrixRepositoryImpl : MatrixRepository {
                 attachClient(restored, restored.baseUrl.toString().trimEnd('/'))
                 return
             }
-        } catch (e: Exception) {
-            // corrupted or incompatible store: fall through to token-based restore
+        } catch (t: Throwable) {
+            // corrupted store or missing native library: fall through to token-based restore
         }
         // No persisted store yet: fall back to the persisted session token.
         val session = SessionStore.read()

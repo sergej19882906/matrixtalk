@@ -61,7 +61,12 @@ actual fun createTrixnityRepositoriesModule(): org.koin.core.module.Module {
         System.getProperty("user.home") ?: error("user.home is not set"),
         ".matrixtalk/realm"
     ).apply { mkdirs() }
-    return net.folivo.trixnity.client.store.repository.realm.createRealmRepositoriesModule {
-        directory(dir.absolutePath)
+    return try {
+        net.folivo.trixnity.client.store.repository.realm.createRealmRepositoriesModule {
+            directory(dir.absolutePath)
+        }
+    } catch (t: Throwable) {
+        // e.g. missing native Realm library on this platform: stay functional without persistence
+        net.folivo.trixnity.client.store.repository.createInMemoryRepositoriesModule()
     }
 }

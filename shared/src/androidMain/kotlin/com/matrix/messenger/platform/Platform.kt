@@ -49,8 +49,13 @@ actual fun createTrixnityRepositoriesModule(): org.koin.core.module.Module {
         appContext?.filesDir ?: error("Application context not initialized"),
         "realm"
     ).apply { mkdirs() }
-    return net.folivo.trixnity.client.store.repository.realm.createRealmRepositoriesModule {
-        directory(dir.absolutePath)
+    return try {
+        net.folivo.trixnity.client.store.repository.realm.createRealmRepositoriesModule {
+            directory(dir.absolutePath)
+        }
+    } catch (t: Throwable) {
+        // e.g. missing native Realm library on this platform: stay functional without persistence
+        net.folivo.trixnity.client.store.repository.createInMemoryRepositoriesModule()
     }
 }
 

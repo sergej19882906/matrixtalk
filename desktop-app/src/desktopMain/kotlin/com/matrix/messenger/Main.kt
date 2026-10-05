@@ -19,7 +19,9 @@ import kotlinx.coroutines.flow.first
 import org.koin.compose.koinInject
 import org.koin.core.context.startKoin
 
-fun main() = application {
+fun main() {
+    installDesktopErrorLogging()
+    application {
     startKoin {
         modules(sharedModule)
     }
@@ -51,5 +53,21 @@ fun main() = application {
                 )
             }
         }
+    }
+    }
+}
+
+private fun installDesktopErrorLogging() {
+    val dir = java.io.File(
+        System.getProperty("user.home") ?: return,
+        ".matrixtalk/logs"
+    ).apply { mkdirs() }
+    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+        runCatching {
+            dir.resolve("error.log").appendText(
+                "${java.time.LocalDateTime.now()} [${thread.name}] ${throwable.stackTraceToString()}\n\n"
+            )
+        }
+        throwable.printStackTrace()
     }
 }
