@@ -116,6 +116,7 @@ class CallRepository(
     suspend fun startCall(roomId: String, peerUserId: String, peerName: String, isVideo: Boolean) {
         if (_callState.value != CallState.Idle) return
         engine.initialize()
+        prepareIceServers()
         val callId = "call_${kotlinx.datetime.Clock.System.now().toEpochMilliseconds()}"
         currentCall = CallSession(
             callId = callId,
@@ -134,7 +135,20 @@ class CallRepository(
         if (callId != null && call.callId != callId) return
         val offerSdp = call.offerSdp ?: return
         engine.initialize()
+        prepareIceServers()
         engine.acceptCall(call.callId, offerSdp, call.isVideo)
+    }
+
+    private suspend fun prepareIceServers() {
+        val servers = mutableListOf<Triple<String, String?, String?>>(
+            Triple("stun:stun.l.google.com:19302", null, null)
+        )
+        matrixRepository.getTurnServers().forEach { server ->
+            server.urls.forEach { url ->
+                servers.add(Triple(url, server.username, server.credential))
+            }
+        }
+        engine.setIceServers(servers)
     }
 
     suspend fun rejectCall(callId: String? = null) {

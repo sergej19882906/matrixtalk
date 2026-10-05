@@ -6,6 +6,7 @@ import com.matrix.messenger.data.call.buildCallContent
 import com.matrix.messenger.data.call.parseCallEvent
 import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.ConnectionState
+import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.LastMessage
 import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
@@ -16,6 +17,8 @@ import com.matrix.messenger.platform.attachmentsDir
 import com.matrix.messenger.platform.createTrixnityRepositoriesModule
 import com.matrix.messenger.platform.readFileBytes
 import com.matrix.messenger.platform.writeFileBytes
+import io.ktor.client.call.body
+import io.ktor.client.request.get
 import io.ktor.http.ContentType
 import io.ktor.http.Url
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +37,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.Serializable
 import net.folivo.trixnity.client.MatrixClient
 import net.folivo.trixnity.client.flattenValues
 import net.folivo.trixnity.client.fromStore
@@ -115,6 +119,37 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     override suspend fun sendCallEvent(roomId: String, command: CallSignalingCommand) {
         requireClient().room.sendMessage(RoomId(roomId)) { content(buildCallContent(command)) }
+    }
+
+    @Serializable
+    private data class TurnServerResponse(
+        val username: String? = null,
+        val password: String? = null,
+        val uris: List<String> = emptyList(),
+        val ttl: Long = 0,
+    )
+
+    private var turnServersCache: Pair<Long, List<IceServer>>? = null
+
+    override suspend fun getTurnServers(): List<IceServer> {
+        val now = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+        turnServersCache?.let { (expiresAt, servers) ->
+            if (now < expiresAt) return servers
+        }
+        val c = client ?: return emptyList()
+        return runCatching {
+            // Trixnity 4.9.2 has no VoIP API client; baseClient already carries base URL and auth.
+            val response: TurnServerResponse =
+                c.api.httpClient.baseClient.get("/_matrix/client/v3/voip/turnServer").body()
+            val servers = if (response.uris.isEmpty()) {
+                emptyList()
+            } else {
+                listOf(IceServer(response.uris, response.username, response.password))
+            }
+            val ttlMs = (if (response.ttl > 0) response.ttl else DEFAULT_TURN_TTL_SECONDS) * 1000
+            turnServersCache = (now + ttlMs) to servers
+            servers
+        }.getOrDefault(emptyList())
     }
 
     override suspend fun initialize() {
@@ -628,5 +663,6 @@ class MatrixRepositoryImpl : MatrixRepository {
         const val RESOLVE_TIMEOUT_MS = 300L
         const val STATE_FETCH_TIMEOUT_MS = 500L
         const val EVENT_ROOM_MAP_MAX = 1000
+        const val DEFAULT_TURN_TTL_SECONDS = 300L
     }
 }

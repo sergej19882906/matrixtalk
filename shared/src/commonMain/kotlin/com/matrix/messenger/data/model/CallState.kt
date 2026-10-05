@@ -18,3 +18,10 @@ data class CallSession(
     val endTime: Long? = null,
     val offerSdp: String? = null
 )
+
+/** TURN/STUN server entry as reported by GET /_matrix/client/v3/voip/turnServer. */
+data class IceServer(
+    val urls: List<String>,
+    val username: String? = null,
+    val credential: String? = null
+)

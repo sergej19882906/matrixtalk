@@ -4,6 +4,7 @@ import com.matrix.messenger.data.call.CallSignalingCommand
 import com.matrix.messenger.data.call.CallSignalingEvent
 import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.ConnectionState
+import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
@@ -19,6 +20,9 @@ interface MatrixRepository {
     val callEvents: Flow<CallSignalingEvent>
 
     suspend fun sendCallEvent(roomId: String, command: CallSignalingCommand)
+
+    /** TURN/STUN credentials from the homeserver (empty if unsupported or unreachable). */
+    suspend fun getTurnServers(): List<IceServer>
 
     suspend fun initialize()
 
