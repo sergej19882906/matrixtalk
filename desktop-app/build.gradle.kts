@@ -32,7 +32,7 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Dmg)
 
             packageName = "MatrixTalk"
-            packageVersion = "1.5.1"
+            packageVersion = "1.6.0"
 
             windows {
                 menuGroup = "Matrix Talk"
