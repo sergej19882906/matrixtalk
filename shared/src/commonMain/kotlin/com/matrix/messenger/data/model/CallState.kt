@@ -15,5 +15,6 @@ data class CallSession(
     val peerDisplayName: String,
     val isVideo: Boolean,
     val startTime: Long,
-    val endTime: Long? = null
+    val endTime: Long? = null,
+    val offerSdp: String? = null
 )
