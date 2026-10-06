@@ -67,7 +67,12 @@ class CallRepository(
                     is WebRtcEvent.Offer ->
                         matrixRepository.sendCallEvent(
                             call.roomId,
-                            CallSignalingCommand.Invite(event.callId, event.sdp, call.isVideo)
+                            CallSignalingCommand.Invite(
+                                event.callId,
+                                event.sdp,
+                                call.isVideo,
+                                invitee = call.peerUserId.ifBlank { null }
+                            )
                         )
 
                     is WebRtcEvent.Answer ->

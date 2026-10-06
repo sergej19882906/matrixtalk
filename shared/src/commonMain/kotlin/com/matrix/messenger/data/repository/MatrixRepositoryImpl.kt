@@ -112,13 +112,26 @@ class MatrixRepositoryImpl : MatrixRepository {
                 if (timelineEvent.sender == c.userId) return@mapNotNull null
                 val content = timelineEvent.content?.getOrNull() as? UnknownEventContent
                     ?: return@mapNotNull null
-                parseCallEvent(content.eventType, content.raw, timelineEvent.roomId.full, timelineEvent.sender.full)
+                parseCallEvent(
+                    content.eventType,
+                    content.raw,
+                    timelineEvent.roomId.full,
+                    timelineEvent.sender.full,
+                    ourPartyId = c.deviceId
+                )
             }
         }
     }
 
     override suspend fun sendCallEvent(roomId: String, command: CallSignalingCommand) {
-        requireClient().room.sendMessage(RoomId(roomId)) { content(buildCallContent(command)) }
+        val c = requireClient()
+        c.room.sendMessage(RoomId(roomId)) { content(buildCallContent(command, partyId = c.deviceId)) }
+    }
+
+    override suspend fun resolveDirectChatPeerId(roomId: String): String? {
+        val c = client ?: return null
+        val room = c.room.getById(RoomId(roomId)).firstOrNull() ?: return null
+        return room.name?.heroes?.firstOrNull { it != c.userId }?.full
     }
 
     @Serializable

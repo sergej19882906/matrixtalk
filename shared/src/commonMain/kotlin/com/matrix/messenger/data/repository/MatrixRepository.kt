@@ -24,6 +24,9 @@ interface MatrixRepository {
     /** TURN/STUN credentials from the homeserver (empty if unsupported or unreachable). */
     suspend fun getTurnServers(): List<IceServer>
 
+    /** The other member's user id for a direct (1:1) room, null for group rooms. */
+    suspend fun resolveDirectChatPeerId(roomId: String): String?
+
     suspend fun initialize()
 
     suspend fun login(

@@ -63,6 +63,7 @@ sealed interface CallSignalingCommand {
         val callId: String,
         val offerSdp: String,
         val isVideo: Boolean,
+        val invitee: String? = null,
     ) : CallSignalingCommand
 
     data class Answer(val callId: String, val answerSdp: String) : CallSignalingCommand
@@ -71,7 +72,19 @@ sealed interface CallSignalingCommand {
     data class Reject(val callId: String) : CallSignalingCommand
 }
 
-fun parseCallEvent(eventType: String, raw: JsonObject, roomId: String, fromUserId: String): CallSignalingEvent? {
+/**
+ * @param ourPartyId our device id; events carrying a `dest_party_id` for another
+ * device (VoIP v1) are ignored.
+ */
+fun parseCallEvent(
+    eventType: String,
+    raw: JsonObject,
+    roomId: String,
+    fromUserId: String,
+    ourPartyId: String? = null,
+): CallSignalingEvent? {
+    val destPartyId = raw["dest_party_id"]?.jsonPrimitive?.content
+    if (destPartyId != null && ourPartyId != null && destPartyId != ourPartyId) return null
     val callId = raw["call_id"]?.jsonPrimitive?.content ?: return null
     return when (eventType) {
         "m.call.invite" -> {
@@ -109,13 +122,15 @@ fun parseCallEvent(eventType: String, raw: JsonObject, roomId: String, fromUserI
     }
 }
 
-fun buildCallContent(command: CallSignalingCommand): UnknownEventContent = when (command) {
+fun buildCallContent(command: CallSignalingCommand, partyId: String? = null): UnknownEventContent = when (command) {
     is CallSignalingCommand.Invite -> UnknownEventContent(
         eventType = "m.call.invite",
         raw = buildJsonObject {
             put("version", CALL_VERSION)
             put("call_id", command.callId)
             put("lifetime", CALL_LIFETIME_MS)
+            partyId?.let { put("party_id", it) }
+            command.invitee?.let { put("invitee", it) }
             putJsonObject("offer") {
                 put("type", "offer")
                 put("sdp", command.offerSdp)
@@ -128,6 +143,7 @@ fun buildCallContent(command: CallSignalingCommand): UnknownEventContent = when 
         raw = buildJsonObject {
             put("version", CALL_VERSION)
             put("call_id", command.callId)
+            partyId?.let { put("party_id", it) }
             putJsonObject("answer") {
                 put("type", "answer")
                 put("sdp", command.answerSdp)
@@ -140,6 +156,7 @@ fun buildCallContent(command: CallSignalingCommand): UnknownEventContent = when 
         raw = buildJsonObject {
             put("version", CALL_VERSION)
             put("call_id", command.callId)
+            partyId?.let { put("party_id", it) }
             putJsonArray("candidates") {
                 command.candidates.forEach { candidate ->
                     add(buildJsonObject {
@@ -157,6 +174,7 @@ fun buildCallContent(command: CallSignalingCommand): UnknownEventContent = when 
         raw = buildJsonObject {
             put("version", CALL_VERSION)
             put("call_id", command.callId)
+            partyId?.let { put("party_id", it) }
         },
     )
 
@@ -165,6 +183,7 @@ fun buildCallContent(command: CallSignalingCommand): UnknownEventContent = when 
         raw = buildJsonObject {
             put("version", CALL_VERSION)
             put("call_id", command.callId)
+            partyId?.let { put("party_id", it) }
         },
     )
 }

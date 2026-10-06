@@ -62,6 +62,7 @@ import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
 import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.repository.CallRepository
+import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.media.MatrixMedia
 import com.matrix.messenger.platform.pickFile
 import com.matrix.messenger.platform.rememberCallPermissionRequester
@@ -84,6 +85,7 @@ fun ChatScreen(
     var editText by remember { mutableStateOf("") }
 
     val callRepository: CallRepository = koinInject()
+    val matrixRepository: MatrixRepository = koinInject()
     val coroutineScope = rememberCoroutineScope()
     var pendingVideoCall by remember { mutableStateOf(false) }
     val requestCallPermissions = rememberCallPermissionRequester { granted ->
@@ -96,7 +98,7 @@ fun ChatScreen(
                 runCatching {
                     callRepository.startCall(
                         roomId = roomId,
-                        peerUserId = "",
+                        peerUserId = matrixRepository.resolveDirectChatPeerId(roomId) ?: "",
                         peerName = uiState.roomName ?: "Собеседник",
                         isVideo = pendingVideoCall
                     )
