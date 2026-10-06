@@ -1,0 +1,73 @@
+name: Linux AppImage
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach the AppImage to
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Build Linux application image
+        run: |
+          chmod +x gradlew
+          ./gradlew :desktop-app:createDistributable
+
+      - name: Package AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_image="desktop-app/build/compose/binaries/main/app/MatrixTalk"
+          app_dir="MatrixTalk.AppDir"
+          test -x "$app_image/bin/MatrixTalk"
+          mkdir -p "$app_dir/usr"
+          cp -a "$app_image/." "$app_dir/usr/"
+          cp desktop-app/icons/linux.png "$app_dir/MatrixTalk.png"
+          cat > "$app_dir/AppRun" <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/MatrixTalk" "$@"
+          EOF
+          chmod +x "$app_dir/AppRun"
+          cat > "$app_dir/MatrixTalk.desktop" <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=MatrixTalk
+          Exec=AppRun
+          Icon=MatrixTalk
+          Categories=Network;InstantMessaging;
+          EOF
+          curl -fsSL \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -o appimagetool.AppImage
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage --appimage-extract-and-run \
+            "$app_dir" "MatrixTalk-${RELEASE_TAG}-x86_64.AppImage"
+          chmod +x "MatrixTalk-${RELEASE_TAG}-x86_64.AppImage"
+
+      - name: Upload AppImage to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$RELEASE_TAG" "MatrixTalk-${RELEASE_TAG}-x86_64.AppImage" --clobber
