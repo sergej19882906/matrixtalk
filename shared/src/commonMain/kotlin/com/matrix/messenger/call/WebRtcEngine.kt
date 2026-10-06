@@ -25,6 +25,9 @@ interface WebRtcEngine {
     /** Current local video track (org.webrtc.VideoTrack on Android), if any. */
     val localVideoTrack: Flow<Any?>
 
+    /** EGL context for video rendering (org.webrtc.EglBase.Context on Android), null otherwise. */
+    val eglContext: Any?
+
     fun initialize()
 
     /** Creates a PeerConnection with local media and emits [WebRtcEvent.Offer]. */

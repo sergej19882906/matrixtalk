@@ -20,6 +20,10 @@ class CallRepository(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val engine = createWebRtcEngine()
 
+    val remoteVideoTrack = engine.remoteVideoTrack
+    val localVideoTrack = engine.localVideoTrack
+    val eglContext: Any? get() = engine.eglContext
+
     private val _callState = MutableStateFlow<CallState>(CallState.Idle)
     val callState: StateFlow<CallState> = _callState.asStateFlow()
 

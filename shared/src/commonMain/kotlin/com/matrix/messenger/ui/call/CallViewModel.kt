@@ -28,6 +28,10 @@ class CallViewModel(
     val session: StateFlow<CallSession?> = callRepository.currentCallSession
     val isSpeakerOn: StateFlow<Boolean> = callRepository.isSpeakerOn
 
+    val remoteVideoTrack = callRepository.remoteVideoTrack
+    val localVideoTrack = callRepository.localVideoTrack
+    val eglContext: Any? get() = callRepository.eglContext
+
     init {
         viewModelScope.launch {
             callRepository.isMuted.collect { _isMuted.value = it }

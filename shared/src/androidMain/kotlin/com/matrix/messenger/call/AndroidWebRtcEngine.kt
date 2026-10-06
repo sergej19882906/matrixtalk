@@ -46,6 +46,9 @@ private class AndroidWebRtcEngine : WebRtcEngine {
     private val _localVideoTrack = MutableStateFlow<Any?>(null)
     override val localVideoTrack: StateFlow<Any?> = _localVideoTrack
 
+    override val eglContext: Any?
+        get() = eglBase?.eglBaseContext
+
     private var factory: PeerConnectionFactory? = null
     private var peerConnection: PeerConnection? = null
     private var eglBase: EglBase? = null

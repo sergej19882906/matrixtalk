@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
@@ -41,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.matrix.messenger.call.VideoTrackView
 import com.matrix.messenger.data.model.CallState
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -60,6 +62,8 @@ fun CallScreen(
     val isSpeakerOn by viewModel.isSpeakerOn.collectAsState()
     val session by viewModel.session.collectAsState()
     val callDuration by viewModel.callDuration.collectAsState()
+    val remoteTrack by viewModel.remoteVideoTrack.collectAsState(initial = null)
+    val localTrack by viewModel.localVideoTrack.collectAsState(initial = null)
 
     val isVideo = session?.isVideo == true
     val peerName = when (val state = callState) {
@@ -83,13 +87,38 @@ fun CallScreen(
         }
     }
 
-    Box(
-        modifier = Modifier.fillMaxSize().background(
-            Brush.verticalGradient(colors = listOf(Color(0xFF1A1C2E), Color(0xFF0F1419)))
-        ),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (isVideo && remoteTrack != null) {
+            VideoTrackView(
+                track = remoteTrack,
+                eglContext = viewModel.eglContext,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(colors = listOf(Color(0xFF1A1C2E), Color(0xFF0F1419)))
+                )
+            )
+        }
+
+        if (isVideo && localTrack != null) {
+            VideoTrackView(
+                track = localTrack,
+                eglContext = viewModel.eglContext,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .size(width = 96.dp, height = 160.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+                mirror = true
+            )
+        }
+
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
             Text(
                 text = peerName,
                 color = Color.White,

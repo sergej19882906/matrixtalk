@@ -18,6 +18,8 @@ private class DesktopWebRtcEngine : WebRtcEngine {
     private val _localVideoTrack = MutableStateFlow<Any?>(null)
     override val localVideoTrack: Flow<Any?> = _localVideoTrack
 
+    override val eglContext: Any? = null
+
     override fun initialize() = Unit
 
     override suspend fun startCall(callId: String, isVideo: Boolean) {
