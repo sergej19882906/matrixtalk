@@ -22,6 +22,7 @@ import io.ktor.client.request.get
 import io.ktor.http.ContentType
 import io.ktor.http.Url
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
@@ -235,6 +236,8 @@ class MatrixRepositoryImpl : MatrixRepository {
                     LoginResult.Error(e.message ?: "Ошибка входа")
                 }
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _connectionState.value = ConnectionState.Disconnected(e.message ?: "Login failed")
             LoginResult.Error(e.message ?: "Ошибка входа")
@@ -271,6 +274,8 @@ class MatrixRepositoryImpl : MatrixRepository {
                     LoginResult.Error(e.message ?: "Ошибка входа по токену")
                 }
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _connectionState.value = ConnectionState.Disconnected(e.message ?: "Login failed")
             LoginResult.Error(e.message ?: "Ошибка входа по токену")
