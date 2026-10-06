@@ -32,8 +32,8 @@ android {
         applicationId = "com.matrix.messenger"
         minSdk = 24
         targetSdk = 36
-        versionCode = 11
-        versionName = "1.7.0"
+        versionCode = 12
+        versionName = "1.7.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
@@ -90,6 +90,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // WorkManager (Configuration.Provider in MatrixMessengerApp; default initializer is disabled in the manifest)
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     // Koin for Android
     implementation("io.insert-koin:koin-android:4.0.0")

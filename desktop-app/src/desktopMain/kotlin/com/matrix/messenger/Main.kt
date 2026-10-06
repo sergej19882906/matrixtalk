@@ -21,30 +21,38 @@ import org.koin.core.context.startKoin
 
 fun main() {
     installDesktopErrorLogging()
-    application {
     startKoin {
         modules(sharedModule)
     }
     setupImageLoader()
 
+    application {
     val matrixRepository: MatrixRepository = koinInject()
     var isReady by remember { mutableStateOf(false) }
     var startDestination by remember { mutableStateOf(Screen.Login.route) }
 
     LaunchedEffect(Unit) {
-        matrixRepository.initialize()
-        if (matrixRepository.currentUser.first() != null) {
-            startDestination = Screen.Home.route
+        try {
+            matrixRepository.initialize()
+            if (matrixRepository.currentUser.first() != null) {
+                startDestination = Screen.Home.route
+            }
+        } catch (t: Throwable) {
+            logDesktopError(t)
+        } finally {
+            isReady = true
         }
-        isReady = true
     }
 
-    if (isReady) {
-        Window(
-            onCloseRequest = ::exitApplication,
-            title = "MatrixTalk",
-            state = rememberWindowState()
-        ) {
+    // The window must exist from the first composition: Compose Desktop's
+    // `application` exits when no window is present, so gating Window creation
+    // on async state silently terminated the app on launch.
+    Window(
+        onCloseRequest = ::exitApplication,
+        title = "MatrixTalk",
+        state = rememberWindowState()
+    ) {
+        if (isReady) {
             MatrixMessengerTheme {
                 val navController = rememberNavController()
                 AppNavigation(
@@ -70,4 +78,14 @@ private fun installDesktopErrorLogging() {
         }
         throwable.printStackTrace()
     }
+}
+
+private fun logDesktopError(t: Throwable) {
+    runCatching {
+        val dir = java.io.File(System.getProperty("user.home"), ".matrixtalk/logs").apply { mkdirs() }
+        dir.resolve("error.log").appendText(
+            "${java.time.LocalDateTime.now()} [init] ${t.stackTraceToString()}\n\n"
+        )
+    }
+    t.printStackTrace()
 }
