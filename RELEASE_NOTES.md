@@ -1,5 +1,16 @@
 # Matrix Talk — История версий
 
+## 1.7.3
+**Дата релиза:** 2026-10-06
+
+### Исправления
+- 🐛 **Android/Desktop: сбой Matrix SDK при старте** — согласованы версии Ktor 2.3.12 с Trixnity 4.9.2; ранее Ktor 3.x подменял транзитивные зависимости SDK и приводил к `NoClassDefFoundError` для `HttpTimeout`
+
+### Сборка
+- `versionCode`: 14, `versionName`: 1.7.3, Desktop `packageVersion`: 1.7.3
+
+---
+
 ## 1.7.2
 **Дата релиза:** 2026-10-06
 

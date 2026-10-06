@@ -46,8 +46,8 @@ kotlin {
             implementation("net.folivo:trixnity-client-repository-realm:4.9.2")
 
             // Ktor (required by Trixnity)
-            implementation("io.ktor:ktor-client-core:3.0.1")
-            implementation("io.ktor:ktor-client-okhttp:3.0.1")
+            implementation("io.ktor:ktor-client-core:2.3.12")
+            implementation("io.ktor:ktor-client-okhttp:2.3.12")
 
             // Coil 3 (KMP image loading)
             implementation("io.coil-kt.coil3:coil-compose:3.0.4")
