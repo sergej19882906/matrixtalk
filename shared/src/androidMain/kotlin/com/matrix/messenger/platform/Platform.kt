@@ -59,6 +59,14 @@ actual fun createTrixnityRepositoriesModule(): org.koin.core.module.Module {
     }
 }
 
+actual fun logError(tag: String, message: String, throwable: Throwable?) {
+    if (throwable == null) {
+        android.util.Log.e(tag, message)
+    } else {
+        android.util.Log.e(tag, message, throwable)
+    }
+}
+
 fun openUrlWith(context: Context, url: String) {
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

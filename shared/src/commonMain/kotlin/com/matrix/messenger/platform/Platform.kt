@@ -22,3 +22,6 @@ expect fun attachmentsDir(): String
 expect fun sessionStorePath(): String
 
 expect fun createTrixnityRepositoriesModule(): org.koin.core.module.Module
+
+/** Logs an error with optional stack trace (logcat on Android, file + stderr on Desktop). */
+expect fun logError(tag: String, message: String, throwable: Throwable? = null)

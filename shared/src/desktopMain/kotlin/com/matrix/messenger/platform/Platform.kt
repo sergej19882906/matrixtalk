@@ -70,3 +70,14 @@ actual fun createTrixnityRepositoriesModule(): org.koin.core.module.Module {
         net.folivo.trixnity.client.store.repository.createInMemoryRepositoriesModule()
     }
 }
+
+actual fun logError(tag: String, message: String, throwable: Throwable?) {
+    val logDir = File(
+        System.getProperty("user.home") ?: error("user.home is not set"),
+        ".matrixtalk/logs"
+    ).apply { mkdirs() }
+    val details = throwable?.let { "\n${it.stackTraceToString()}" }.orEmpty()
+    val entry = "${java.time.LocalDateTime.now()} [$tag] $message$details\n"
+    logDir.resolve("error.log").appendText(entry)
+    System.err.print(entry)
+}
