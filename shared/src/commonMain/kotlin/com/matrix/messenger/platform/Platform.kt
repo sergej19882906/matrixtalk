@@ -1,5 +1,7 @@
 package com.matrix.messenger.platform
 
+import androidx.compose.runtime.Composable
+
 data class FileResult(
     val path: String,
     val name: String,
@@ -9,7 +11,11 @@ data class FileResult(
 
 expect class PlatformContext
 
-expect fun pickFile(allowedTypes: List<String> = emptyList()): FileResult?
+@Composable
+expect fun rememberFilePicker(
+    allowedTypes: List<String> = emptyList(),
+    onFilePicked: (FileResult) -> Unit
+): () -> Unit
 
 expect fun openUrl(url: String)
 

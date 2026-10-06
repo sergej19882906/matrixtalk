@@ -1,10 +1,14 @@
 package com.matrix.messenger
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -14,6 +18,7 @@ import com.matrix.messenger.di.sharedModule
 import com.matrix.messenger.media.setupImageLoader
 import com.matrix.messenger.ui.navigation.AppNavigation
 import com.matrix.messenger.ui.navigation.Screen
+import com.matrix.messenger.ui.theme.MatrixDarkGray
 import com.matrix.messenger.ui.theme.MatrixMessengerTheme
 import kotlinx.coroutines.flow.first
 import org.koin.compose.koinInject
@@ -54,11 +59,13 @@ fun main() {
     ) {
         if (isReady) {
             MatrixMessengerTheme {
-                val navController = rememberNavController()
-                AppNavigation(
-                    navController = navController,
-                    startDestination = startDestination
-                )
+                Box(modifier = Modifier.fillMaxSize().background(MatrixDarkGray)) {
+                    val navController = rememberNavController()
+                    AppNavigation(
+                        navController = navController,
+                        startDestination = startDestination
+                    )
+                }
             }
         }
     }

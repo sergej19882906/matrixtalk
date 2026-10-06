@@ -19,8 +19,12 @@ import com.matrix.messenger.platform.readFileBytes
 import com.matrix.messenger.platform.writeFileBytes
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.Url
+import io.ktor.http.contentType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +43,8 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import net.folivo.trixnity.client.MatrixClient
 import net.folivo.trixnity.client.flattenValues
 import net.folivo.trixnity.client.fromStore
@@ -84,6 +90,10 @@ import net.folivo.trixnity.utils.toByteArrayFlow
 
 class MatrixRepositoryImpl : MatrixRepository {
 
+    private val apiJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _clientState = MutableStateFlow<MatrixClient?>(null)
     private var client: MatrixClient? = null
@@ -141,6 +151,24 @@ class MatrixRepositoryImpl : MatrixRepository {
         val password: String? = null,
         val uris: List<String> = emptyList(),
         val ttl: Long = 0,
+    )
+
+    @Serializable
+    private data class UserDirectorySearchRequest(
+        val search_term: String,
+        val limit: Int = 20
+    )
+
+    @Serializable
+    private data class UserDirectorySearchResponse(
+        val results: List<UserDirectoryEntry> = emptyList()
+    )
+
+    @Serializable
+    private data class UserDirectoryEntry(
+        val user_id: String,
+        val display_name: String? = null,
+        val avatar_url: String? = null
     )
 
     private var turnServersCache: Pair<Long, List<IceServer>>? = null
@@ -310,6 +338,24 @@ class MatrixRepositoryImpl : MatrixRepository {
                         .filter { it.membership == Membership.JOIN && !it.hasBeenReplaced }
                         .map { room -> room.toChatRoom(c) }
                 }
+        }
+    }
+
+    override suspend fun searchUsers(query: String): List<MatrixUser> {
+        val c = requireClient()
+        val request = apiJson.encodeToString(UserDirectorySearchRequest(query.trim()))
+        val response = c.api.httpClient.baseClient.post(
+            "/_matrix/client/v3/user_directory/search"
+        ) {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.bodyAsText()
+        return apiJson.decodeFromString<UserDirectorySearchResponse>(response).results.map { user ->
+            MatrixUser(
+                userId = user.user_id,
+                displayName = user.display_name,
+                avatarUrl = user.avatar_url
+            )
         }
     }
 
@@ -483,10 +529,13 @@ class MatrixRepositoryImpl : MatrixRepository {
         requireClient().api.room.redactEvent(RoomId(roomId), EventId(eventId), reason = "Удалено").getOrThrow()
     }
 
-    override suspend fun uploadAvatar(filePath: String) {
+    override suspend fun uploadAvatar(filePath: String, mimeType: String) {
         val c = requireClient()
         val bytes = readFileBytes(filePath)
-        val mxc = uploadBytes(c, bytes, ContentType.Image.Any)
+        require(bytes.isNotEmpty()) { "Выбранный файл пуст" }
+        require(mimeType.startsWith("image/")) { "Выберите файл изображения" }
+        val contentType = ContentType.parse(mimeType)
+        val mxc = uploadBytes(c, bytes, contentType)
         c.setAvatarUrl(mxc).getOrThrow()
         _currentUser.value = _currentUser.value?.copy(avatarUrl = mxcToHttp(mxc))
     }

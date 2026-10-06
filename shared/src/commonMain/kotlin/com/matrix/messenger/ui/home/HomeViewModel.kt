@@ -8,6 +8,11 @@ import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.UiState
 import com.matrix.messenger.data.repository.MatrixRepository
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,7 +25,11 @@ data class HomeUiState(
     val rooms: List<ChatRoom> = emptyList(),
     val isLoading: Boolean = true,
     val error: String? = null,
-    val searchQuery: String = ""
+    val searchQuery: String = "",
+    val contactSearchQuery: String = "",
+    val contacts: List<MatrixUser> = emptyList(),
+    val isSearchingContacts: Boolean = false,
+    val contactSearchError: String? = null
 )
 
 class HomeViewModel(
@@ -35,6 +44,7 @@ class HomeViewModel(
 
     private val _events = Channel<UiEvent>()
     val events = _events.receiveAsFlow()
+    private var contactSearchJob: Job? = null
 
     init {
         observeUser()
@@ -75,6 +85,42 @@ class HomeViewModel(
         }
     }
 
+    fun onContactSearchQueryChange(query: String) {
+        _uiState.value = _uiState.value.copy(
+            contactSearchQuery = query,
+            contacts = emptyList(),
+            isSearchingContacts = query.trim().length >= 2,
+            contactSearchError = null
+        )
+        contactSearchJob?.cancel()
+        if (query.trim().length < 2) {
+            _uiState.value = _uiState.value.copy(isSearchingContacts = false)
+            return
+        }
+        contactSearchJob = viewModelScope.launch {
+            delay(350)
+            try {
+                val contacts = matrixRepository.searchUsers(query)
+                currentCoroutineContext().ensureActive()
+                _uiState.value = _uiState.value.copy(
+                    contacts = contacts,
+                    isSearchingContacts = false
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isSearchingContacts = false,
+                    contactSearchError = e.message ?: "Не удалось выполнить поиск контактов"
+                )
+            }
+        }
+    }
+
+    fun onContactClick(userId: String) {
+        createDirectChat(userId)
+    }
+
     fun onRoomClick(roomId: String) {
         viewModelScope.launch {
             matrixRepository.markRoomAsRead(roomId)
@@ -85,7 +131,11 @@ class HomeViewModel(
     fun createDirectChat(userId: String) {
         viewModelScope.launch {
             try {
-                val roomId = matrixRepository.createRoom(
+                val existingRoom = matrixRepository.getRoomsFlow().first()
+                    .firstOrNull { room ->
+                        room.isDirect && matrixRepository.resolveDirectChatPeerId(room.roomId) == userId
+                    }
+                val roomId = existingRoom?.roomId ?: matrixRepository.createRoom(
                     name = null,
                     topic = null,
                     isDirect = true,
@@ -127,13 +177,24 @@ class HomeViewModel(
         }
     }
 
-    fun uploadAvatar(filePath: String) {
+    fun uploadAvatar(filePath: String, mimeType: String) {
         viewModelScope.launch {
             try {
-                matrixRepository.uploadAvatar(filePath)
+                matrixRepository.uploadAvatar(filePath, mimeType)
                 _events.send(UiEvent.ShowSnackbar("Аватар обновлён"))
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка загрузки аватара: ${e.message}"))
+            }
+        }
+    }
+
+    fun leaveRoom(roomId: String) {
+        viewModelScope.launch {
+            try {
+                matrixRepository.leaveRoom(roomId)
+                _events.send(UiEvent.ShowSnackbar("Чат удалён из списка"))
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка удаления чата: ${e.message}"))
             }
         }
     }

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Videocam
@@ -64,8 +65,8 @@ import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.repository.CallRepository
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.media.MatrixMedia
-import com.matrix.messenger.platform.pickFile
 import com.matrix.messenger.platform.rememberCallPermissionRequester
+import com.matrix.messenger.platform.rememberFilePicker
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -83,6 +84,12 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var editingMessage by remember { mutableStateOf<Message?>(null) }
     var editText by remember { mutableStateOf("") }
+    var messageToDelete by remember { mutableStateOf<Message?>(null) }
+    var roomMenuExpanded by remember { mutableStateOf(false) }
+    var confirmLeaveRoom by remember { mutableStateOf(false) }
+    val pickAttachment = rememberFilePicker { file ->
+        viewModel.sendFile(file.path, file.mimeType)
+    }
 
     val callRepository: CallRepository = koinInject()
     val matrixRepository: MatrixRepository = koinInject()
@@ -163,8 +170,23 @@ fun ChatScreen(
                     }) {
                         Icon(Icons.Default.Videocam, contentDescription = "Видео звонок")
                     }
-                    IconButton(onClick = { viewModel.leaveRoom() }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Ещё")
+                    Box {
+                        IconButton(onClick = { roomMenuExpanded = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Ещё")
+                        }
+                        DropdownMenu(
+                            expanded = roomMenuExpanded,
+                            onDismissRequest = { roomMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Выйти и удалить чат") },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                                onClick = {
+                                    roomMenuExpanded = false
+                                    confirmLeaveRoom = true
+                                }
+                            )
+                        }
                     }
                 }
             )
@@ -175,10 +197,7 @@ fun ChatScreen(
                 value = uiState.messageInput,
                 onValueChange = viewModel::onMessageInputChange,
                 onSend = viewModel::sendMessage,
-                onFileSelected = {
-                    val result = pickFile()
-                    result?.let { viewModel.sendFile(it.path, it.mimeType) }
-                },
+                onFileSelected = pickAttachment,
                 replyingTo = uiState.replyingTo,
                 onCancelReply = viewModel::cancelReply
             )
@@ -226,7 +245,7 @@ fun ChatScreen(
                                     editText = message.body
                                     editingMessage = message
                                 },
-                                onDelete = { viewModel.deleteMessage(message.eventId) },
+                                onDelete = { messageToDelete = message },
                                 onOpenAttachment = { viewModel.openAttachment(message) }
                             )
                         }
@@ -261,6 +280,52 @@ fun ChatScreen(
             },
             dismissButton = {
                 TextButton(onClick = { editingMessage = null }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
+    messageToDelete?.let { message ->
+        AlertDialog(
+            onDismissRequest = { messageToDelete = null },
+            title = { Text("Удалить сообщение?") },
+            text = { Text("Это удалит сообщение для участников комнаты, если сервер разрешает удаление.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteMessage(message.eventId)
+                        messageToDelete = null
+                    }
+                ) {
+                    Text("Удалить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { messageToDelete = null }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
+    if (confirmLeaveRoom) {
+        AlertDialog(
+            onDismissRequest = { confirmLeaveRoom = false },
+            title = { Text("Удалить чат?") },
+            text = { Text("Вы выйдете из комнаты. Она исчезнет из списка чатов.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmLeaveRoom = false
+                        viewModel.leaveRoom()
+                    }
+                ) {
+                    Text("Выйти и удалить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLeaveRoom = false }) {
                     Text("Отмена")
                 }
             }

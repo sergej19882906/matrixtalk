@@ -3,15 +3,29 @@ package com.matrix.messenger.platform
 import java.awt.Desktop
 import java.awt.FileDialog
 import java.io.File
+import javax.swing.filechooser.FileNameExtensionFilter
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import javax.swing.JFrame
 import javax.swing.JFileChooser
 
 actual class PlatformContext
 
-actual fun pickFile(allowedTypes: List<String>): FileResult? {
+private fun pickFile(allowedTypes: List<String>): FileResult? {
     val chooser = JFileChooser().apply {
         dialogTitle = "Выбрать файл"
         isMultiSelectionEnabled = false
+        val extensions = allowedTypes.flatMap { type ->
+            when (type) {
+                "image/*" -> listOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "tif", "tiff")
+                "video/*" -> listOf("mp4", "avi", "mkv", "webm")
+                "audio/*" -> listOf("mp3", "ogg", "wav", "flac", "aac")
+                else -> emptyList()
+            }
+        }.distinct()
+        if (extensions.isNotEmpty()) {
+            fileFilter = FileNameExtensionFilter("Допустимые файлы", *extensions.toTypedArray())
+        }
     }
 
     val result = chooser.showOpenDialog(null)
@@ -19,7 +33,8 @@ actual fun pickFile(allowedTypes: List<String>): FileResult? {
 
     val file = chooser.selectedFile ?: return null
     val mimeType = when (file.extension.lowercase()) {
-        "jpg", "jpeg", "png", "gif", "webp", "bmp" -> "image/${file.extension.lowercase()}"
+        "jpg", "jpeg" -> "image/jpeg"
+        "png", "gif", "webp", "bmp", "tif", "tiff" -> "image/${file.extension.lowercase()}"
         "mp4", "avi", "mkv", "webm" -> "video/${file.extension.lowercase()}"
         "mp3", "ogg", "wav", "flac", "aac" -> "audio/${file.extension.lowercase()}"
         else -> "application/octet-stream"
@@ -31,6 +46,16 @@ actual fun pickFile(allowedTypes: List<String>): FileResult? {
         size = file.length(),
         mimeType = mimeType
     )
+}
+
+@Composable
+actual fun rememberFilePicker(
+    allowedTypes: List<String>,
+    onFilePicked: (FileResult) -> Unit
+): () -> Unit = remember(allowedTypes, onFilePicked) {
+    {
+        pickFile(allowedTypes)?.let(onFilePicked)
+    }
 }
 
 actual fun openUrl(url: String) {

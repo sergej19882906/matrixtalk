@@ -45,6 +45,8 @@ interface MatrixRepository {
 
     fun getRoomsFlow(): Flow<List<ChatRoom>>
 
+    suspend fun searchUsers(query: String): List<MatrixUser>
+
     fun getMessagesFlow(roomId: String): Flow<List<Message>>
 
     suspend fun loadEarlierMessages(roomId: String)
@@ -86,7 +88,7 @@ interface MatrixRepository {
 
     suspend fun deleteMessage(eventId: String, roomId: String)
 
-    suspend fun uploadAvatar(filePath: String)
+    suspend fun uploadAvatar(filePath: String, mimeType: String)
 
     suspend fun setDisplayName(name: String)
 }

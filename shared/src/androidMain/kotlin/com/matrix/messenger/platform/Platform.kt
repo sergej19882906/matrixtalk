@@ -4,14 +4,24 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.Composable
 
 actual class PlatformContext(val context: Context)
 
-actual fun pickFile(allowedTypes: List<String>): FileResult? {
-    // File picking on Android requires Activity Result API,
-    // which is handled at the Activity level. This returns null
-    // as a fallback; the Activity will handle file selection.
-    return null
+@Composable
+actual fun rememberFilePicker(
+    allowedTypes: List<String>,
+    onFilePicked: (FileResult) -> Unit
+): () -> Unit {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { resolveFileInfo(context, it) }?.let(onFilePicked)
+    }
+    val mimeType = allowedTypes.singleOrNull() ?: "*/*"
+    return { launcher.launch(mimeType) }
 }
 
 actual fun openUrl(url: String) {
@@ -77,7 +87,7 @@ fun openUrlWith(context: Context, url: String) {
 fun resolveFileInfo(context: Context, uri: Uri): FileResult? {
     var name = uri.lastPathSegment?.substringAfterLast('/').orEmpty()
     var size = -1L
-    var mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+    var mimeType = context.contentResolver.getType(uri).orEmpty()
 
     if (uri.scheme == "content") {
         context.contentResolver.query(
@@ -97,6 +107,11 @@ fun resolveFileInfo(context: Context, uri: Uri): FileResult? {
         if (!file.exists()) return null
         name = file.name
         size = file.length()
+    }
+    if (mimeType.isBlank()) {
+        val extension = name.substringAfterLast('.', "").lowercase()
+        mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+            ?: "application/octet-stream"
     }
 
     return FileResult(path = uri.toString(), name = name, size = size, mimeType = mimeType)
