@@ -9,4 +9,5 @@ sealed class Screen(val route: String) {
             return "chat/$roomId"
         }
     }
+    object Call : Screen("call")
 }

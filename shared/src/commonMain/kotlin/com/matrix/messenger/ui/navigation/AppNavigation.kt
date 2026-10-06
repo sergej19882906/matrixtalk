@@ -1,16 +1,23 @@
 package com.matrix.messenger.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.matrix.messenger.data.model.CallState
+import com.matrix.messenger.data.repository.CallRepository
 import com.matrix.messenger.ui.bridges.BridgesScreen
+import com.matrix.messenger.ui.call.CallScreen
 import com.matrix.messenger.ui.chat.ChatScreen
 import com.matrix.messenger.ui.home.HomeScreen
 import com.matrix.messenger.ui.login.LoginScreen
+import org.koin.compose.koinInject
 
 @Composable
 fun AppNavigation(
@@ -18,6 +25,18 @@ fun AppNavigation(
     startDestination: String,
     modifier: Modifier = Modifier
 ) {
+    val callRepository: CallRepository = koinInject()
+    val callState by callRepository.callState.collectAsState()
+
+    // Incoming call anywhere in the app -> open the call screen.
+    LaunchedEffect(callState) {
+        if (callState is CallState.Incoming &&
+            navController.currentDestination?.route != Screen.Call.route
+        ) {
+            navController.navigate(Screen.Call.route)
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -67,7 +86,18 @@ fun AppNavigation(
                 roomId = roomId,
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onStartCall = {
+                    if (navController.currentDestination?.route != Screen.Call.route) {
+                        navController.navigate(Screen.Call.route)
+                    }
                 }
+            )
+        }
+
+        composable(Screen.Call.route) {
+            CallScreen(
+                onCallEnded = { navController.popBackStack() }
             )
         }
     }

@@ -39,10 +39,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
+import com.matrix.messenger.data.repository.CallRepository
 import com.matrix.messenger.service.CallService
 import com.matrix.messenger.ui.theme.MatrixMessengerTheme
+import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
 
 class IncomingCallActivity : ComponentActivity() {
+
+    private val callRepository: CallRepository by inject()
 
     companion object {
         const val EXTRA_CALL_ID = "extra_call_id"
@@ -104,6 +110,9 @@ class IncomingCallActivity : ComponentActivity() {
                             finish()
                         },
                         onReject = {
+                            lifecycleScope.launch {
+                                callRepository.rejectCall(callId.ifBlank { null })
+                            }
                             CallService.endCall(this@IncomingCallActivity)
                             finish()
                         }

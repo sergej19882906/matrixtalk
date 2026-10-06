@@ -34,6 +34,9 @@ class CallRepository(
 
     private var currentCall: CallSession? = null
 
+    private val _currentCall = MutableStateFlow<CallSession?>(null)
+    val currentCallSession: StateFlow<CallSession?> = _currentCall.asStateFlow()
+
     init {
         scope.launch {
             matrixRepository.callEvents.collect { event ->
@@ -85,6 +88,7 @@ class CallRepository(
                         engine.hangup(event.callId)
                         _callState.value = CallState.Ended("Соединение не удалось")
                         currentCall = null
+                        _currentCall.value = null
                     }
 
                     is WebRtcEvent.Error -> Unit // surfaced in Phase 1.4 via UI events
@@ -110,6 +114,7 @@ class CallRepository(
             startTime = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
             offerSdp = event.offerSdp
         )
+        _currentCall.value = currentCall
         _callState.value = CallState.Incoming(event.fromUserId, event.fromUserId)
     }
 
@@ -126,6 +131,7 @@ class CallRepository(
             isVideo = isVideo,
             startTime = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
         )
+        _currentCall.value = currentCall
         _callState.value = CallState.Outgoing(peerUserId, peerName)
         engine.startCall(callId, isVideo)
     }
@@ -172,6 +178,7 @@ class CallRepository(
     private fun reset() {
         _callState.value = CallState.Idle
         currentCall = null
+        _currentCall.value = null
         _isMuted.value = false
         _isVideoOff.value = false
     }

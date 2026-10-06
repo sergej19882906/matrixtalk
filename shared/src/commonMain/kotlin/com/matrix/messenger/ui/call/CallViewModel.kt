@@ -2,6 +2,7 @@ package com.matrix.messenger.ui.call
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.matrix.messenger.data.model.CallSession
 import com.matrix.messenger.data.model.CallState
 import com.matrix.messenger.data.repository.CallRepository
 import kotlinx.coroutines.Job
@@ -23,6 +24,18 @@ class CallViewModel(
 
     private val _isVideoEnabled = MutableStateFlow(true)
     val isVideoEnabled: StateFlow<Boolean> = _isVideoEnabled.asStateFlow()
+
+    val session: StateFlow<CallSession?> = callRepository.currentCallSession
+    val isSpeakerOn: StateFlow<Boolean> = callRepository.isSpeakerOn
+
+    init {
+        viewModelScope.launch {
+            callRepository.isMuted.collect { _isMuted.value = it }
+        }
+        viewModelScope.launch {
+            callRepository.isVideoOff.collect { _isVideoEnabled.value = !it }
+        }
+    }
 
     private val _callDuration = MutableStateFlow(0L)
     val callDuration: StateFlow<Long> = _callDuration.asStateFlow()
@@ -76,15 +89,15 @@ class CallViewModel(
     }
 
     fun toggleMute() {
-        val newMutedState = !_isMuted.value
-        _isMuted.value = newMutedState
-        callRepository.toggleMute(newMutedState)
+        callRepository.toggleMute(!_isMuted.value)
     }
 
     fun toggleVideo() {
-        val newVideoState = !_isVideoEnabled.value
-        _isVideoEnabled.value = newVideoState
-        callRepository.toggleVideo(newVideoState)
+        callRepository.toggleVideo(!_isVideoEnabled.value)
+    }
+
+    fun toggleSpeaker() {
+        callRepository.toggleSpeaker(!isSpeakerOn.value)
     }
 
     fun switchCamera() {

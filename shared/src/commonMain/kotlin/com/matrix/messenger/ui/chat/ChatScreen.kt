@@ -49,6 +49,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,8 +61,12 @@ import coil3.compose.AsyncImage
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
 import com.matrix.messenger.data.model.UiEvent
+import com.matrix.messenger.data.repository.CallRepository
 import com.matrix.messenger.media.MatrixMedia
 import com.matrix.messenger.platform.pickFile
+import com.matrix.messenger.platform.rememberCallPermissionRequester
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,6 +74,7 @@ import org.koin.compose.viewmodel.koinViewModel
 fun ChatScreen(
     roomId: String,
     onNavigateBack: () -> Unit,
+    onStartCall: () -> Unit = {},
     viewModel: ChatViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -76,6 +82,31 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var editingMessage by remember { mutableStateOf<Message?>(null) }
     var editText by remember { mutableStateOf("") }
+
+    val callRepository: CallRepository = koinInject()
+    val coroutineScope = rememberCoroutineScope()
+    var pendingVideoCall by remember { mutableStateOf(false) }
+    val requestCallPermissions = rememberCallPermissionRequester { granted ->
+        if (!granted) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("Нет доступа к микрофону — звонок невозможен")
+            }
+        } else {
+            coroutineScope.launch {
+                runCatching {
+                    callRepository.startCall(
+                        roomId = roomId,
+                        peerUserId = "",
+                        peerName = uiState.roomName ?: "Собеседник",
+                        isVideo = pendingVideoCall
+                    )
+                }.onSuccess { onStartCall() }
+                    .onFailure {
+                        snackbarHostState.showSnackbar("Не удалось начать звонок: ${it.message}")
+                    }
+            }
+        }
+    }
 
     LaunchedEffect(roomId) {
         viewModel.setRoomId(roomId)
@@ -118,10 +149,16 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { /* TODO: Start audio call via platform */ }) {
+                    IconButton(onClick = {
+                        pendingVideoCall = false
+                        requestCallPermissions(false)
+                    }) {
                         Icon(Icons.Default.Call, contentDescription = "Аудио звонок")
                     }
-                    IconButton(onClick = { /* TODO: Start video call via platform */ }) {
+                    IconButton(onClick = {
+                        pendingVideoCall = true
+                        requestCallPermissions(true)
+                    }) {
                         Icon(Icons.Default.Videocam, contentDescription = "Видео звонок")
                     }
                     IconButton(onClick = { viewModel.leaveRoom() }) {

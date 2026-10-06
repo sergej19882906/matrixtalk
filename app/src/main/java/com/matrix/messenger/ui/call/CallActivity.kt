@@ -28,6 +28,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,8 +39,10 @@ import androidx.core.view.WindowCompat
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.matrix.messenger.data.model.CallState
 import com.matrix.messenger.service.CallService
 import com.matrix.messenger.ui.theme.MatrixMessengerTheme
+import org.koin.androidx.compose.koinViewModel
 
 class CallActivity : ComponentActivity() {
 
@@ -109,13 +113,34 @@ class CallActivity : ComponentActivity() {
                         }
                     }
 
+                    val viewModel: CallViewModel = koinViewModel()
+
+                    LaunchedEffect(allPermissionsGranted) {
+                        if (allPermissionsGranted) {
+                            if (isIncoming) {
+                                viewModel.acceptCall(callId.ifBlank { null })
+                            } else {
+                                viewModel.startCall(roomId, peerUserId, peerName, isVideo)
+                            }
+                        }
+                    }
+
+                    val callState by viewModel.callState.collectAsState()
+                    LaunchedEffect(callState) {
+                        when (callState) {
+                            is CallState.Connected ->
+                                CallService.startOutgoingCall(
+                                    this@CallActivity, callId, roomId, peerName, isVideo
+                                )
+                            is CallState.Ended, CallState.Idle ->
+                                CallService.endCall(this@CallActivity)
+                            else -> Unit
+                        }
+                    }
+
                     if (allPermissionsGranted) {
                         CallScreen(
-                            roomId = roomId,
-                            peerUserId = peerUserId,
-                            peerName = peerName,
-                            isVideo = isVideo,
-                            isOutgoing = !isIncoming,
+                            viewModel = viewModel,
                             onCallEnded = { finish() }
                         )
                     } else {
