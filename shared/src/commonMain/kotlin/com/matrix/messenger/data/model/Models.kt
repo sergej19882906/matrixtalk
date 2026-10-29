@@ -71,6 +71,20 @@ data class DeviceInfo(
     val lastSeenTs: Long?
 )
 
+/** UI states of an interactive device verification (emoji SAS). */
+sealed interface VerificationUiState {
+    data object Idle : VerificationUiState
+    data object Waiting : VerificationUiState
+    data class Compare(
+        val theirUserId: String,
+        val theirDeviceId: String?,
+        val emojis: List<Pair<Int, String>>,
+        val decimal: List<Int>
+    ) : VerificationUiState
+    data object Done : VerificationUiState
+    data class Cancelled(val reason: String?) : VerificationUiState
+}
+
 sealed class LoginResult {
     data class Success(val userId: String) : LoginResult()
     data class Error(val message: String) : LoginResult()

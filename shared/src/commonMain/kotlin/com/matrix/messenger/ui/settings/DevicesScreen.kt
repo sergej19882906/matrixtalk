@@ -6,12 +6,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
@@ -37,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.matrix.messenger.data.model.DeviceInfo
+import com.matrix.messenger.data.model.VerificationUiState
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
@@ -50,6 +53,7 @@ fun DevicesScreen(
     viewModel: DevicesViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val verificationState by viewModel.verificationState.collectAsState()
     var renameTarget by remember { mutableStateOf<DeviceInfo?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<DeviceInfo?>(null) }
@@ -82,6 +86,13 @@ fun DevicesScreen(
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(paddingValues)
             ) {
+                item(key = "backup") {
+                    KeyBackupSection(
+                        version = uiState.keyBackupVersion,
+                        isBootstrapping = uiState.isBootstrapping,
+                        onBootstrap = viewModel::bootstrapKeyBackup
+                    )
+                }
                 uiState.error?.let { error ->
                     item(key = "error") {
                         Text(
@@ -103,7 +114,8 @@ fun DevicesScreen(
                             renameTarget = device
                             renameText = device.displayName ?: ""
                         },
-                        onDelete = { deleteTarget = device }
+                        onDelete = { deleteTarget = device },
+                        onVerify = { viewModel.verify(device.deviceId) }
                     )
                 }
             }
@@ -150,6 +162,133 @@ fun DevicesScreen(
             }
         )
     }
+
+    // Recovery key — shown exactly once after bootstrap
+    uiState.recoveryKey?.let { key ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissRecoveryKey,
+            title = { Text("Резервное копирование включено") },
+            text = {
+                Column {
+                    Text(
+                        "Сохраните ключ восстановления — без него нельзя восстановить историю зашифрованных чатов на новом устройстве. Ключ больше не будет показан."
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text(
+                            text = key,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissRecoveryKey) { Text("Сохранил") }
+            }
+        )
+    }
+
+    // Interactive verification dialog
+    when (val vs = verificationState) {
+        is VerificationUiState.Waiting, is VerificationUiState.Compare -> {
+            AlertDialog(
+                onDismissRequest = viewModel::cancelVerification,
+                title = { Text("Верификация устройства") },
+                text = {
+                    when (vs) {
+                        is VerificationUiState.Compare -> {
+                            Column {
+                                Text("Сравните эмодзи с другим устройством. Они должны совпадать:")
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = vs.emojis.joinToString("  ") { it.second },
+                                    style = MaterialTheme.typography.headlineSmall
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Код: " + vs.decimal.joinToString(" "),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        else -> Text("Ожидание другого устройства… Оно должно подтвердить запрос на верификацию.")
+                    }
+                },
+                confirmButton = {
+                    if (vs is VerificationUiState.Compare) {
+                        TextButton(onClick = { viewModel.confirmVerification(matches = true) }) {
+                            Text("Совпадают")
+                        }
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        if (vs is VerificationUiState.Compare) {
+                            TextButton(onClick = { viewModel.confirmVerification(matches = false) }) {
+                                Text("Не совпадают", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        TextButton(onClick = viewModel::cancelVerification) { Text("Отмена") }
+                    }
+                }
+            )
+        }
+        VerificationUiState.Done -> {
+            AlertDialog(
+                onDismissRequest = {},
+                title = { Text("Устройство верифицировано") },
+                text = { Text("Сессии подтверждены. Ключи зашифрованных чатов будут доступны обоим устройствам.") },
+                confirmButton = {
+                    TextButton(onClick = viewModel::cancelVerification) { Text("Готово") }
+                }
+            )
+        }
+        is VerificationUiState.Cancelled -> {
+            AlertDialog(
+                onDismissRequest = viewModel::cancelVerification,
+                title = { Text("Верификация отменена") },
+                text = { Text(vs.reason ?: "Верификация не была завершена") },
+                confirmButton = {
+                    TextButton(onClick = viewModel::cancelVerification) { Text("Закрыть") }
+                }
+            )
+        }
+        VerificationUiState.Idle -> Unit
+    }
+}
+
+@Composable
+private fun KeyBackupSection(
+    version: String?,
+    isBootstrapping: Boolean,
+    onBootstrap: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Резервное копирование ключей", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = version?.let { "Активно (версия $it)" }
+                    ?: "Не настроено — история чатов недоступна на новых устройствах",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (version != null) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (version == null) {
+            TextButton(onClick = onBootstrap, enabled = !isBootstrapping) {
+                Text(if (isBootstrapping) "Настройка…" else "Включить")
+            }
+        }
+    }
+    HorizontalDivider()
 }
 
 @Composable
@@ -157,7 +296,8 @@ private fun DeviceRow(
     device: DeviceInfo,
     isCurrent: Boolean,
     onRename: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onVerify: () -> Unit
 ) {
     Surface {
         Row(
@@ -203,6 +343,14 @@ private fun DeviceRow(
                 Icon(Icons.Default.Edit, contentDescription = "Переименовать", modifier = Modifier.width(20.dp))
             }
             if (!isCurrent) {
+                IconButton(onClick = onVerify) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = "Верифицировать",
+                        modifier = Modifier.width(20.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
                 IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Default.Delete,

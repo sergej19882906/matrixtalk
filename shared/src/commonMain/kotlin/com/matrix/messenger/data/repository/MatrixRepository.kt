@@ -9,6 +9,7 @@ import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
+import com.matrix.messenger.data.model.VerificationUiState
 import kotlinx.coroutines.flow.Flow
 
 interface MatrixRepository {
@@ -117,4 +118,29 @@ interface MatrixRepository {
 
     /** The device id of the current session, null when logged out. */
     suspend fun currentDeviceId(): String?
+
+    /** The user id of the current session, null when logged out. */
+    suspend fun currentUserId(): String?
+
+    // --- Key backup / verification ---
+
+    /** Current room-key backup version, null when backup is not set up. */
+    fun getKeyBackupVersionFlow(): Flow<String?>
+
+    /**
+     * Bootstraps cross-signing and creates a room-key backup.
+     * Returns the recovery key — shown to the user exactly once.
+     */
+    suspend fun bootstrapKeyBackup(): String
+
+    /** Current state of an interactive device verification (own or incoming). */
+    val verificationState: Flow<VerificationUiState>
+
+    /** Starts an emoji-SAS verification with another device of the account. */
+    suspend fun startDeviceVerification(deviceId: String)
+
+    /** Confirms or rejects the currently shown emoji/decimal comparison. */
+    suspend fun confirmVerification(matches: Boolean)
+
+    suspend fun cancelVerification()
 }

@@ -9,6 +9,7 @@ import com.matrix.messenger.data.model.CallState
 import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.DeviceInfo
+import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
@@ -72,6 +73,13 @@ class CallRepositoryTest {
         override suspend fun renameDevice(deviceId: String, newName: String) = Unit
         override suspend fun deleteDevice(deviceId: String) = Unit
         override suspend fun currentDeviceId(): String? = null
+        override suspend fun currentUserId(): String? = null
+        override fun getKeyBackupVersionFlow(): Flow<String?> = MutableStateFlow(null)
+        override suspend fun bootstrapKeyBackup(): String = ""
+        override val verificationState: Flow<VerificationUiState> = MutableStateFlow(VerificationUiState.Idle)
+        override suspend fun startDeviceVerification(deviceId: String) = Unit
+        override suspend fun confirmVerification(matches: Boolean) = Unit
+        override suspend fun cancelVerification() = Unit
     }
 
     private class FakeWebRtcEngine : WebRtcEngine {

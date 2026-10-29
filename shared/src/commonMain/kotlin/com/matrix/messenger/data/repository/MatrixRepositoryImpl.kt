@@ -14,6 +14,7 @@ import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
 import com.matrix.messenger.data.model.ReplyInfo
+import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.media.MediaBytesProvider
 import com.matrix.messenger.platform.attachmentsDir
 import com.matrix.messenger.platform.createTrixnityRepositoriesModule
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.transformLatest
@@ -53,6 +55,8 @@ import kotlinx.serialization.json.Json
 import net.folivo.trixnity.client.MatrixClient
 import net.folivo.trixnity.client.flattenValues
 import net.folivo.trixnity.client.fromStore
+import net.folivo.trixnity.client.key.KeyBackupService
+import net.folivo.trixnity.client.key.KeyService
 import net.folivo.trixnity.client.loginWith
 import net.folivo.trixnity.client.loginWithPassword
 import net.folivo.trixnity.client.media
@@ -74,6 +78,10 @@ import net.folivo.trixnity.client.store.originTimestamp
 import net.folivo.trixnity.client.store.roomId
 import net.folivo.trixnity.client.store.sender
 import net.folivo.trixnity.client.user
+import net.folivo.trixnity.client.verification.ActiveSasVerificationMethod
+import net.folivo.trixnity.client.verification.ActiveSasVerificationState
+import net.folivo.trixnity.client.verification.ActiveVerificationState
+import net.folivo.trixnity.client.verification.VerificationService
 import net.folivo.trixnity.clientserverapi.client.SyncState
 import net.folivo.trixnity.clientserverapi.client.UIA
 import net.folivo.trixnity.clientserverapi.model.authentication.IdentifierType
@@ -94,6 +102,7 @@ import net.folivo.trixnity.core.model.events.m.room.PinnedEventsEventContent
 import net.folivo.trixnity.core.model.events.m.room.RoomMessageEventContent
 import net.folivo.trixnity.core.model.events.m.room.TopicEventContent
 import net.folivo.trixnity.core.model.events.m.room.VideoInfo
+import net.folivo.trixnity.core.model.events.m.key.verification.VerificationMethod
 import net.folivo.trixnity.utils.toByteArray
 import net.folivo.trixnity.utils.toByteArrayFlow
 
@@ -641,6 +650,115 @@ class MatrixRepositoryImpl : MatrixRepository {
     }
 
     override suspend fun currentDeviceId(): String? = client?.deviceId
+
+    override suspend fun currentUserId(): String? = client?.userId?.full
+
+    override fun getKeyBackupVersionFlow(): Flow<String?> = _clientState.flatMapLatest { c ->
+        if (c == null) flowOf(null)
+        else c.di.get<KeyBackupService>().version.map { it?.version }
+    }
+
+    override suspend fun bootstrapKeyBackup(): String {
+        val keyService = requireClient().di.get<KeyService>()
+        val bootstrap = keyService.bootstrapCrossSigning()
+        when (val uia = bootstrap.result.getOrThrow()) {
+            is UIA.Success -> Unit
+            else -> throw IllegalStateException(
+                "Сервер требует подтверждения для настройки резервного копирования"
+            )
+        }
+        return bootstrap.recoveryKey
+    }
+
+    // --- Interactive device verification (emoji SAS) ---
+
+    private var lastActiveVerification: net.folivo.trixnity.client.verification.ActiveDeviceVerification? = null
+    private var currentComparison: ActiveSasVerificationState.ComparisonByUser? = null
+    private val verificationRefresh = MutableStateFlow(0)
+
+    override val verificationState: Flow<VerificationUiState> =
+        combine(_clientState, verificationRefresh) { c, _ -> c }
+            .flatMapLatest { c ->
+                val service = c?.di?.get<VerificationService>()
+                    ?: return@flatMapLatest flowOf(VerificationUiState.Idle)
+                service.activeDeviceVerification.flatMapLatest { active ->
+                    if (active == null) {
+                        lastActiveVerification = null
+                        currentComparison = null
+                        flowOf(VerificationUiState.Idle)
+                    } else {
+                        lastActiveVerification = active
+                        active.state.flatMapLatest { state -> handleVerificationState(state) }
+                    }
+                }
+            }
+
+    override suspend fun startDeviceVerification(deviceId: String) {
+        val c = requireClient()
+        c.di.get<VerificationService>()
+            .createDeviceVerificationRequest(c.userId, setOf(deviceId))
+            .getOrThrow()
+        verificationRefresh.value++
+    }
+
+    override suspend fun confirmVerification(matches: Boolean) {
+        val comparison = currentComparison ?: return
+        currentComparison = null
+        if (matches) comparison.match() else comparison.noMatch()
+    }
+
+    override suspend fun cancelVerification() {
+        lastActiveVerification?.cancel("cancelled by user")
+        currentComparison = null
+    }
+
+    private fun handleVerificationState(state: ActiveVerificationState): Flow<VerificationUiState> =
+        when (state) {
+            is ActiveVerificationState.TheirRequest -> {
+                repositoryScope.launch { runCatching { state.ready() } }
+                flowOf(VerificationUiState.Waiting)
+            }
+            is ActiveVerificationState.Ready -> {
+                repositoryScope.launch {
+                    runCatching {
+                        if (state.methods.any { it is VerificationMethod.Sas }) {
+                            state.start(VerificationMethod.Sas)
+                        }
+                    }
+                }
+                flowOf(VerificationUiState.Waiting)
+            }
+            is ActiveVerificationState.Start -> when (val method = state.method) {
+                is ActiveSasVerificationMethod -> method.state.mapLatest { sas -> handleSasState(sas) }
+                else -> flowOf(VerificationUiState.Waiting)
+            }
+            ActiveVerificationState.Done -> {
+                currentComparison = null
+                flowOf(VerificationUiState.Done)
+            }
+            is ActiveVerificationState.Cancel -> {
+                currentComparison = null
+                flowOf(VerificationUiState.Cancelled(state.content.reason))
+            }
+            else -> flowOf(VerificationUiState.Waiting)
+        }
+
+    private fun handleSasState(sas: ActiveSasVerificationState): VerificationUiState = when (sas) {
+        is ActiveSasVerificationState.TheirSasStart -> {
+            repositoryScope.launch { runCatching { sas.accept() } }
+            VerificationUiState.Waiting
+        }
+        is ActiveSasVerificationState.ComparisonByUser -> {
+            currentComparison = sas
+            VerificationUiState.Compare(
+                theirUserId = lastActiveVerification?.theirUserId?.full ?: "",
+                theirDeviceId = lastActiveVerification?.theirDeviceId,
+                emojis = sas.emojis,
+                decimal = sas.decimal
+            )
+        }
+        else -> VerificationUiState.Waiting
+    }
 
     private fun requireClient(): MatrixClient = client ?: error("Не выполнен вход")
 
