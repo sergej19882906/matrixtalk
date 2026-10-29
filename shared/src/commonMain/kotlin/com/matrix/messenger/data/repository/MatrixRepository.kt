@@ -113,8 +113,11 @@ interface MatrixRepository {
 
     suspend fun renameDevice(deviceId: String, newName: String)
 
-    /** Deletes a device. Throws if the server requires interactive auth (UIA). */
-    suspend fun deleteDevice(deviceId: String)
+    /**
+     * Deletes a device. If the server requires interactive auth (UIA), [passwordProvider]
+     * is invoked to ask the user for their password; returning null cancels the operation.
+     */
+    suspend fun deleteDevice(deviceId: String, passwordProvider: suspend () -> String? = { null })
 
     /** The device id of the current session, null when logged out. */
     suspend fun currentDeviceId(): String?
@@ -130,8 +133,9 @@ interface MatrixRepository {
     /**
      * Bootstraps cross-signing and creates a room-key backup.
      * Returns the recovery key — shown to the user exactly once.
+     * [passwordProvider] is used when the server requires UIA; null cancels.
      */
-    suspend fun bootstrapKeyBackup(): String
+    suspend fun bootstrapKeyBackup(passwordProvider: suspend () -> String? = { null }): String
 
     /** Current state of an interactive device verification (own or incoming). */
     val verificationState: Flow<VerificationUiState>

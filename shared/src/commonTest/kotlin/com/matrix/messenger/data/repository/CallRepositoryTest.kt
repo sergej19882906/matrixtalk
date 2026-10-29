@@ -71,11 +71,11 @@ class CallRepositoryTest {
         override suspend fun setDisplayName(name: String) = Unit
         override suspend fun getDevices(): List<DeviceInfo> = emptyList()
         override suspend fun renameDevice(deviceId: String, newName: String) = Unit
-        override suspend fun deleteDevice(deviceId: String) = Unit
+        override suspend fun deleteDevice(deviceId: String, passwordProvider: suspend () -> String?) = Unit
         override suspend fun currentDeviceId(): String? = null
         override suspend fun currentUserId(): String? = null
         override fun getKeyBackupVersionFlow(): Flow<String?> = MutableStateFlow(null)
-        override suspend fun bootstrapKeyBackup(): String = ""
+        override suspend fun bootstrapKeyBackup(passwordProvider: suspend () -> String?): String = ""
         override val verificationState: Flow<VerificationUiState> = MutableStateFlow(VerificationUiState.Idle)
         override suspend fun startDeviceVerification(deviceId: String) = Unit
         override suspend fun confirmVerification(matches: Boolean) = Unit

@@ -85,6 +85,8 @@ import net.folivo.trixnity.client.verification.VerificationService
 import net.folivo.trixnity.clientserverapi.client.SyncState
 import net.folivo.trixnity.clientserverapi.client.UIA
 import net.folivo.trixnity.clientserverapi.model.authentication.IdentifierType
+import net.folivo.trixnity.clientserverapi.model.uia.AuthenticationRequest
+import net.folivo.trixnity.clientserverapi.model.uia.AuthenticationType
 import net.folivo.trixnity.core.model.EventId
 import net.folivo.trixnity.core.model.RoomAliasId
 import net.folivo.trixnity.core.model.RoomId
@@ -638,15 +640,9 @@ class MatrixRepositoryImpl : MatrixRepository {
         requireClient().api.device.updateDevice(deviceId, displayName = newName).getOrThrow()
     }
 
-    override suspend fun deleteDevice(deviceId: String) {
+    override suspend fun deleteDevice(deviceId: String, passwordProvider: suspend () -> String?) {
         val uia = requireClient().api.device.deleteDevice(deviceId).getOrThrow()
-        when (uia) {
-            is UIA.Success -> Unit
-            is UIA.Step -> throw IllegalStateException(
-                "Сервер требует подтверждения паролем для удаления устройства"
-            )
-            is UIA.Error -> throw IllegalStateException("Не удалось удалить устройство")
-        }
+        completeUia(uia, passwordProvider)
     }
 
     override suspend fun currentDeviceId(): String? = client?.deviceId
@@ -658,16 +654,54 @@ class MatrixRepositoryImpl : MatrixRepository {
         else c.di.get<KeyBackupService>().version.map { it?.version }
     }
 
-    override suspend fun bootstrapKeyBackup(): String {
+    override suspend fun bootstrapKeyBackup(passwordProvider: suspend () -> String?): String {
         val keyService = requireClient().di.get<KeyService>()
         val bootstrap = keyService.bootstrapCrossSigning()
-        when (val uia = bootstrap.result.getOrThrow()) {
-            is UIA.Success -> Unit
-            else -> throw IllegalStateException(
-                "Сервер требует подтверждения для настройки резервного копирования"
-            )
-        }
+        completeUia(bootstrap.result.getOrThrow(), passwordProvider)
         return bootstrap.recoveryKey
+    }
+
+    /**
+     * Walks a UIA (user interactive auth) session to completion: if the server
+     * asks for a password-only flow, [passwordProvider] is queried; null cancels.
+     */
+    private suspend fun <T> completeUia(initial: UIA<T>, passwordProvider: suspend () -> String?): T {
+        var current = initial
+        var attempts = 0
+        while (true) {
+            current = when (val uia = current) {
+                is UIA.Success -> return uia.value
+                is UIA.Step -> authenticateUia(uia, passwordProvider, ++attempts)
+                is UIA.Error -> authenticateUia(uia, passwordProvider, ++attempts)
+            }
+        }
+    }
+
+    private suspend fun <T> authenticateUia(
+        uia: UIA<T>,
+        passwordProvider: suspend () -> String?,
+        attempt: Int
+    ): UIA<T> {
+        if (attempt > 3) throw IllegalStateException("Слишком много попыток подтверждения")
+        val state = when (uia) {
+            is UIA.Step -> uia.state
+            is UIA.Error -> uia.state
+            else -> throw IllegalStateException("Unexpected UIA state")
+        }
+        val passwordOnlyFlow = state.flows.any { flow -> flow.stages.all { it == AuthenticationType.Password } }
+        if (!passwordOnlyFlow) {
+            throw IllegalStateException("Сервер требует неподдерживаемый тип подтверждения")
+        }
+        val password = passwordProvider() ?: throw kotlinx.coroutines.CancellationException("uia cancelled")
+        val userId = client?.userId ?: throw IllegalStateException("Не выполнен вход")
+        val localpart = userId.full.removePrefix("@").substringBefore(":")
+        val request = AuthenticationRequest.Password(IdentifierType.User(localpart), password)
+        val next = when (uia) {
+            is UIA.Step -> uia.authenticate(request)
+            is UIA.Error -> uia.authenticate(request)
+            else -> error("unreachable")
+        }
+        return next.getOrElse { throw IllegalStateException("Неверный пароль или отказ сервера") }
     }
 
     // --- Interactive device verification (emoji SAS) ---

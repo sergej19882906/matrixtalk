@@ -54,6 +54,8 @@ fun DevicesScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val verificationState by viewModel.verificationState.collectAsState()
+    val showPasswordPrompt by viewModel.showPasswordPrompt.collectAsState()
+    var passwordInput by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<DeviceInfo?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<DeviceInfo?>(null) }
@@ -159,6 +161,37 @@ fun DevicesScreen(
             },
             dismissButton = {
                 TextButton(onClick = { deleteTarget = null }) { Text("Отмена") }
+            }
+        )
+    }
+
+    // UIA password prompt (device deletion / backup bootstrap)
+    if (showPasswordPrompt) {
+        AlertDialog(
+            onDismissRequest = { viewModel.submitPassword(null) },
+            title = { Text("Подтверждение") },
+            text = {
+                OutlinedTextField(
+                    value = passwordInput,
+                    onValueChange = { passwordInput = it },
+                    label = { Text("Пароль аккаунта") },
+                    singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.submitPassword(passwordInput.takeIf { it.isNotBlank() })
+                        passwordInput = ""
+                    }
+                ) { Text("Подтвердить") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    viewModel.submitPassword(null)
+                    passwordInput = ""
+                }) { Text("Отмена") }
             }
         )
     }

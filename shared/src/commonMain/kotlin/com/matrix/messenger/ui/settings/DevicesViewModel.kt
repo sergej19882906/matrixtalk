@@ -33,13 +33,34 @@ class DevicesViewModel(
     val verificationState: StateFlow<VerificationUiState> = matrixRepository.verificationState
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerificationUiState.Idle)
 
+    // UIA password prompt: visibility state for the dialog
+    private val _passwordPrompt = MutableStateFlow<kotlinx.coroutines.CompletableDeferred<String?>?>(null)
+    private val passwordPromptVisibility = MutableStateFlow(false)
+    val showPasswordPrompt: StateFlow<Boolean> = passwordPromptVisibility
+
     init {
+        viewModelScope.launch {
+            _passwordPrompt.collect { prompt ->
+                passwordPromptVisibility.value = prompt != null
+            }
+        }
         refresh()
         viewModelScope.launch {
             matrixRepository.getKeyBackupVersionFlow().collect { version ->
                 _uiState.value = _uiState.value.copy(keyBackupVersion = version)
             }
         }
+    }
+
+    fun submitPassword(password: String?) {
+        _passwordPrompt.value?.complete(password)
+        _passwordPrompt.value = null
+    }
+
+    private suspend fun promptPassword(): String? {
+        val deferred = kotlinx.coroutines.CompletableDeferred<String?>()
+        _passwordPrompt.value = deferred
+        return deferred.await()
     }
 
     fun refresh() {
@@ -66,11 +87,13 @@ class DevicesViewModel(
         _uiState.value = _uiState.value.copy(isBootstrapping = true)
         viewModelScope.launch {
             try {
-                val recoveryKey = matrixRepository.bootstrapKeyBackup()
+                val recoveryKey = matrixRepository.bootstrapKeyBackup(::promptPassword)
                 _uiState.value = _uiState.value.copy(
                     isBootstrapping = false,
                     recoveryKey = recoveryKey
                 )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                _uiState.value = _uiState.value.copy(isBootstrapping = false)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isBootstrapping = false,
@@ -122,10 +145,12 @@ class DevicesViewModel(
     fun delete(deviceId: String) {
         viewModelScope.launch {
             try {
-                matrixRepository.deleteDevice(deviceId)
+                matrixRepository.deleteDevice(deviceId, ::promptPassword)
                 _uiState.value = _uiState.value.copy(
                     devices = _uiState.value.devices.filterNot { it.deviceId == deviceId }
                 )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // user cancelled the password prompt
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message ?: "Не удалось удалить устройство")
             }
