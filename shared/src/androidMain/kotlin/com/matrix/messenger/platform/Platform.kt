@@ -99,7 +99,7 @@ actual fun startIncomingCallRingtone(): () -> Unit {
 }
 
 actual fun appVersionName(): String = runCatching {
-    val context = appContext ?: return "1.10.0"
+    val context = appContext ?: return "1.10.1"
     val info = context.packageManager.getPackageInfo(context.packageName, 0)
     @Suppress("DEPRECATION")
     info.versionName ?: "1.9.0"
