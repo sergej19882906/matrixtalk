@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
@@ -84,6 +85,7 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var editingMessage by remember { mutableStateOf<Message?>(null) }
     var editText by remember { mutableStateOf("") }
+    var showPinned by remember { mutableStateOf(false) }
     var messageToDelete by remember { mutableStateOf<Message?>(null) }
     var roomMenuExpanded by remember { mutableStateOf(false) }
     var confirmLeaveRoom by remember { mutableStateOf(false) }
@@ -170,6 +172,16 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    if (uiState.pinnedMessages.isNotEmpty()) {
+                        IconButton(onClick = { showPinned = !showPinned }) {
+                            Icon(
+                                Icons.Default.PushPin,
+                                contentDescription = "Закреплённые",
+                                tint = if (showPinned) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                     IconButton(onClick = {
                         pendingVideoCall = false
                         requestCallPermissions(false)
@@ -227,10 +239,17 @@ fun ChatScreen(
                     }
                 }
                 else -> {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if (showPinned && uiState.pinnedMessages.isNotEmpty()) {
+                            PinnedBanner(
+                                pinned = uiState.pinnedMessages,
+                                onClose = { showPinned = false }
+                            )
+                        }
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (uiState.canLoadMore) {
@@ -261,9 +280,12 @@ fun ChatScreen(
                                 },
                                 onDelete = { messageToDelete = message },
                                 onOpenAttachment = { viewModel.openAttachment(message) },
-                                onReply = { viewModel.replyToMessage(message) }
+                                onReply = { viewModel.replyToMessage(message) },
+                                isPinned = uiState.pinnedMessages.any { it.eventId == message.eventId },
+                                onTogglePin = { viewModel.togglePin(message) }
                             )
                         }
+                    }
                     }
                 }
             }
@@ -353,11 +375,13 @@ private fun MessageItem(
     message: Message,
     ownShortId: String?,
     ownDisplayName: String?,
+    isPinned: Boolean,
     onReaction: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onOpenAttachment: () -> Unit,
-    onReply: () -> Unit
+    onReply: () -> Unit,
+    onTogglePin: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
@@ -548,6 +572,13 @@ private fun MessageItem(
                                     onReply()
                                 }
                             )
+                            DropdownMenuItem(
+                                text = { Text(if (isPinned) "Открепить" else "Закрепить") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onTogglePin()
+                                }
+                            )
                         }
                         if (message.isMine && !message.isDeleted) {
                             DropdownMenuItem(
@@ -570,6 +601,44 @@ private fun MessageItem(
             }
             if (message.isMine) {
                 Spacer(modifier = Modifier.width(32.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PinnedBanner(
+    pinned: List<Message>,
+    onClose: () -> Unit
+) {
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.PushPin,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Закреплённые: ${pinned.size}",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onClose, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Закрыть", modifier = Modifier.size(16.dp))
+                }
+            }
+            pinned.take(3).forEach { msg ->
+                Text(
+                    text = "${msg.senderName?.substringBefore(":") ?: "?"}: ${msg.body}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
             }
         }
     }

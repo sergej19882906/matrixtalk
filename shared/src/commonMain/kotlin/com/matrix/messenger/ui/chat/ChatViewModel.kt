@@ -24,6 +24,7 @@ data class ChatUiState(
     val isLoadingMore: Boolean = false,
     val isTyping: Boolean = false,
     val typingUsers: List<String> = emptyList(),
+    val pinnedMessages: List<Message> = emptyList(),
     val error: String? = null,
     val replyingTo: Message? = null
 )
@@ -69,6 +70,24 @@ class ChatViewModel(
         viewModelScope.launch {
             matrixRepository.getTypingUsersFlow(roomId).collect { users ->
                 _uiState.value = _uiState.value.copy(typingUsers = users)
+            }
+        }
+
+        viewModelScope.launch {
+            matrixRepository.getPinnedMessagesFlow(roomId).collect { pinned ->
+                _uiState.value = _uiState.value.copy(pinnedMessages = pinned)
+            }
+        }
+    }
+
+    fun togglePin(message: Message) {
+        val roomId = _uiState.value.roomId
+        val pinned = _uiState.value.pinnedMessages.any { it.eventId == message.eventId }
+        viewModelScope.launch {
+            try {
+                matrixRepository.setPinnedMessage(roomId, message.eventId, pinned = !pinned)
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Не удалось изменить закреп: ${e.message}"))
             }
         }
     }

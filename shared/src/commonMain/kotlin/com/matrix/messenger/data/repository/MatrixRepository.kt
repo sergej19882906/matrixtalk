@@ -83,6 +83,12 @@ interface MatrixRepository {
 
     suspend fun markRoomAsRead(roomId: String)
 
+    /** Pinned messages of the room (m.room.pinned_events). */
+    fun getPinnedMessagesFlow(roomId: String): Flow<List<Message>>
+
+    /** Pins or unpins a message. Requires sufficient power level in the room. */
+    suspend fun setPinnedMessage(roomId: String, eventId: String, pinned: Boolean)
+
     suspend fun sendTypingNotification(roomId: String, isTyping: Boolean)
 
     /** Display names of users currently typing in the room (excluding self); auto-expires. */

@@ -87,6 +87,7 @@ import net.folivo.trixnity.core.model.events.m.room.AudioInfo
 import net.folivo.trixnity.core.model.events.m.room.FileInfo
 import net.folivo.trixnity.core.model.events.m.room.ImageInfo
 import net.folivo.trixnity.core.model.events.m.room.Membership
+import net.folivo.trixnity.core.model.events.m.room.PinnedEventsEventContent
 import net.folivo.trixnity.core.model.events.m.room.RoomMessageEventContent
 import net.folivo.trixnity.core.model.events.m.room.TopicEventContent
 import net.folivo.trixnity.core.model.events.m.room.VideoInfo
@@ -525,6 +526,32 @@ class MatrixRepositoryImpl : MatrixRepository {
         c.api.room.setReadMarkers(rId, fullyRead = lastEventId, read = lastEventId).getOrThrow()
     }
 
+    override fun getPinnedMessagesFlow(roomId: String): Flow<List<Message>> = _clientState.flatMapLatest { c ->
+        if (c == null) {
+            flowOf(emptyList())
+        } else {
+            val rId = RoomId(roomId)
+            c.room.getState<PinnedEventsEventContent>(rId).mapLatest { stateEvent ->
+                val pinnedIds = stateEvent?.content?.pinned ?: return@mapLatest emptyList()
+                pinnedIds.mapNotNull { pinnedId ->
+                    withTimeoutOrNull(PINNED_RESOLVE_TIMEOUT_MS) {
+                        c.room.getTimelineEvent(rId, pinnedId).firstOrNull()
+                    }?.toMessageOrNull(c)
+                }
+            }
+        }
+    }
+
+    override suspend fun setPinnedMessage(roomId: String, eventId: String, pinned: Boolean) {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        val current = c.room.getState<PinnedEventsEventContent>(rId).firstOrNull()?.content?.pinned
+            ?: emptyList()
+        val eId = EventId(eventId)
+        val updated = if (pinned) (current + eId).distinct() else current - eId
+        c.api.room.sendStateEvent(rId, PinnedEventsEventContent(updated), stateKey = "").getOrThrow()
+    }
+
     override suspend fun sendTypingNotification(roomId: String, isTyping: Boolean) {
         val c = requireClient()
         c.api.room.setTyping(RoomId(roomId), c.userId, isTyping).getOrThrow()
@@ -803,5 +830,6 @@ class MatrixRepositoryImpl : MatrixRepository {
         const val REPLY_RESOLVE_TIMEOUT_MS = 300L
         const val REPLY_PREVIEW_MAX = 120
         const val TYPING_DISPLAY_TIMEOUT_MS = 6_000L
+        const val PINNED_RESOLVE_TIMEOUT_MS = 400L
     }
 }
