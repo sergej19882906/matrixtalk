@@ -82,8 +82,8 @@ fun LoginScreen(
             OutlinedTextField(
                 value = uiState.homeServer,
                 onValueChange = viewModel::onHomeServerChange,
-                label = { Text("Home Server") },
-                placeholder = { Text("matrix.org") },
+                label = { Text("Сервер") },
+                placeholder = { Text("matrix.org или ваш сервер") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(

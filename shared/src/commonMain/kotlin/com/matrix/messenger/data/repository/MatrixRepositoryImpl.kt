@@ -59,6 +59,7 @@ import net.folivo.trixnity.client.media
 import net.folivo.trixnity.client.media.InMemoryMediaStore
 import net.folivo.trixnity.client.room
 import net.folivo.trixnity.client.room.getState
+import net.folivo.trixnity.client.serverDiscovery
 import net.folivo.trixnity.client.room.message.react
 import net.folivo.trixnity.client.room.message.replace
 import net.folivo.trixnity.client.room.message.reply
@@ -841,8 +842,19 @@ class MatrixRepositoryImpl : MatrixRepository {
         return "$baseUrl/_matrix/media/v3/download/$serverName/$mediaId"
     }
 
-    private fun normalizeHomeServer(homeServer: String): String {
-        var url = homeServer.trim().trimEnd('/')
+    /**
+     * Resolves the homeserver base URL. A bare domain or user ID goes through
+     * Matrix server discovery (.well-known) first; explicit http(s) URLs and
+     * discovery failures fall back to https://<domain>.
+     */
+    private suspend fun normalizeHomeServer(homeServer: String): String {
+        val input = homeServer.trim().trimEnd('/')
+        if (!input.startsWith("http://") && !input.startsWith("https://")) {
+            val domain = input.removePrefix("@").substringBefore(":")
+            val discovered = runCatching { domain.serverDiscovery().getOrNull() }.getOrNull()
+            if (discovered != null) return discovered.toString().trimEnd('/')
+        }
+        var url = input
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             url = "https://$url"
         }
