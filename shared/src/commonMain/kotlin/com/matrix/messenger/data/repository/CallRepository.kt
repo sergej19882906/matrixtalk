@@ -1,5 +1,6 @@
 package com.matrix.messenger.data.repository
 
+import com.matrix.messenger.call.WebRtcEngine
 import com.matrix.messenger.call.WebRtcEvent
 import com.matrix.messenger.call.createWebRtcEngine
 import com.matrix.messenger.data.call.CallSignalingCommand
@@ -15,10 +16,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class CallRepository(
-    private val matrixRepository: MatrixRepository
+    private val matrixRepository: MatrixRepository,
+    private val engine: WebRtcEngine = createWebRtcEngine()
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val engine = createWebRtcEngine()
 
     val remoteVideoTrack = engine.remoteVideoTrack
     val localVideoTrack = engine.localVideoTrack

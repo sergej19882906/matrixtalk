@@ -86,6 +86,11 @@ kotlin {
                 implementation("dev.onvoid.webrtc:webrtc-java:0.20.0:macos-aarch64@jar")
             }
         }
+
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+        }
     }
 }
 

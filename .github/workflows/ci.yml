@@ -30,6 +30,9 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug
 
+      - name: Unit tests (shared, Android target)
+        run: ./gradlew :shared:testDebugUnitTest
+
       - uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
@@ -52,6 +55,9 @@ jobs:
 
       - name: Compile Desktop targets
         run: ./gradlew :shared:compileKotlinDesktop :desktop-app:compileKotlinDesktop
+
+      - name: Unit tests (shared, Desktop target)
+        run: ./gradlew :shared:desktopTest
 
   validate-compose:
     runs-on: ubuntu-latest
