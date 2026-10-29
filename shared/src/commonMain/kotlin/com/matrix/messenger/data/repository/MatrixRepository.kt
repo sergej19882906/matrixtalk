@@ -58,6 +58,9 @@ interface MatrixRepository {
 
     suspend fun sendTextMessage(roomId: String, text: String)
 
+    /** Sends a reply: text with m.in_reply_to relation to [eventId]. */
+    suspend fun replyToMessage(roomId: String, eventId: String, text: String)
+
     suspend fun sendFileMessage(
         roomId: String,
         filePath: String,

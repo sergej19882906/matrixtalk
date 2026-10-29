@@ -51,7 +51,16 @@ data class Message(
     val isDeleted: Boolean,
     val reactions: Map<String, Int> = emptyMap(),
     val mediaUrl: String? = null,
-    val encryptedFile: EncryptedFile? = null
+    val encryptedFile: EncryptedFile? = null,
+    val replyTo: ReplyInfo? = null
+)
+
+/** Quoted original of a reply (m.in_reply_to). */
+data class ReplyInfo(
+    val eventId: String,
+    val senderName: String?,
+    val body: String,
+    val messageType: MessageType
 )
 
 sealed class LoginResult {

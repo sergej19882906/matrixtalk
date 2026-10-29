@@ -12,6 +12,7 @@ import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
+import com.matrix.messenger.data.model.ReplyInfo
 import com.matrix.messenger.media.MediaBytesProvider
 import com.matrix.messenger.platform.attachmentsDir
 import com.matrix.messenger.platform.createTrixnityRepositoriesModule
@@ -57,6 +58,7 @@ import net.folivo.trixnity.client.room
 import net.folivo.trixnity.client.room.getState
 import net.folivo.trixnity.client.room.message.react
 import net.folivo.trixnity.client.room.message.replace
+import net.folivo.trixnity.client.room.message.reply
 import net.folivo.trixnity.client.room.message.text
 import net.folivo.trixnity.client.room.toFlowList
 import net.folivo.trixnity.client.store.Room
@@ -431,6 +433,13 @@ class MatrixRepositoryImpl : MatrixRepository {
         requireClient().room.sendMessage(RoomId(roomId)) { text(text) }
     }
 
+    override suspend fun replyToMessage(roomId: String, eventId: String, text: String) {
+        requireClient().room.sendMessage(RoomId(roomId)) {
+            reply(EventId(eventId), null)
+            text(text)
+        }
+    }
+
     override suspend fun sendFileMessage(roomId: String, filePath: String, mimeType: String, caption: String?) {
         val c = requireClient()
         val bytes = readFileBytes(filePath)
@@ -668,9 +677,10 @@ class MatrixRepositoryImpl : MatrixRepository {
             messageContent is RoomMessageEventContent.FileBased ->
                 messageContent.fileName ?: messageContent.body
 
-            messageContent != null -> messageContent.body
+            messageContent != null -> messageContent.body.stripReplyFallback()
             else -> return null
         }
+        val replyTo = resolveReplyInfo(c, messageContent?.relatesTo)
         val mediaUrl = (messageContent as? RoomMessageEventContent.FileBased)
             ?.url?.takeIf { messageContent.file == null }?.let(::mxcToHttp)
         val encryptedFile = (messageContent as? RoomMessageEventContent.FileBased)?.file
@@ -690,9 +700,37 @@ class MatrixRepositoryImpl : MatrixRepository {
             isEdited = !isDeleted && isReplaced,
             isDeleted = isDeleted,
             mediaUrl = mediaUrl,
-            encryptedFile = encryptedFile
+            encryptedFile = encryptedFile,
+            replyTo = replyTo
         )
     }
+
+    /** Resolves the quoted original of a reply from the local timeline (null if unavailable). */
+    private suspend fun TimelineEvent.resolveReplyInfo(
+        c: MatrixClient,
+        relatesTo: RelatesTo?
+    ): ReplyInfo? {
+        val replyToEventId = (relatesTo as? RelatesTo.Reply)?.replyTo?.eventId ?: return null
+        val original = withTimeoutOrNull(REPLY_RESOLVE_TIMEOUT_MS) {
+            c.room.getTimelineEvent(roomId, replyToEventId).firstOrNull()
+        } ?: return null
+        val originalName = c.resolveSenderName(roomId, original.sender)
+        val originalContent = original.content?.getOrNull() as? RoomMessageEventContent
+        return if (originalContent != null) {
+            ReplyInfo(
+                eventId = replyToEventId.full,
+                senderName = originalName,
+                body = originalContent.body.stripReplyFallback().take(REPLY_PREVIEW_MAX),
+                messageType = originalContent.toMessageType()
+            )
+        } else {
+            ReplyInfo(replyToEventId.full, originalName, "Сообщение", MessageType.TEXT)
+        }
+    }
+
+    /** Rich replies carry a "> <@user> quoted" fallback above the real body; keep only the real part. */
+    private fun String.stripReplyFallback(): String =
+        if (startsWith("> ")) substringAfter("\n\n", missingDelimiterValue = this) else this
 
     private fun RoomEventContent.toMessageType(): MessageType = when (this) {
         is RoomMessageEventContent.TextBased.Emote -> MessageType.EMOTE
@@ -738,5 +776,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         const val STATE_FETCH_TIMEOUT_MS = 500L
         const val EVENT_ROOM_MAP_MAX = 1000
         const val DEFAULT_TURN_TTL_SECONDS = 300L
+        const val REPLY_RESOLVE_TIMEOUT_MS = 300L
+        const val REPLY_PREVIEW_MAX = 120
     }
 }

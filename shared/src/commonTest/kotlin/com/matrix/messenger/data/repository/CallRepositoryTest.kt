@@ -51,6 +51,7 @@ class CallRepositoryTest {
         override suspend fun resolveMediaFile(eventId: String, fileName: String): String? = null
         override suspend fun searchUsers(query: String): List<MatrixUser> = emptyList()
         override suspend fun sendTextMessage(roomId: String, text: String) = Unit
+        override suspend fun replyToMessage(roomId: String, eventId: String, text: String) = Unit
         override suspend fun sendFileMessage(roomId: String, filePath: String, mimeType: String, caption: String?) = Unit
         override suspend fun getRoomInfo(roomId: String): ChatRoom? = null
         override suspend fun createRoom(name: String?, topic: String?, isDirect: Boolean, userIds: List<String>): String = "!room:test"

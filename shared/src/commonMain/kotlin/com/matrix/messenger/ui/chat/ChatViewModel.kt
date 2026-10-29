@@ -96,14 +96,24 @@ class ChatViewModel(
 
     fun sendMessage() {
         viewModelScope.launch {
-            val message = _uiState.value.messageInput.trim()
+            val state = _uiState.value
+            val message = state.messageInput.trim()
             if (message.isBlank()) return@launch
 
             try {
-                matrixRepository.sendTextMessage(
-                    _uiState.value.roomId,
-                    message
-                )
+                val replyingTo = state.replyingTo
+                if (replyingTo != null) {
+                    matrixRepository.replyToMessage(
+                        roomId = state.roomId,
+                        eventId = replyingTo.eventId,
+                        text = message
+                    )
+                } else {
+                    matrixRepository.sendTextMessage(
+                        state.roomId,
+                        message
+                    )
+                }
                 _uiState.value = _uiState.value.copy(
                     messageInput = "",
                     isTyping = false,

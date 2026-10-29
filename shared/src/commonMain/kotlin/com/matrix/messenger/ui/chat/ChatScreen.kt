@@ -246,7 +246,8 @@ fun ChatScreen(
                                     editingMessage = message
                                 },
                                 onDelete = { messageToDelete = message },
-                                onOpenAttachment = { viewModel.openAttachment(message) }
+                                onOpenAttachment = { viewModel.openAttachment(message) },
+                                onReply = { viewModel.replyToMessage(message) }
                             )
                         }
                     }
@@ -339,7 +340,8 @@ private fun MessageItem(
     onReaction: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onOpenAttachment: () -> Unit
+    onOpenAttachment: () -> Unit,
+    onReply: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
@@ -388,6 +390,29 @@ private fun MessageItem(
                         }
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
+                            val replyTo = message.replyTo
+                            if (replyTo != null && !message.isDeleted) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                        Text(
+                                            text = replyTo.senderName?.substringBefore(":") ?: "Unknown",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = replyTo.body,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
                             if (message.isDeleted) {
                                 Text(
                                     text = "Сообщение удалено",
@@ -494,6 +519,15 @@ private fun MessageItem(
                                 onReaction()
                             }
                         )
+                        if (!message.isDeleted) {
+                            DropdownMenuItem(
+                                text = { Text("Ответить") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onReply()
+                                }
+                            )
+                        }
                         if (message.isMine && !message.isDeleted) {
                             DropdownMenuItem(
                                 text = { Text("Редактировать") },
