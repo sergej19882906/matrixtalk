@@ -94,6 +94,7 @@ fun ChatScreen(
     val callRepository: CallRepository = koinInject()
     val matrixRepository: MatrixRepository = koinInject()
     val coroutineScope = rememberCoroutineScope()
+    val currentUser by matrixRepository.currentUser.collectAsState(initial = null)
     var pendingVideoCall by remember { mutableStateOf(false) }
     val requestCallPermissions = rememberCallPermissionRequester { granted ->
         if (!granted) {
@@ -251,6 +252,8 @@ fun ChatScreen(
                         ) { message ->
                             MessageItem(
                                 message = message,
+                                ownShortId = currentUser?.shortUserId,
+                                ownDisplayName = currentUser?.displayName,
                                 onReaction = { viewModel.sendReaction(message.eventId, "👍") },
                                 onEdit = {
                                     editText = message.body
@@ -348,6 +351,8 @@ fun ChatScreen(
 @Composable
 private fun MessageItem(
     message: Message,
+    ownShortId: String?,
+    ownDisplayName: String?,
     onReaction: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -465,7 +470,12 @@ private fun MessageItem(
                                     }
 
                                     else -> Text(
-                                        text = message.body,
+                                        text = buildMentionAnnotatedString(
+                                            body = message.body,
+                                            ownShortId = ownShortId,
+                                            ownDisplayName = ownDisplayName,
+                                            mentionColor = MaterialTheme.colorScheme.primary
+                                        ),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
