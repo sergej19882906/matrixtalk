@@ -20,6 +20,7 @@ import com.matrix.messenger.ui.navigation.AppNavigation
 import com.matrix.messenger.ui.navigation.Screen
 import com.matrix.messenger.ui.theme.MatrixDarkGray
 import com.matrix.messenger.ui.theme.MatrixMessengerTheme
+import com.matrix.messenger.ui.theme.ThemeManager
 import kotlinx.coroutines.flow.first
 import org.koin.compose.koinInject
 import org.koin.core.context.startKoin
@@ -30,6 +31,7 @@ fun main() {
         modules(sharedModule)
     }
     setupImageLoader()
+    kotlinx.coroutines.runBlocking { ThemeManager.load() }
 
     application {
     val matrixRepository: MatrixRepository = koinInject()

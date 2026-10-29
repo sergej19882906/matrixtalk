@@ -26,6 +26,13 @@ object SessionStore {
     private val userIdKey = stringPreferencesKey("user_id")
     private val deviceIdKey = stringPreferencesKey("device_id")
     private val accessTokenKey = stringPreferencesKey("access_token")
+    private val themeModeKey = stringPreferencesKey("theme_mode")
+
+    suspend fun readThemeMode(): String? = sessionDataStore.data.first()[themeModeKey]
+
+    suspend fun saveThemeMode(mode: String) {
+        sessionDataStore.edit { it[themeModeKey] = mode }
+    }
 
     suspend fun save(session: Session) {
         sessionDataStore.edit { prefs ->

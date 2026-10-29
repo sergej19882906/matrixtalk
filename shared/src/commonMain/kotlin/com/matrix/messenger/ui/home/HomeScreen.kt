@@ -17,8 +17,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MoreVert
@@ -49,6 +52,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,7 +64,10 @@ import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.platform.rememberFilePicker
+import com.matrix.messenger.ui.theme.ThemeManager
+import com.matrix.messenger.ui.theme.ThemeMode
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -74,6 +81,7 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var profileDialogVisible by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
     var roomToLeave by remember { mutableStateOf<ChatRoom?>(null) }
@@ -108,6 +116,24 @@ fun HomeScreen(
                     }
                     IconButton(onClick = onBridges) {
                         Icon(Icons.Default.Link, contentDescription = "Мосты")
+                    }
+                    val themeMode by ThemeManager.mode.collectAsState()
+                    IconButton(onClick = {
+                        val next = when (themeMode) {
+                            ThemeMode.SYSTEM -> ThemeMode.LIGHT
+                            ThemeMode.LIGHT -> ThemeMode.DARK
+                            ThemeMode.DARK -> ThemeMode.SYSTEM
+                        }
+                        scope.launch { ThemeManager.set(next) }
+                    }) {
+                        Icon(
+                            when (themeMode) {
+                                ThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
+                                ThemeMode.LIGHT -> Icons.Default.LightMode
+                                ThemeMode.DARK -> Icons.Default.DarkMode
+                            },
+                            contentDescription = "Тема"
+                        )
                     }
                     IconButton(onClick = viewModel::logout) {
                         Icon(Icons.Default.Logout, contentDescription = "Выйти")

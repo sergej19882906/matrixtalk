@@ -23,6 +23,7 @@ import com.matrix.messenger.receiver.OemBatteryHelper
 import com.matrix.messenger.ui.navigation.AppNavigation
 import com.matrix.messenger.ui.navigation.Screen
 import com.matrix.messenger.ui.theme.MatrixMessengerTheme
+import com.matrix.messenger.ui.theme.ThemeManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
@@ -43,6 +44,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         lifecycleScope.launch {
+            ThemeManager.load()
             try {
                 matrixRepository.initialize()
                 isAuthenticated = matrixRepository.currentUser.first() != null
