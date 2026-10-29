@@ -23,6 +23,7 @@ data class ChatUiState(
     val canLoadMore: Boolean = false,
     val isLoadingMore: Boolean = false,
     val isTyping: Boolean = false,
+    val typingUsers: List<String> = emptyList(),
     val error: String? = null,
     val replyingTo: Message? = null
 )
@@ -63,6 +64,12 @@ class ChatViewModel(
         viewModelScope.launch {
             val roomInfo = matrixRepository.getRoomInfo(roomId)
             _uiState.value = _uiState.value.copy(roomName = roomInfo?.name)
+        }
+
+        viewModelScope.launch {
+            matrixRepository.getTypingUsersFlow(roomId).collect { users ->
+                _uiState.value = _uiState.value.copy(typingUsers = users)
+            }
         }
     }
 

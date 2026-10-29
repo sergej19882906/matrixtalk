@@ -59,6 +59,7 @@ class CallRepositoryTest {
         override suspend fun leaveRoom(roomId: String) = Unit
         override suspend fun markRoomAsRead(roomId: String) = Unit
         override suspend fun sendTypingNotification(roomId: String, isTyping: Boolean) = Unit
+        override fun getTypingUsersFlow(roomId: String): Flow<List<String>> = MutableStateFlow(emptyList())
         override suspend fun sendReaction(eventId: String, reaction: String) = Unit
         override suspend fun editMessage(eventId: String, roomId: String, newText: String) = Unit
         override suspend fun deleteMessage(eventId: String, roomId: String) = Unit

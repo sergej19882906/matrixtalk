@@ -144,12 +144,23 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column {
                         Text(
                             text = uiState.roomName ?: "Чат",
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        val typingUsers = uiState.typingUsers
+                        if (typingUsers.isNotEmpty()) {
+                            Text(
+                                text = when (typingUsers.size) {
+                                    1 -> "печатает…"
+                                    else -> "печатают…"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 },
                 navigationIcon = {

@@ -85,6 +85,9 @@ interface MatrixRepository {
 
     suspend fun sendTypingNotification(roomId: String, isTyping: Boolean)
 
+    /** Display names of users currently typing in the room (excluding self); auto-expires. */
+    fun getTypingUsersFlow(roomId: String): Flow<List<String>>
+
     suspend fun sendReaction(eventId: String, reaction: String)
 
     suspend fun editMessage(eventId: String, roomId: String, newText: String)

@@ -31,6 +31,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
@@ -528,6 +530,28 @@ class MatrixRepositoryImpl : MatrixRepository {
         c.api.room.setTyping(RoomId(roomId), c.userId, isTyping).getOrThrow()
     }
 
+    override fun getTypingUsersFlow(roomId: String): Flow<List<String>> = _clientState.flatMapLatest { c ->
+        if (c == null) {
+            flowOf(emptyList())
+        } else {
+            c.room.usersTyping.transformLatest { typing ->
+                val rId = RoomId(roomId)
+                val users = typing[rId]?.users?.filter { it != c.userId }.orEmpty()
+                if (users.isEmpty()) {
+                    emit(emptyList())
+                    return@transformLatest
+                }
+                emit(users.map { userId ->
+                    c.resolveSenderName(rId, userId)
+                        ?: userId.full.substringBefore(":").removePrefix("@")
+                })
+                // Fallback expiry: show the indicator for a bounded time after the last update.
+                delay(TYPING_DISPLAY_TIMEOUT_MS)
+                emit(emptyList())
+            }
+        }
+    }
+
     override suspend fun sendReaction(eventId: String, reaction: String) {
         val c = requireClient()
         val roomId = eventRoomMap[eventId] ?: error("Комната для события не найдена")
@@ -778,5 +802,6 @@ class MatrixRepositoryImpl : MatrixRepository {
         const val DEFAULT_TURN_TTL_SECONDS = 300L
         const val REPLY_RESOLVE_TIMEOUT_MS = 300L
         const val REPLY_PREVIEW_MAX = 120
+        const val TYPING_DISPLAY_TIMEOUT_MS = 6_000L
     }
 }
