@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.matrix.messenger.service.enqueueMessageNotifications
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -95,6 +96,25 @@ actual fun startIncomingCallRingtone(): () -> Unit {
     }.getOrNull() ?: return {}
     runCatching { ringtone.play() }
     return { runCatching { if (ringtone.isPlaying) ringtone.stop() } }
+}
+
+actual fun appVersionName(): String = runCatching {
+    val context = appContext ?: return "1.9.0"
+    val info = context.packageManager.getPackageInfo(context.packageName, 0)
+    @Suppress("DEPRECATION")
+    info.versionName ?: "1.9.0"
+}.getOrDefault("1.9.0")
+
+actual fun setMessageNotificationsEnabled(enabled: Boolean) {
+    val context = appContext ?: return
+    runCatching {
+        if (enabled) {
+            enqueueMessageNotifications(context)
+        } else {
+            androidx.work.WorkManager.getInstance(context)
+                .cancelUniqueWork("message_notifications")
+        }
+    }
 }
 
 fun resolveFileInfo(context: Context, uri: Uri): FileResult? {

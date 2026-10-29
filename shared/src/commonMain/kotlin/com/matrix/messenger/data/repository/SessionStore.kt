@@ -3,6 +3,7 @@ package com.matrix.messenger.data.repository
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.matrix.messenger.platform.sessionStorePath
@@ -27,11 +28,19 @@ object SessionStore {
     private val deviceIdKey = stringPreferencesKey("device_id")
     private val accessTokenKey = stringPreferencesKey("access_token")
     private val themeModeKey = stringPreferencesKey("theme_mode")
+    private val notificationsEnabledKey = booleanPreferencesKey("notifications_enabled")
 
     suspend fun readThemeMode(): String? = sessionDataStore.data.first()[themeModeKey]
 
     suspend fun saveThemeMode(mode: String) {
         sessionDataStore.edit { it[themeModeKey] = mode }
+    }
+
+    /** null = never configured (treated as enabled). */
+    suspend fun readNotificationsEnabled(): Boolean? = sessionDataStore.data.first()[notificationsEnabledKey]
+
+    suspend fun saveNotificationsEnabled(enabled: Boolean) {
+        sessionDataStore.edit { it[notificationsEnabledKey] = enabled }
     }
 
     suspend fun save(session: Session) {

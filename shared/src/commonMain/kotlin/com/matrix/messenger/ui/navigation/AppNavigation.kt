@@ -67,6 +67,9 @@ fun AppNavigation(
                 },
                 onBridges = {
                     navController.navigate(Screen.Bridges.route)
+                },
+                onSettings = {
+                    navController.navigate(Screen.Settings.route)
                 }
             )
         }
@@ -98,6 +101,12 @@ fun AppNavigation(
         composable(Screen.Call.route) {
             CallScreen(
                 onCallEnded = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.Settings.route) {
+            com.matrix.messenger.ui.settings.SettingsScreen(
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }

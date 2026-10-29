@@ -7,6 +7,7 @@ import com.matrix.messenger.ui.call.CallViewModel
 import com.matrix.messenger.ui.chat.ChatViewModel
 import com.matrix.messenger.ui.home.HomeViewModel
 import com.matrix.messenger.ui.login.LoginViewModel
+import com.matrix.messenger.ui.settings.SettingsViewModel
 import org.koin.compose.viewmodel.dsl.viewModelOf
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
@@ -18,4 +19,5 @@ val sharedModule = module {
     viewModelOf(::HomeViewModel)
     viewModelOf(::ChatViewModel)
     viewModelOf(::CallViewModel)
+    viewModelOf(::SettingsViewModel)
 }

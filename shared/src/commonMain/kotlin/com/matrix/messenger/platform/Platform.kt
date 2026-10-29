@@ -34,3 +34,9 @@ expect fun logError(tag: String, message: String, throwable: Throwable? = null)
 
 /** Starts the incoming-call ringtone; returns a stop handle. No-op on platforms without audio. */
 expect fun startIncomingCallRingtone(): () -> Unit
+
+/** Human-readable app version for the About section. */
+expect fun appVersionName(): String
+
+/** Enables/disables periodic background message notifications. No-op where unsupported. */
+expect fun setMessageNotificationsEnabled(enabled: Boolean)

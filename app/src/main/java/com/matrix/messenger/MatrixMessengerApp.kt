@@ -26,6 +26,11 @@ class MatrixMessengerApp : Application(), Configuration.Provider {
             modules(sharedModule)
         }
         NotificationChannels.createAll(this)
-        runCatching { enqueueMessageNotifications(this) }
+        kotlinx.coroutines.runBlocking {
+            val enabled = com.matrix.messenger.data.repository.SessionStore.readNotificationsEnabled() ?: true
+            if (enabled) {
+                runCatching { enqueueMessageNotifications(this@MatrixMessengerApp) }
+            }
+        }
     }
 }
