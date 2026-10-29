@@ -1,0 +1,231 @@
+package com.matrix.messenger.ui.settings
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.matrix.messenger.data.model.DeviceInfo
+import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import org.koin.compose.viewmodel.koinViewModel
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DevicesScreen(
+    onNavigateBack: () -> Unit,
+    viewModel: DevicesViewModel = koinViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    var renameTarget by remember { mutableStateOf<DeviceInfo?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<DeviceInfo?>(null) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Устройства") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.refresh() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Обновить")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        when {
+            uiState.isLoading -> {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(paddingValues),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+                ) { CircularProgressIndicator() }
+            }
+            else -> LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(paddingValues)
+            ) {
+                uiState.error?.let { error ->
+                    item(key = "error") {
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                }
+                items(
+                    items = uiState.devices,
+                    key = { it.deviceId }
+                ) { device ->
+                    DeviceRow(
+                        device = device,
+                        isCurrent = device.deviceId == uiState.currentDeviceId,
+                        onRename = {
+                            renameTarget = device
+                            renameText = device.displayName ?: ""
+                        },
+                        onDelete = { deleteTarget = device }
+                    )
+                }
+            }
+        }
+    }
+
+    renameTarget?.let { device ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Переименовать устройство") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    label = { Text("Имя устройства") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.rename(device.deviceId, renameText.trim())
+                    renameTarget = null
+                }) { Text("Сохранить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) { Text("Отмена") }
+            }
+        )
+    }
+
+    deleteTarget?.let { device ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Удалить устройство?") },
+            text = { Text("Сессия «${device.displayName ?: device.deviceId}» будет завершена и её ключи шифрования недоступны.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.delete(device.deviceId)
+                    deleteTarget = null
+                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text("Отмена") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun DeviceRow(
+    device: DeviceInfo,
+    isCurrent: Boolean,
+    onRename: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Surface {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = device.displayName ?: device.deviceId,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    if (isCurrent) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = MaterialTheme.shapes.small
+                        ) {
+                            Text(
+                                text = "это устройство",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = device.deviceId,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                val seen = device.lastSeenTs?.let(::formatSeen)
+                if (seen != null) {
+                    Text(
+                        text = seen,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            IconButton(onClick = onRename) {
+                Icon(Icons.Default.Edit, contentDescription = "Переименовать", modifier = Modifier.width(20.dp))
+            }
+            if (!isCurrent) {
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Удалить",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.width(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun formatSeen(ts: Long): String {
+    val seen = Instant.fromEpochMilliseconds(ts)
+    val now = Clock.System.now()
+    val days = (now - seen).inWholeDays
+    return when {
+        days > 30 -> "неактивно более месяца"
+        days > 0 -> "активно $days дн. назад"
+        else -> {
+            val local = seen.toLocalDateTime(TimeZone.currentSystemDefault())
+            "активно сегодня, ${local.hour.toString().padStart(2, '0')}:${local.minute.toString().padStart(2, '0')}"
+        }
+    }
+}

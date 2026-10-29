@@ -106,6 +106,13 @@ fun AppNavigation(
 
         composable(Screen.Settings.route) {
             com.matrix.messenger.ui.settings.SettingsScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenDevices = { navController.navigate(Screen.Devices.route) }
+            )
+        }
+
+        composable(Screen.Devices.route) {
+            com.matrix.messenger.ui.settings.DevicesScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

@@ -4,6 +4,7 @@ import com.matrix.messenger.data.call.CallSignalingCommand
 import com.matrix.messenger.data.call.CallSignalingEvent
 import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.ConnectionState
+import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
@@ -103,4 +104,17 @@ interface MatrixRepository {
     suspend fun uploadAvatar(filePath: String, mimeType: String)
 
     suspend fun setDisplayName(name: String)
+
+    // --- Devices / security ---
+
+    /** All devices (sessions) of the account. */
+    suspend fun getDevices(): List<DeviceInfo>
+
+    suspend fun renameDevice(deviceId: String, newName: String)
+
+    /** Deletes a device. Throws if the server requires interactive auth (UIA). */
+    suspend fun deleteDevice(deviceId: String)
+
+    /** The device id of the current session, null when logged out. */
+    suspend fun currentDeviceId(): String?
 }

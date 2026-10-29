@@ -63,6 +63,14 @@ data class ReplyInfo(
     val messageType: MessageType
 )
 
+/** A session/device of the user's account (GET /devices). */
+data class DeviceInfo(
+    val deviceId: String,
+    val displayName: String?,
+    val lastSeenIp: String?,
+    val lastSeenTs: Long?
+)
+
 sealed class LoginResult {
     data class Success(val userId: String) : LoginResult()
     data class Error(val message: String) : LoginResult()

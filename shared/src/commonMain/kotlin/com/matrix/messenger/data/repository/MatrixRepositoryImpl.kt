@@ -5,6 +5,7 @@ import com.matrix.messenger.data.call.CallSignalingEvent
 import com.matrix.messenger.data.call.buildCallContent
 import com.matrix.messenger.data.call.parseCallEvent
 import com.matrix.messenger.data.model.ChatRoom
+import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.LastMessage
@@ -73,6 +74,7 @@ import net.folivo.trixnity.client.store.roomId
 import net.folivo.trixnity.client.store.sender
 import net.folivo.trixnity.client.user
 import net.folivo.trixnity.clientserverapi.client.SyncState
+import net.folivo.trixnity.clientserverapi.client.UIA
 import net.folivo.trixnity.clientserverapi.model.authentication.IdentifierType
 import net.folivo.trixnity.core.model.EventId
 import net.folivo.trixnity.core.model.RoomAliasId
@@ -611,6 +613,33 @@ class MatrixRepositoryImpl : MatrixRepository {
         requireClient().setDisplayName(name).getOrThrow()
         _currentUser.value = _currentUser.value?.copy(displayName = name)
     }
+
+    override suspend fun getDevices(): List<DeviceInfo> =
+        requireClient().api.device.getDevices().getOrThrow().map {
+            DeviceInfo(
+                deviceId = it.deviceId,
+                displayName = it.displayName,
+                lastSeenIp = it.lastSeenIp,
+                lastSeenTs = it.lastSeenTs
+            )
+        }
+
+    override suspend fun renameDevice(deviceId: String, newName: String) {
+        requireClient().api.device.updateDevice(deviceId, displayName = newName).getOrThrow()
+    }
+
+    override suspend fun deleteDevice(deviceId: String) {
+        val uia = requireClient().api.device.deleteDevice(deviceId).getOrThrow()
+        when (uia) {
+            is UIA.Success -> Unit
+            is UIA.Step -> throw IllegalStateException(
+                "Сервер требует подтверждения паролем для удаления устройства"
+            )
+            is UIA.Error -> throw IllegalStateException("Не удалось удалить устройство")
+        }
+    }
+
+    override suspend fun currentDeviceId(): String? = client?.deviceId
 
     private fun requireClient(): MatrixClient = client ?: error("Не выполнен вход")
 
