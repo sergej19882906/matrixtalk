@@ -25,10 +25,16 @@ kotlin {
     }
 }
 
+tasks.register<JavaExec>("loginSmokeTest") {
+    group = "verification"
+    description = "Temporary smoke test: desktop login path against matrix.org"
+    mainClass.set("com.matrix.messenger.LoginSmokeTestKt")
+    classpath = configurations["desktopRuntimeClasspath"] + files(tasks.named("desktopJar"))
+}
+
 compose.desktop {
     application {
         mainClass = "com.matrix.messenger.MainKt"
-
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Dmg)
 

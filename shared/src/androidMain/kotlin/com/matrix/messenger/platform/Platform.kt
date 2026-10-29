@@ -84,6 +84,15 @@ fun openUrlWith(context: Context, url: String) {
     context.startActivity(intent)
 }
 
+actual fun logError(tag: String, message: String, throwable: Throwable?) {
+    android.util.Log.e(tag, message, throwable)
+    runCatching {
+        val dir = java.io.File(appContext?.filesDir ?: return, "logs").apply { mkdirs() }
+        val stack = throwable?.stackTraceToString() ?: ""
+        dir.resolve("error.log").appendText("${java.time.LocalDateTime.now()} [$tag] $message\n$stack\n\n")
+    }
+}
+
 fun resolveFileInfo(context: Context, uri: Uri): FileResult? {
     var name = uri.lastPathSegment?.substringAfterLast('/').orEmpty()
     var size = -1L

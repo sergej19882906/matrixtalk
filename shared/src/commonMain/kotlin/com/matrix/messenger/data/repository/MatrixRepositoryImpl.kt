@@ -15,6 +15,7 @@ import com.matrix.messenger.data.model.MessageType
 import com.matrix.messenger.media.MediaBytesProvider
 import com.matrix.messenger.platform.attachmentsDir
 import com.matrix.messenger.platform.createTrixnityRepositoriesModule
+import com.matrix.messenger.platform.logError
 import com.matrix.messenger.platform.readFileBytes
 import com.matrix.messenger.platform.writeFileBytes
 import io.ktor.client.call.body
@@ -209,6 +210,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             }
         } catch (t: Throwable) {
             // corrupted store or missing native library: fall through to token-based restore
+            logError("MatrixRepository", "fromStore restore failed, falling back to token", t)
         }
         // No persisted store yet: fall back to the persisted session token.
         val session = SessionStore.read()
@@ -234,6 +236,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             ).getOrThrow()
             attachClient(restored, session.homeServer)
         } catch (e: Exception) {
+            logError("MatrixRepository", "Session restore failed", e)
             // Keep the session: next app start will retry (e.g. when back online).
             _connectionState.value = ConnectionState.Disconnected(
                 "Не удалось восстановить сессию: ${e.message ?: "unknown error"}"
@@ -260,6 +263,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                     LoginResult.Success(c.userId.full)
                 },
                 onFailure = { e ->
+                    logError("MatrixRepository", "Password login failed", e)
                     _connectionState.value = ConnectionState.Disconnected(e.message ?: "Login failed")
                     LoginResult.Error(e.message ?: "Ошибка входа")
                 }
@@ -267,6 +271,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            logError("MatrixRepository", "Password login crashed", e)
             _connectionState.value = ConnectionState.Disconnected(e.message ?: "Login failed")
             LoginResult.Error(e.message ?: "Ошибка входа")
         }
@@ -298,6 +303,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                     LoginResult.Success(c.userId.full)
                 },
                 onFailure = { e ->
+                    logError("MatrixRepository", "Token login failed", e)
                     _connectionState.value = ConnectionState.Disconnected(e.message ?: "Login failed")
                     LoginResult.Error(e.message ?: "Ошибка входа по токену")
                 }
@@ -305,6 +311,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            logError("MatrixRepository", "Token login crashed", e)
             _connectionState.value = ConnectionState.Disconnected(e.message ?: "Login failed")
             LoginResult.Error(e.message ?: "Ошибка входа по токену")
         }
