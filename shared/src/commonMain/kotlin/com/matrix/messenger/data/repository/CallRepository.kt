@@ -100,7 +100,12 @@ class CallRepository(
                         _currentCall.value = null
                     }
 
-                    is WebRtcEvent.Error -> Unit // surfaced in Phase 1.4 via UI events
+                    is WebRtcEvent.Error -> {
+                        engine.hangup(call.callId)
+                        _callState.value = CallState.Ended(event.message)
+                        currentCall = null
+                        _currentCall.value = null
+                    }
                 }
             }
         }

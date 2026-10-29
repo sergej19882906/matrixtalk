@@ -77,6 +77,13 @@ kotlin {
 
                 // Dispatchers.Main provider on JVM (viewModelScope, UI events)
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
+
+                // WebRTC engine (VoIP calls on Desktop): JNI bindings + per-platform natives
+                implementation("dev.onvoid.webrtc:webrtc-java:0.20.0")
+                implementation("dev.onvoid.webrtc:webrtc-java:0.20.0:windows-x86_64@jar")
+                implementation("dev.onvoid.webrtc:webrtc-java:0.20.0:linux-x86_64@jar")
+                implementation("dev.onvoid.webrtc:webrtc-java:0.20.0:macos-x86_64@jar")
+                implementation("dev.onvoid.webrtc:webrtc-java:0.20.0:macos-aarch64@jar")
             }
         }
     }

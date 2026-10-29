@@ -32,6 +32,13 @@ tasks.register<JavaExec>("loginSmokeTest") {
     classpath = configurations["desktopRuntimeClasspath"] + files(tasks.named("desktopJar"))
 }
 
+tasks.register<JavaExec>("engineSmokeTest") {
+    group = "verification"
+    description = "Temporary smoke test: desktop WebRTC engine init + local offer"
+    mainClass.set("com.matrix.messenger.EngineSmokeTestKt")
+    classpath = configurations["desktopRuntimeClasspath"] + files(tasks.named("desktopJar"))
+}
+
 compose.desktop {
     application {
         mainClass = "com.matrix.messenger.MainKt"
