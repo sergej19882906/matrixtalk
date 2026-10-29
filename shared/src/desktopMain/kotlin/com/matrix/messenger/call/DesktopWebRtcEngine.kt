@@ -27,10 +27,13 @@ import dev.onvoid.webrtc.RTCRtpTransceiverInit
 import dev.onvoid.webrtc.SetSessionDescriptionObserver
 import dev.onvoid.webrtc.media.MediaStream
 import dev.onvoid.webrtc.media.MediaStreamTrack
+import dev.onvoid.webrtc.media.MediaDevices
 import dev.onvoid.webrtc.media.audio.AudioDeviceModule
 import dev.onvoid.webrtc.media.audio.AudioOptions
 import dev.onvoid.webrtc.media.audio.AudioTrack
 import dev.onvoid.webrtc.media.audio.AudioTrackSource
+import dev.onvoid.webrtc.media.video.VideoDeviceSource
+import dev.onvoid.webrtc.media.video.VideoTrack
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -59,6 +62,8 @@ private class DesktopWebRtcEngine : WebRtcEngine {
     private var peerConnection: RTCPeerConnection? = null
     private var audioTrackSource: AudioTrackSource? = null
     private var localAudioTrack: AudioTrack? = null
+    private var videoDeviceSource: VideoDeviceSource? = null
+    private var localVideoTrackInternal: VideoTrack? = null
     private var currentCallId: String? = null
     private var remoteDescriptionSet = false
     private var pendingRemoteCandidates = mutableListOf<RTCIceCandidate>()
@@ -82,7 +87,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
         withContext(Dispatchers.Default) {
             runCatching {
                 initialize()
-                prepareConnection(callId)
+                prepareConnection(callId, isVideo)
                 val pc = peerConnection ?: error("PeerConnection not created")
                 val offer = pc.awaitCreateOffer()
                 pc.awaitSetLocalDescription(offer)
@@ -95,7 +100,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
         withContext(Dispatchers.Default) {
             runCatching {
                 initialize()
-                prepareConnection(callId)
+                prepareConnection(callId, isVideo)
                 val pc = peerConnection ?: error("PeerConnection not created")
                 pc.awaitSetRemoteDescription(RTCSessionDescription(RTCSdpType.OFFER, offerSdp))
                 remoteDescriptionSet = true
@@ -149,7 +154,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
     }
 
     override fun setVideoEnabled(enabled: Boolean) {
-        // Local video capture arrives in Phase 2.4; remote rendering is controlled separately.
+        runCatching { localVideoTrackInternal?.setEnabled(enabled) }
     }
 
     override fun switchCamera() = Unit
@@ -164,7 +169,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
         factory = null
     }
 
-    private fun prepareConnection(callId: String) {
+    private fun prepareConnection(callId: String, isVideo: Boolean) {
         cleanupCall()
         currentCallId = callId
         remoteDescriptionSet = false
@@ -217,10 +222,10 @@ private class DesktopWebRtcEngine : WebRtcEngine {
             }
         })
 
-        addLocalMedia()
+        addLocalMedia(isVideo)
     }
 
-    private fun addLocalMedia() {
+    private fun addLocalMedia(withVideo: Boolean) {
         val factory = factory ?: return
         val pc = peerConnection ?: return
 
@@ -236,6 +241,34 @@ private class DesktopWebRtcEngine : WebRtcEngine {
             audioTrack,
             RTCRtpTransceiverInit().apply { direction = RTCRtpTransceiverDirection.SEND_RECV }
         )
+
+        if (withVideo) {
+            runCatching { addLocalVideo() }
+        }
+    }
+
+    /** Adds the default camera as a local video track; audio-only on failure (no camera etc.). */
+    private fun addLocalVideo() {
+        val factory = factory ?: return
+        val pc = peerConnection ?: return
+        val device = MediaDevices.getVideoCaptureDevices().firstOrNull() ?: return
+        val capabilities = MediaDevices.getVideoCaptureCapabilities(device)
+        val capability = capabilities.firstOrNull { it.width >= 640 && it.width <= 1280 }
+            ?: capabilities.firstOrNull() ?: return
+
+        val source = VideoDeviceSource()
+        source.setVideoCaptureDevice(device)
+        source.setVideoCaptureCapability(capability)
+        source.start()
+        videoDeviceSource = source
+
+        val videoTrack = factory.createVideoTrack("matrixtalk-video", source)
+        localVideoTrackInternal = videoTrack
+        _localVideoTrack.value = videoTrack
+        pc.addTransceiver(
+            videoTrack,
+            RTCRtpTransceiverInit().apply { direction = RTCRtpTransceiverDirection.SEND_RECV }
+        )
     }
 
     private fun flushPendingCandidates() {
@@ -249,6 +282,12 @@ private class DesktopWebRtcEngine : WebRtcEngine {
     private fun cleanupCall() {
         runCatching { peerConnection?.setAudioRecording(false) }
         runCatching { peerConnection?.setAudioPlayout(false) }
+        runCatching { videoDeviceSource?.stop() }
+        runCatching { localVideoTrackInternal?.dispose() }
+        localVideoTrackInternal = null
+        runCatching { videoDeviceSource?.dispose() }
+        videoDeviceSource = null
+        _localVideoTrack.value = null
         runCatching { localAudioTrack?.dispose() }
         localAudioTrack = null
         runCatching { audioTrackSource?.dispose() }
