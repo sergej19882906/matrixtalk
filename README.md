@@ -27,8 +27,10 @@
 - ✅ Material Design 3 и тёмная тема, корректная работа с вырезами экрана и наэкранными кнопками
 
 ### 📞 Аудио-видео звонки (VoIP)
-- 🚧 Экраны звонков и сигналинг — в разработке
-- 🚧 WebRTC-медиа — в планах (Android → Desktop → iOS)
+- ✅ Сигналинг Matrix (m.call.invite/answer/candidates/hangup/reject, VoIP v0 + party_id для совместимости с Element)
+- ✅ WebRTC-медиа на Android (stream-webrtc-android) и Desktop (webrtc-java): аудио + видео, TURN/STUN с хомсервера
+- ✅ Входящие/исходящие звонки из интерфейса, экран звонка с микрофоном/камерой/динамиком, foreground-сервис на Android
+- 🚧 iOS — в планах
 - ✅ Серверная часть: Coturn (TURN/STUN) включён в Docker-стек
 
 ### 🔗 Мосты Telegram, WhatsApp и Signal
