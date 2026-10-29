@@ -85,6 +85,18 @@ actual fun logError(tag: String, message: String, throwable: Throwable?) {
     }
 }
 
+actual fun startIncomingCallRingtone(): () -> Unit {
+    val context = appContext ?: return {}
+    val ringtone = runCatching {
+        android.media.RingtoneManager.getRingtone(
+            context,
+            android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_RINGTONE)
+        ).apply { isLooping = true }
+    }.getOrNull() ?: return {}
+    runCatching { ringtone.play() }
+    return { runCatching { if (ringtone.isPlaying) ringtone.stop() } }
+}
+
 fun resolveFileInfo(context: Context, uri: Uri): FileResult? {
     var name = uri.lastPathSegment?.substringAfterLast('/').orEmpty()
     var size = -1L

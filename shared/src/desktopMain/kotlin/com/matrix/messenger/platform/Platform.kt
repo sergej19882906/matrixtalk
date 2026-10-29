@@ -106,3 +106,39 @@ actual fun logError(tag: String, message: String, throwable: Throwable?) {
     logDir.resolve("error.log").appendText(entry)
     System.err.print(entry)
 }
+
+/**
+ * Synthesized two-tone ringback (440/480 Hz, classic call tone) played in a loop —
+ * desktop builds ship no audio assets.
+ */
+actual fun startIncomingCallRingtone(): () -> Unit {
+    val sampleRate = 8000
+    val toneSeconds = 2
+    val samples = sampleRate * toneSeconds
+    val pcm = ByteArray(samples * 2) // 16-bit mono
+    for (i in 0 until samples) {
+        val t = i.toDouble() / sampleRate
+        val freq = if (i < samples / 2) 440.0 else 480.0
+        val value = (kotlin.math.sin(2 * kotlin.math.PI * freq * t) * 12000).toInt()
+        pcm[i * 2] = (value and 0xFF).toByte()
+        pcm[i * 2 + 1] = ((value shr 8) and 0xFF).toByte()
+    }
+    val format = javax.sound.sampled.AudioFormat(
+        sampleRate.toFloat(), 16, 1, true, false
+    )
+    val audioIn = javax.sound.sampled.AudioInputStream(
+        java.io.ByteArrayInputStream(pcm), format, samples.toLong()
+    )
+    val clip = runCatching {
+        javax.sound.sampled.AudioSystem.getClip().apply {
+            open(audioIn)
+            loop(javax.sound.sampled.Clip.LOOP_CONTINUOUSLY)
+        }
+    }.getOrNull() ?: return {}
+    return {
+        runCatching {
+            clip.stop()
+            clip.close()
+        }
+    }
+}

@@ -28,6 +28,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.matrix.messenger.call.VideoTrackView
 import com.matrix.messenger.data.model.CallState
+import com.matrix.messenger.platform.startIncomingCallRingtone
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -84,6 +86,16 @@ fun CallScreen(
                 onCallEnded()
             }
             else -> wasActive = true
+        }
+    }
+
+    // Ring while the call is incoming.
+    DisposableEffect(callState) {
+        if (callState is CallState.Incoming) {
+            val stopRingtone = startIncomingCallRingtone()
+            onDispose { stopRingtone() }
+        } else {
+            onDispose { }
         }
     }
 

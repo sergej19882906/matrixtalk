@@ -31,3 +31,6 @@ expect fun createTrixnityRepositoriesModule(): org.koin.core.module.Module
 
 /** Logs an error with optional stack trace (logcat on Android, file + stderr on Desktop). */
 expect fun logError(tag: String, message: String, throwable: Throwable? = null)
+
+/** Starts the incoming-call ringtone; returns a stop handle. No-op on platforms without audio. */
+expect fun startIncomingCallRingtone(): () -> Unit
