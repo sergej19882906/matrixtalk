@@ -1,10 +1,20 @@
 package com.matrix.messenger.ui.chat
 
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import com.matrix.messenger.platform.openUrl
 
 private val mentionRegex = Regex("@[\\p{L}\\p{N}_.:\\-]+")
 
@@ -47,4 +57,32 @@ fun buildMentionAnnotatedString(
         index = end
     }
     append(body.substring(index))
+}
+
+/** Renders a rich (HTML) message body; link taps open the URL. */
+@Composable
+fun RichMessageText(html: String, modifier: Modifier = Modifier) {
+    val text = RichTextParser.parse(
+        html = html,
+        linkColor = MaterialTheme.colorScheme.primary,
+        codeBackground = MaterialTheme.colorScheme.surfaceVariant,
+        spoilerBackground = MaterialTheme.colorScheme.surfaceVariant
+    )
+    val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
+    Text(
+        text = text,
+        modifier = modifier.pointerInput(text) {
+            detectTapGestures { position ->
+                layoutResult.value?.let { layout ->
+                    val offset = layout.getOffsetForPosition(position)
+                    text.getStringAnnotations(RichTextParser.LINK_TAG, offset, offset)
+                        .firstOrNull()
+                        ?.let { openUrl(it.item) }
+                }
+            }
+        },
+        onTextLayout = { layoutResult.value = it },
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface
+    )
 }

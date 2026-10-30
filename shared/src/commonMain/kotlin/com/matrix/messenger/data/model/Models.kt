@@ -52,7 +52,9 @@ data class Message(
     val reactions: Map<String, Int> = emptyMap(),
     val mediaUrl: String? = null,
     val encryptedFile: EncryptedFile? = null,
-    val replyTo: ReplyInfo? = null
+    val replyTo: ReplyInfo? = null,
+    /** HTML body (org.matrix.custom.html) when the sender used rich formatting. */
+    val formattedBody: String? = null
 )
 
 /** Quoted original of a reply (m.in_reply_to). */

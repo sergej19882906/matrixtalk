@@ -540,16 +540,23 @@ private fun MessageItem(
                                         }
                                     }
 
-                                    else -> Text(
-                                        text = buildMentionAnnotatedString(
-                                            body = message.body,
-                                            ownShortId = ownShortId,
-                                            ownDisplayName = ownDisplayName,
-                                            mentionColor = MaterialTheme.colorScheme.primary
-                                        ),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
+                                    else -> {
+                                        val formatted = message.formattedBody
+                                        if (formatted != null) {
+                                            RichMessageText(html = formatted)
+                                        } else {
+                                            Text(
+                                                text = buildMentionAnnotatedString(
+                                                    body = message.body,
+                                                    ownShortId = ownShortId,
+                                                    ownDisplayName = ownDisplayName,
+                                                    mentionColor = MaterialTheme.colorScheme.primary
+                                                ),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             Row(

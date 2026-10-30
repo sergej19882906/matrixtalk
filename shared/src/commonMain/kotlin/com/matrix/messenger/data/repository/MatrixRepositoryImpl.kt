@@ -934,7 +934,8 @@ class MatrixRepositoryImpl : MatrixRepository {
             isDeleted = isDeleted,
             mediaUrl = mediaUrl,
             encryptedFile = encryptedFile,
-            replyTo = replyTo
+            replyTo = replyTo,
+            formattedBody = (messageContent as? RoomMessageEventContent.TextBased)?.formattedBody
         )
     }
 
