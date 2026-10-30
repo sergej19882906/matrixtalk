@@ -35,6 +35,12 @@ expect fun logError(tag: String, message: String, throwable: Throwable? = null)
 /** Starts the incoming-call ringtone; returns a stop handle. No-op on platforms without audio. */
 expect fun startIncomingCallRingtone(): () -> Unit
 
+/** A shareable screen/window source (Desktop only; empty on Android). */
+data class ScreenSource(val id: Long, val title: String)
+
+/** Lists shareable screen/window sources. Empty on platforms without desktop capture. */
+expect suspend fun listScreenSources(): List<ScreenSource>
+
 /** Human-readable app version for the About section. */
 expect fun appVersionName(): String
 

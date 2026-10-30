@@ -133,7 +133,13 @@ class CallRepository(
         _callState.value = CallState.Incoming(event.fromUserId, event.fromUserId)
     }
 
-    suspend fun startCall(roomId: String, peerUserId: String, peerName: String, isVideo: Boolean) {
+    suspend fun startCall(
+        roomId: String,
+        peerUserId: String,
+        peerName: String,
+        isVideo: Boolean,
+        screenShareSourceId: Long? = null
+    ) {
         if (_callState.value != CallState.Idle) return
         engine.initialize()
         prepareIceServers()
@@ -148,7 +154,7 @@ class CallRepository(
         )
         _currentCall.value = currentCall
         _callState.value = CallState.Outgoing(peerUserId, peerName)
-        engine.startCall(callId, isVideo)
+        engine.startCall(callId, isVideo, screenShareSourceId)
     }
 
     suspend fun acceptCall(callId: String? = null) {

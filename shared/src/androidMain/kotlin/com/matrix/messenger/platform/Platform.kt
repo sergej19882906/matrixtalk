@@ -117,6 +117,8 @@ actual fun setMessageNotificationsEnabled(enabled: Boolean) {
     }
 }
 
+actual suspend fun listScreenSources(): List<ScreenSource> = emptyList()
+
 fun resolveFileInfo(context: Context, uri: Uri): FileResult? {
     var name = uri.lastPathSegment?.substringAfterLast('/').orEmpty()
     var size = -1L

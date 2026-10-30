@@ -31,7 +31,7 @@ interface WebRtcEngine {
     fun initialize()
 
     /** Creates a PeerConnection with local media and emits [WebRtcEvent.Offer]. */
-    suspend fun startCall(callId: String, isVideo: Boolean)
+    suspend fun startCall(callId: String, isVideo: Boolean, screenShareSourceId: Long? = null)
 
     /** Creates a PeerConnection with local media, applies the offer and emits [WebRtcEvent.Answer]. */
     suspend fun acceptCall(callId: String, offerSdp: String, isVideo: Boolean)

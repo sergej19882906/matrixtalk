@@ -146,3 +146,12 @@ actual fun startIncomingCallRingtone(): () -> Unit {
 actual fun appVersionName(): String = "1.10.1"
 
 actual fun setMessageNotificationsEnabled(enabled: Boolean) = Unit
+
+actual suspend fun listScreenSources(): List<ScreenSource> = runCatching {
+    val capturer = dev.onvoid.webrtc.media.video.desktop.ScreenCapturer()
+    try {
+        capturer.getDesktopSources().map { ScreenSource(id = it.id, title = it.title) }
+    } finally {
+        runCatching { capturer.dispose() }
+    }
+}.getOrDefault(emptyList())

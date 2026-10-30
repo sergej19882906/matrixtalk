@@ -63,6 +63,8 @@ private class DesktopWebRtcEngine : WebRtcEngine {
     private var audioTrackSource: AudioTrackSource? = null
     private var localAudioTrack: AudioTrack? = null
     private var videoDeviceSource: VideoDeviceSource? = null
+    private var screenCapturer: dev.onvoid.webrtc.media.video.desktop.ScreenCapturer? = null
+    private var screenShareSource: dev.onvoid.webrtc.media.video.CustomVideoSource? = null
     private var localVideoTrackInternal: VideoTrack? = null
     private var currentCallId: String? = null
     private var remoteDescriptionSet = false
@@ -83,11 +85,11 @@ private class DesktopWebRtcEngine : WebRtcEngine {
         }
     }
 
-    override suspend fun startCall(callId: String, isVideo: Boolean) {
+    override suspend fun startCall(callId: String, isVideo: Boolean, screenShareSourceId: Long?) {
         withContext(Dispatchers.Default) {
             runCatching {
                 initialize()
-                prepareConnection(callId, isVideo)
+                prepareConnection(callId, isVideo, screenShareSourceId)
                 val pc = peerConnection ?: error("PeerConnection not created")
                 val offer = pc.awaitCreateOffer()
                 pc.awaitSetLocalDescription(offer)
@@ -100,7 +102,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
         withContext(Dispatchers.Default) {
             runCatching {
                 initialize()
-                prepareConnection(callId, isVideo)
+                prepareConnection(callId, isVideo, null)
                 val pc = peerConnection ?: error("PeerConnection not created")
                 pc.awaitSetRemoteDescription(RTCSessionDescription(RTCSdpType.OFFER, offerSdp))
                 remoteDescriptionSet = true
@@ -169,7 +171,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
         factory = null
     }
 
-    private fun prepareConnection(callId: String, isVideo: Boolean) {
+    private fun prepareConnection(callId: String, isVideo: Boolean, screenShareSourceId: Long?) {
         cleanupCall()
         currentCallId = callId
         remoteDescriptionSet = false
@@ -222,10 +224,10 @@ private class DesktopWebRtcEngine : WebRtcEngine {
             }
         })
 
-        addLocalMedia(isVideo)
+        addLocalMedia(isVideo, screenShareSourceId)
     }
 
-    private fun addLocalMedia(withVideo: Boolean) {
+    private fun addLocalMedia(withVideo: Boolean, screenShareSourceId: Long?) {
         val factory = factory ?: return
         val pc = peerConnection ?: return
 
@@ -243,8 +245,49 @@ private class DesktopWebRtcEngine : WebRtcEngine {
         )
 
         if (withVideo) {
-            runCatching { addLocalVideo() }
+            if (screenShareSourceId != null) {
+                runCatching { addScreenShare(screenShareSourceId) }
+                    .onFailure {
+                        _events.tryEmit(WebRtcEvent.Error("Не удалось начать демонстрацию экрана: ${it.message}"))
+                    }
+            } else {
+                runCatching { addLocalVideo() }
+            }
         }
+    }
+
+    /** Shares a screen/window via ScreenCapturer bridged into the call as a video track. */
+    private fun addScreenShare(sourceId: Long) {
+        val factory = factory ?: return
+        val pc = peerConnection ?: return
+        val capturer = dev.onvoid.webrtc.media.video.desktop.ScreenCapturer()
+        val desktopSource = capturer.getDesktopSources().firstOrNull { it.id == sourceId } ?: run {
+            capturer.dispose()
+            return
+        }
+        screenCapturer = capturer
+
+        val customSource = dev.onvoid.webrtc.media.video.CustomVideoSource()
+        screenShareSource = customSource
+        capturer.selectSource(desktopSource)
+        capturer.setMaxFrameRate(15)
+        capturer.start { result, frame ->
+            if (result == dev.onvoid.webrtc.media.video.desktop.DesktopCapturer.Result.SUCCESS && frame != null) {
+                runCatching {
+                    frame.retain()
+                    customSource.pushFrame(frame)
+                }
+                runCatching { frame.release() }
+            }
+        }
+
+        val videoTrack = factory.createVideoTrack("matrixtalk-screenshare", customSource)
+        localVideoTrackInternal = videoTrack
+        _localVideoTrack.value = videoTrack
+        pc.addTransceiver(
+            videoTrack,
+            RTCRtpTransceiverInit().apply { direction = RTCRtpTransceiverDirection.SEND_RECV }
+        )
     }
 
     /** Adds the default camera as a local video track; audio-only on failure (no camera etc.). */
@@ -282,9 +325,13 @@ private class DesktopWebRtcEngine : WebRtcEngine {
     private fun cleanupCall() {
         runCatching { peerConnection?.setAudioRecording(false) }
         runCatching { peerConnection?.setAudioPlayout(false) }
-        runCatching { videoDeviceSource?.stop() }
+        runCatching { screenCapturer?.dispose() }
+        screenCapturer = null
         runCatching { localVideoTrackInternal?.dispose() }
         localVideoTrackInternal = null
+        runCatching { screenShareSource?.dispose() }
+        screenShareSource = null
+        runCatching { videoDeviceSource?.stop() }
         runCatching { videoDeviceSource?.dispose() }
         videoDeviceSource = null
         _localVideoTrack.value = null

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PresentToAll
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Videocam
@@ -66,6 +67,8 @@ import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.repository.CallRepository
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.media.MatrixMedia
+import com.matrix.messenger.platform.ScreenSource
+import com.matrix.messenger.platform.listScreenSources
 import com.matrix.messenger.platform.rememberCallPermissionRequester
 import com.matrix.messenger.platform.rememberFilePicker
 import kotlinx.coroutines.launch
@@ -98,6 +101,8 @@ fun ChatScreen(
     val coroutineScope = rememberCoroutineScope()
     val currentUser by matrixRepository.currentUser.collectAsState(initial = null)
     var pendingVideoCall by remember { mutableStateOf(false) }
+    var pendingScreenShareId by remember { mutableStateOf<Long?>(null) }
+    var screenSources by remember { mutableStateOf<List<ScreenSource>?>(null) }
     val requestCallPermissions = rememberCallPermissionRequester { granted ->
         if (!granted) {
             coroutineScope.launch {
@@ -110,7 +115,8 @@ fun ChatScreen(
                         roomId = roomId,
                         peerUserId = matrixRepository.resolveDirectChatPeerId(roomId) ?: "",
                         peerName = uiState.roomName ?: "Собеседник",
-                        isVideo = pendingVideoCall
+                        isVideo = pendingVideoCall,
+                        screenShareSourceId = pendingScreenShareId
                     )
                 }.onSuccess { onStartCall() }
                     .onFailure {
@@ -184,15 +190,29 @@ fun ChatScreen(
                     }
                     IconButton(onClick = {
                         pendingVideoCall = false
+                        pendingScreenShareId = null
                         requestCallPermissions(false)
                     }) {
                         Icon(Icons.Default.Call, contentDescription = "Аудио звонок")
                     }
                     IconButton(onClick = {
                         pendingVideoCall = true
+                        pendingScreenShareId = null
                         requestCallPermissions(true)
                     }) {
                         Icon(Icons.Default.Videocam, contentDescription = "Видео звонок")
+                    }
+                    IconButton(onClick = {
+                        coroutineScope.launch {
+                            val sources = listScreenSources()
+                            if (sources.isEmpty()) {
+                                snackbarHostState.showSnackbar("Демонстрация экрана недоступна на этом устройстве")
+                            } else {
+                                screenSources = sources
+                            }
+                        }
+                    }) {
+                        Icon(Icons.Default.PresentToAll, contentDescription = "Демонстрация экрана")
                     }
                     Box {
                         IconButton(onClick = { roomMenuExpanded = true }) {
@@ -290,6 +310,33 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    screenSources?.let { sources ->
+        AlertDialog(
+            onDismissRequest = { screenSources = null },
+            title = { Text("Что показать?") },
+            text = {
+                Column {
+                    sources.forEach { source ->
+                        TextButton(
+                            onClick = {
+                                screenSources = null
+                                pendingVideoCall = true
+                                pendingScreenShareId = source.id
+                                requestCallPermissions(true)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(source.title.ifBlank { "Экран ${source.id}" }, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { screenSources = null }) { Text("Отмена") }
+            }
+        )
     }
 
     editingMessage?.let { message ->

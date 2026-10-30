@@ -94,7 +94,7 @@ class CallRepositoryTest {
         override val eglContext: Any? = null
 
         override fun initialize() = Unit
-        override suspend fun startCall(callId: String, isVideo: Boolean) {
+        override suspend fun startCall(callId: String, isVideo: Boolean, screenShareSourceId: Long?) {
             eventsFlow.tryEmit(WebRtcEvent.Offer(callId, testSdp))
         }
         override suspend fun acceptCall(callId: String, offerSdp: String, isVideo: Boolean) {
