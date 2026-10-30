@@ -106,6 +106,16 @@
             android:exported="false"
             android:foregroundServiceType="camera|microphone|phoneCall" />
 
+        <!-- 🆕 Telecom-интеграция: звонки в системном UI Android -->
+        <service
+            android:name=".telecom.MatrixCallConnectionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+
         <!-- 🆕 Boot receiver для восстановления синхронизации -->
         <receiver
             android:name=".receiver.BootReceiver"

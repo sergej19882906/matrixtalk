@@ -160,6 +160,7 @@ class CallRepository(
     suspend fun acceptCall(callId: String? = null) {
         val call = currentCall ?: return
         if (callId != null && call.callId != callId) return
+        if (_callState.value !is CallState.Incoming) return
         val offerSdp = call.offerSdp ?: return
         engine.initialize()
         prepareIceServers()

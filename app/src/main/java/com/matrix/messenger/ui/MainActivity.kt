@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
+import com.matrix.messenger.data.repository.CallRepository
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.receiver.OemBatteryHelper
 import com.matrix.messenger.ui.navigation.AppNavigation
@@ -35,6 +36,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val matrixRepository: MatrixRepository by inject()
+    private val callRepository: CallRepository by inject()
 
     private var isReady by mutableStateOf(false)
     private var isAuthenticated by mutableStateOf(false)
@@ -50,6 +52,10 @@ class MainActivity : ComponentActivity() {
                 isAuthenticated = matrixRepository.currentUser.first() != null
                 isReady = true
                 if (isAuthenticated) {
+                    // System Telecom UI for calls (incoming-call screen, answer/reject)
+                    com.matrix.messenger.telecom.CallTelecomIntegration.install(
+                        this@MainActivity, callRepository, lifecycleScope
+                    )
                     requestBatteryBypassIfNeeded()
                 }
             } catch (e: Exception) {
