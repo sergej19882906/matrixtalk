@@ -7,6 +7,7 @@ import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.UiState
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.platform.openUrl
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +26,8 @@ data class ChatUiState(
     val isTyping: Boolean = false,
     val typingUsers: List<String> = emptyList(),
     val pinnedMessages: List<Message> = emptyList(),
+    val isRecordingVoice: Boolean = false,
+    val recordingSeconds: Int = 0,
     val error: String? = null,
     val replyingTo: Message? = null
 )
@@ -207,6 +210,72 @@ class ChatViewModel(
                 )
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки файла: ${e.message}"))
+            }
+        }
+    }
+
+    // --- Voice messages ---
+
+    private var voiceRecorder: com.matrix.messenger.platform.VoiceRecorder? = null
+    private var recordingTimerJob: Job? = null
+
+    fun startVoiceRecording() {
+        if (_uiState.value.isRecordingVoice) return
+        val recorder = com.matrix.messenger.platform.createVoiceRecorder()
+        if (!recorder.start()) {
+            viewModelScope.launch {
+                _events.send(UiEvent.ShowSnackbar("Не удалось начать запись — проверьте микрофон"))
+            }
+            return
+        }
+        voiceRecorder = recorder
+        _uiState.value = _uiState.value.copy(isRecordingVoice = true, recordingSeconds = 0)
+        recordingTimerJob = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1000)
+                _uiState.value = _uiState.value.copy(recordingSeconds = _uiState.value.recordingSeconds + 1)
+            }
+        }
+    }
+
+    fun stopVoiceRecording(send: Boolean) {
+        val recorder = voiceRecorder ?: return
+        voiceRecorder = null
+        recordingTimerJob?.cancel()
+        recordingTimerJob = null
+        _uiState.value = _uiState.value.copy(isRecordingVoice = false, recordingSeconds = 0)
+        if (!send) {
+            recorder.cancel()
+            return
+        }
+        viewModelScope.launch {
+            val path = recorder.stop()
+            if (path == null) {
+                _events.send(UiEvent.ShowSnackbar("Запись не сохранилась"))
+                return@launch
+            }
+            try {
+                val mime = if (path.endsWith(".wav")) "audio/wav" else "audio/mp4"
+                matrixRepository.sendFileMessage(_uiState.value.roomId, path, mime)
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка отправки голосового: ${e.message}"))
+            }
+        }
+    }
+
+    fun playAudioMessage(message: Message) {
+        viewModelScope.launch {
+            try {
+                val source = if (message.encryptedFile != null) {
+                    matrixRepository.resolveMediaFile(message.eventId, message.body)
+                } else message.mediaUrl
+                if (source != null) {
+                    com.matrix.messenger.platform.playAudio(source)
+                } else {
+                    _events.send(UiEvent.ShowSnackbar("Не удалось открыть аудио"))
+                }
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка воспроизведения: ${e.message}"))
             }
         }
     }

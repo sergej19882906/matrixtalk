@@ -25,7 +25,9 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PresentToAll
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Send
@@ -243,7 +245,11 @@ fun ChatScreen(
                 onSend = viewModel::sendMessage,
                 onFileSelected = pickAttachment,
                 replyingTo = uiState.replyingTo,
-                onCancelReply = viewModel::cancelReply
+                onCancelReply = viewModel::cancelReply,
+                isRecordingVoice = uiState.isRecordingVoice,
+                recordingSeconds = uiState.recordingSeconds,
+                onStartVoice = viewModel::startVoiceRecording,
+                onStopVoice = { send -> viewModel.stopVoiceRecording(send) }
             )
         }
     ) { paddingValues ->
@@ -301,6 +307,7 @@ fun ChatScreen(
                                 onDelete = { messageToDelete = message },
                                 onOpenAttachment = { viewModel.openAttachment(message) },
                                 onReply = { viewModel.replyToMessage(message) },
+                                onPlayAudio = { viewModel.playAudioMessage(message) },
                                 isPinned = uiState.pinnedMessages.any { it.eventId == message.eventId },
                                 onTogglePin = { viewModel.togglePin(message) }
                             )
@@ -428,7 +435,8 @@ private fun MessageItem(
     onDelete: () -> Unit,
     onOpenAttachment: () -> Unit,
     onReply: () -> Unit,
-    onTogglePin: () -> Unit
+    onTogglePin: () -> Unit,
+    onPlayAudio: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
@@ -521,22 +529,42 @@ private fun MessageItem(
                                     }
 
                                     message.mediaUrl != null || message.encryptedFile != null -> {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.clickable { onOpenAttachment() }
-                                        ) {
-                                            Icon(
-                                                Icons.Default.AttachFile,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(20.dp),
-                                                tint = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = message.body,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
+                                        if (message.messageType == MessageType.AUDIO) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.clickable { onPlayAudio() }
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.PlayArrow,
+                                                    contentDescription = "Воспроизвести",
+                                                    modifier = Modifier.size(24.dp),
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Голосовое сообщение",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        } else {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.clickable { onOpenAttachment() }
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.AttachFile,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(20.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = message.body,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
                                         }
                                     }
 
@@ -705,7 +733,11 @@ private fun MessageInputBar(
     onSend: () -> Unit,
     onFileSelected: () -> Unit,
     replyingTo: Message?,
-    onCancelReply: () -> Unit
+    onCancelReply: () -> Unit,
+    isRecordingVoice: Boolean,
+    recordingSeconds: Int,
+    onStartVoice: () -> Unit,
+    onStopVoice: (send: Boolean) -> Unit
 ) {
     Surface(
         tonalElevation = 2.dp,
@@ -761,6 +793,32 @@ private fun MessageInputBar(
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(Icons.Default.AttachFile, contentDescription = "Прикрепить файл")
+                }
+                if (isRecordingVoice) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "● ${recordingSeconds / 60}:${(recordingSeconds % 60).toString().padStart(2, '0')}",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        IconButton(onClick = { onStopVoice(false) }) {
+                            Icon(Icons.Default.Close, contentDescription = "Отменить запись")
+                        }
+                        IconButton(onClick = { onStopVoice(true) }) {
+                            Icon(
+                                Icons.Default.Send,
+                                contentDescription = "Отправить голосовое",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                } else {
+                    IconButton(
+                        onClick = onStartVoice,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = "Голосовое сообщение")
+                    }
                 }
                 IconButton(
                     onClick = onSend,
