@@ -46,6 +46,9 @@ import org.koin.androidx.compose.koinViewModel
 
 class CallActivity : ComponentActivity() {
 
+    private var lastCallState: CallState = CallState.Idle
+    private var isInPip: Boolean = false
+
     companion object {
         const val EXTRA_CALL_ID = "extra_call_id"
         const val EXTRA_ROOM_ID = "extra_room_id"
@@ -127,11 +130,15 @@ class CallActivity : ComponentActivity() {
 
                     val callState by viewModel.callState.collectAsState()
                     LaunchedEffect(callState) {
+                        lastCallState = callState
                         when (callState) {
-                            is CallState.Connected ->
+                            is CallState.Connected -> {
                                 CallService.startOutgoingCall(
                                     this@CallActivity, callId, roomId, peerName, isVideo
                                 )
+                                // Auto-PiP for video calls once connected
+                                if (isVideo && !isInPip) enterPip()
+                            }
                             is CallState.Ended, CallState.Idle ->
                                 CallService.endCall(this@CallActivity)
                             else -> Unit
@@ -163,6 +170,34 @@ class CallActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         recreate()
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // System back-to-home gesture during an active call -> PiP window.
+        when (lastCallState) {
+            is CallState.Connected, is CallState.Outgoing, is CallState.Incoming ->
+                if (!isInPip) enterPip()
+            else -> Unit
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isInPip = isInPictureInPictureMode
+    }
+
+    private fun enterPip() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
+        runCatching {
+            val params = android.app.PictureInPictureParams.Builder()
+                .setAspectRatio(android.util.Rational(9, 16))
+                .build()
+            enterPictureInPictureMode(params)
+        }
     }
 
     override fun onDestroy() {
