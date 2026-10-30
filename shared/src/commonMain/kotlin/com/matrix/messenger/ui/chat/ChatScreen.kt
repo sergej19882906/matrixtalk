@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +18,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,6 +31,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PresentToAll
 import androidx.compose.material.icons.filled.PushPin
@@ -91,6 +96,7 @@ fun ChatScreen(
     var editingMessage by remember { mutableStateOf<Message?>(null) }
     var editText by remember { mutableStateOf("") }
     var showPinned by remember { mutableStateOf(false) }
+    var showGallery by remember { mutableStateOf(false) }
     var messageToDelete by remember { mutableStateOf<Message?>(null) }
     var roomMenuExpanded by remember { mutableStateOf(false) }
     var confirmLeaveRoom by remember { mutableStateOf(false) }
@@ -190,6 +196,14 @@ fun ChatScreen(
                             )
                         }
                     }
+                    IconButton(onClick = { showGallery = !showGallery }) {
+                        Icon(
+                            Icons.Default.PhotoLibrary,
+                            contentDescription = "Вложения",
+                            tint = if (showGallery) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                     IconButton(onClick = {
                         pendingVideoCall = false
                         pendingScreenShareId = null
@@ -270,6 +284,13 @@ fun ChatScreen(
                             PinnedBanner(
                                 pinned = uiState.pinnedMessages,
                                 onClose = { showPinned = false }
+                            )
+                        }
+                        if (showGallery) {
+                            GalleryPanel(
+                                messages = uiState.messages,
+                                onOpen = { viewModel.openAttachment(it) },
+                                onClose = { showGallery = false }
                             )
                         }
                         LazyColumn(
@@ -683,6 +704,90 @@ private fun MessageItem(
             }
             if (message.isMine) {
                 Spacer(modifier = Modifier.width(32.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun GalleryPanel(
+    messages: List<Message>,
+    onOpen: (Message) -> Unit,
+    onClose: () -> Unit
+) {
+    val media = messages.filter {
+        it.messageType == MessageType.IMAGE && !it.isDeleted && (it.mediaUrl != null || it.encryptedFile != null)
+    }.asReversed()
+    val files = messages.filter {
+        it.messageType in setOf(MessageType.FILE, MessageType.VIDEO, MessageType.AUDIO) &&
+            !it.isDeleted && (it.mediaUrl != null || it.encryptedFile != null)
+    }.asReversed()
+
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Вложения",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onClose, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Закрыть", modifier = Modifier.size(16.dp))
+                }
+            }
+            if (media.isEmpty() && files.isEmpty()) {
+                Text(
+                    text = "В загруженной истории нет вложений",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (media.isNotEmpty()) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(4),
+                    modifier = Modifier.fillMaxWidth().height(180.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    gridItems(
+                        items = media,
+                        key = { "img_${it.eventId}" }
+                    ) { msg ->
+                        Box(
+                            modifier = Modifier
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onOpen(msg) }
+                        ) {
+                            AsyncImage(
+                                model = MatrixMedia(msg.mediaUrl, msg.encryptedFile),
+                                contentDescription = msg.body,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                }
+            }
+            files.take(5).forEach { msg ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable { onOpen(msg) }.padding(vertical = 4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.AttachFile,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = msg.body,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
