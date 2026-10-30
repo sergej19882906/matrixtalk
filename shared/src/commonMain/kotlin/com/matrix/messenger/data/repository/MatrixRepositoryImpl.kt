@@ -14,6 +14,7 @@ import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
 import com.matrix.messenger.data.model.ReplyInfo
+import com.matrix.messenger.data.model.SearchResultItem
 import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.media.MediaBytesProvider
 import com.matrix.messenger.platform.attachmentsDir
@@ -163,6 +164,46 @@ class MatrixRepositoryImpl : MatrixRepository {
         val c = client ?: return null
         val room = c.room.getById(RoomId(roomId)).firstOrNull() ?: return null
         return room.name?.heroes?.firstOrNull { it != c.userId }?.full
+    }
+
+    override suspend fun searchMessages(query: String, limit: Int): List<SearchResultItem> {
+        val c = requireClient()
+        val response = c.api.server.search(
+            net.folivo.trixnity.clientserverapi.model.server.Search.Request(
+                searchCategories = net.folivo.trixnity.clientserverapi.model.server.Search.Request.Categories(
+                    roomEvents = net.folivo.trixnity.clientserverapi.model.server.Search.Request.Categories.RoomEventsCriteria(
+                        searchTerm = query,
+                        filter = net.folivo.trixnity.clientserverapi.model.users.Filters.RoomFilter.RoomEventFilter(
+                            types = setOf("m.room.message"),
+                            limit = limit.toLong()
+                        ),
+                        keys = setOf("content.body"),
+                        orderBy = net.folivo.trixnity.clientserverapi.model.server.Search.Request.Categories.RoomEventsCriteria.Ordering.RECENT
+                    )
+                )
+            )
+        ).getOrThrow()
+        val roomEvents = response.searchCategories.roomEvents ?: return emptyList()
+        return roomEvents.results.orEmpty().mapNotNull { hit ->
+            val event = hit.result as? net.folivo.trixnity.core.model.events.ClientEvent.RoomEvent.MessageEvent<*>
+                ?: return@mapNotNull null
+            val content = event.content as? RoomMessageEventContent ?: return@mapNotNull null
+            val rId = RoomId(event.roomId.full)
+            SearchResultItem(
+                eventId = event.id.full,
+                roomId = event.roomId.full,
+                roomName = c.room.getById(rId).firstOrNull()?.let { room ->
+                    room.name?.explicitName
+                        ?: room.name?.heroes?.takeIf { it.isNotEmpty() }
+                            ?.joinToString(", ") { it.full.substringBefore(":").removePrefix("@") }
+                        ?: event.roomId.full
+                },
+                senderName = hit.context?.profileInfo?.get(event.sender)?.displayName
+                    ?: c.resolveSenderName(rId, event.sender),
+                body = content.body.stripReplyFallback().take(SEARCH_SNIPPET_MAX),
+                timestamp = event.originTimestamp
+            )
+        }.take(limit)
     }
 
     @Serializable
@@ -1025,5 +1066,6 @@ class MatrixRepositoryImpl : MatrixRepository {
         const val REPLY_PREVIEW_MAX = 120
         const val TYPING_DISPLAY_TIMEOUT_MS = 6_000L
         const val PINNED_RESOLVE_TIMEOUT_MS = 400L
+        const val SEARCH_SNIPPET_MAX = 200
     }
 }

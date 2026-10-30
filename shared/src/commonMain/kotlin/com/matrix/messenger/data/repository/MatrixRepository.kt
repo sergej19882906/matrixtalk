@@ -9,6 +9,7 @@ import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
+import com.matrix.messenger.data.model.SearchResultItem
 import com.matrix.messenger.data.model.VerificationUiState
 import kotlinx.coroutines.flow.Flow
 
@@ -28,6 +29,9 @@ interface MatrixRepository {
 
     /** The other member's user id for a direct (1:1) room, null for group rooms. */
     suspend fun resolveDirectChatPeerId(roomId: String): String?
+
+    /** Server-side full-text search over message bodies. */
+    suspend fun searchMessages(query: String, limit: Int = 30): List<SearchResultItem>
 
     suspend fun initialize()
 

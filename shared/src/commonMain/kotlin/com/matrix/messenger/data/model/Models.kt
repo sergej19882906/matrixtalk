@@ -87,6 +87,16 @@ sealed interface VerificationUiState {
     data class Cancelled(val reason: String?) : VerificationUiState
 }
 
+/** A single hit from server-side message search. */
+data class SearchResultItem(
+    val eventId: String,
+    val roomId: String,
+    val roomName: String?,
+    val senderName: String?,
+    val body: String,
+    val timestamp: Long
+)
+
 sealed class LoginResult {
     data class Success(val userId: String) : LoginResult()
     data class Error(val message: String) : LoginResult()

@@ -13,6 +13,7 @@ import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
+import com.matrix.messenger.data.model.SearchResultItem
 import com.matrix.messenger.data.model.Message
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -40,6 +41,7 @@ class CallRepositoryTest {
 
         override suspend fun getTurnServers(): List<IceServer> = emptyList()
         override suspend fun resolveDirectChatPeerId(roomId: String): String? = null
+        override suspend fun searchMessages(query: String, limit: Int): List<SearchResultItem> = emptyList()
         override val currentUser: Flow<MatrixUser?> = MutableStateFlow(null)
         override val connectionState: Flow<ConnectionState> = MutableStateFlow(ConnectionState.Connected)
         override suspend fun initialize() = Unit

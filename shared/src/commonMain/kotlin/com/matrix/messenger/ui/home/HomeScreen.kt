@@ -74,6 +74,7 @@ fun HomeScreen(
     onCreateChat: () -> Unit,
     onBridges: () -> Unit,
     onSettings: () -> Unit,
+    onSearch: () -> Unit,
     viewModel: HomeViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -105,6 +106,9 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text(if (selectedTab == 0) "Чаты" else "Контакты") },
                 actions = {
+                    IconButton(onClick = onSearch) {
+                        Icon(Icons.Default.Search, contentDescription = "Поиск сообщений")
+                    }
                     IconButton(onClick = { profileDialogVisible = true }) {
                         Icon(Icons.Default.AccountCircle, contentDescription = "Профиль")
                     }
