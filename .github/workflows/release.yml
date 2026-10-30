@@ -144,3 +144,10 @@ jobs:
             --title "MatrixTalk ${GITHUB_REF_NAME}" \
             --notes-file release-notes.md \
             artifacts/*
+
+      - name: Trigger AppImage build
+        # Releases created with GITHUB_TOKEN do not emit release events, so the
+        # AppImage workflow cannot trigger on release publication — dispatch it.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run linux-appimage.yml --ref main -f tag="${GITHUB_REF_NAME}"
