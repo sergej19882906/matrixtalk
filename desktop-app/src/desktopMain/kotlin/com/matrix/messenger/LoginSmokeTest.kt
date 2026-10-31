@@ -1,13 +1,28 @@
 package com.matrix.messenger
 
+import com.matrix.messenger.data.repository.SessionStore
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.di.sharedModule
 import kotlinx.coroutines.runBlocking
 import org.koin.core.context.startKoin
 import org.koin.java.KoinJavaComponent.getKoin
 
-/** TEMPORARY smoke test: run login against matrix.org with fake credentials and print the result. */
+/**
+ * Smoke test: run against the PACKAGED classpath (ProGuard jars, optionally a
+ * runtime without jdk.unsupported via --limit-modules) to reproduce the
+ * installer environment where DataStore's sun.misc.Unsafe dependency was missing.
+ */
 fun main(): Unit = runBlocking {
+    // 1. Prefs store must work (write path) on runtimes WITHOUT sun.misc.Unsafe
+    SessionStore.clear()
+    SessionStore.save(SessionStore.Session("https://smoke.test", "@smoke:test", "DEV", "TOK"))
+    val stored = SessionStore.read()
+    check(stored?.accessToken == "TOK") { "SessionStore roundtrip failed: $stored" }
+    SessionStore.saveThemeMode("dark")
+    check(SessionStore.readThemeMode() == "dark") { "Theme mode roundtrip failed" }
+    SessionStore.clear()
+    println("STORE: OK (no Unsafe required)")
+
     startKoin { modules(sharedModule) }
     val repo = getKoin().get<MatrixRepository>()
     println("=== smoke test: login with fake credentials on matrix.org ===")

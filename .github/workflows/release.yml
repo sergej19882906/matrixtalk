@@ -49,6 +49,22 @@ jobs:
         if: ${{ env.KEYSTORE_BASE64 == '' }}
         run: ./gradlew :app:assembleDebug
 
+      - name: Store check on packaged classpath (no-jdk.unsupported runtime)
+        # Reproduces the installer jlink runtime: sun.misc.Unsafe unavailable.
+        # The prefs store must survive it (regression: v1.14.x desktop login crash).
+        shell: bash
+        run: |
+          set -u
+          dir="desktop-app/build/compose/binaries/main/app/MatrixTalk"
+          if [ -f "$dir/MatrixTalk.exe" ]; then appdir="$dir"; else appdir="$dir"; fi
+          mods="$(dirname "$(readlink -f "$(command -v java)")")/../jmods"
+          if [ ! -d "$mods" ]; then
+            java_home_bin="$(dirname "$(readlink -f "$(command -v java)")")"
+            mods="$(cd "$java_home_bin/.." && pwd)/jmods"
+          fi
+          if [ ! -d "$mods" ]; then echo "jmods not found; skipping module-limited check"; exit 0; fi
+          java --module-path "$mods" --limit-modules java.base,java.logging,java.net.http,jdk.crypto.ec,jdk.crypto.cryptoki             -cp "$appdir/app/*" com.matrix.messenger.LoginSmokeTestKt 2>&1 | grep -E "STORE|RESULT|Exception"
+
       - name: Prepare artifact
         shell: bash
         run: |
@@ -89,7 +105,7 @@ jobs:
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
           cache: gradle
 
