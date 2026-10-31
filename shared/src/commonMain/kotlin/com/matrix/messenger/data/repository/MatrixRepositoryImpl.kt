@@ -111,6 +111,7 @@ import net.folivo.trixnity.core.model.events.m.key.verification.VerificationMeth
 import net.folivo.trixnity.utils.toByteArray
 import net.folivo.trixnity.utils.toByteArrayFlow
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class MatrixRepositoryImpl : MatrixRepository {
 
     private val apiJson = Json {
