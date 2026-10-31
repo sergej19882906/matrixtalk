@@ -141,21 +141,11 @@ jobs:
           fi
           echo "Packaged app smoke test OK"
 
-      - name: Store check on packaged classpath (no-jdk.unsupported runtime)
-        # Reproduces the installer jlink runtime: sun.misc.Unsafe unavailable.
-        # The prefs store must survive it (regression: v1.14.x desktop login crash).
+      - name: Store check without sun.misc.Unsafe
+        # Reproduces the installer jlink runtime (no jdk.unsupported module):
+        # the prefs store must survive it (regression: v1.14.x desktop login crash).
         shell: bash
-        run: |
-          set -u
-          appdir="desktop-app/build/compose/binaries/main/app/MatrixTalk"
-          java_bin="$(readlink -f "$(command -v java)")"
-          mods="$(cd "$(dirname "$java_bin")/.." && pwd)/jmods"
-          if [ ! -d "$mods" ]; then echo "jmods not found; skipping module-limited check"; exit 0; fi
-          out=$(java --module-path "$mods" \
-            --limit-modules java.base,java.logging,java.net.http,jdk.crypto.ec,jdk.crypto.cryptoki \
-            -cp "$appdir/app/*" com.matrix.messenger.LoginSmokeTestKt 2>&1 || true)
-          echo "$out"
-          echo "$out" | grep -q "STORE: OK" || { echo "STORE CHECK FAILED"; exit 1; }
+        run: ./gradlew :desktop-app:loginSmokeTestNoUnsafe
 
       - name: Prepare artifact
         shell: bash

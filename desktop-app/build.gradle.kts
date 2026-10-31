@@ -39,6 +39,23 @@ tasks.register<JavaExec>("engineSmokeTest") {
     classpath = configurations["desktopRuntimeClasspath"] + files(tasks.named("desktopJar"))
 }
 
+/**
+ * Runs the smoke test in a module-limited runtime (no jdk.unsupported ->
+ * sun.misc.Unsafe unavailable), reproducing the desktop installer runtime
+ * where DataStore's protobuf dependency used to crash session saving.
+ */
+tasks.register<JavaExec>("loginSmokeTestNoUnsafe") {
+    group = "verification"
+    description = "Smoke test on a runtime without jdk.unsupported (no sun.misc.Unsafe)"
+    mainClass.set("com.matrix.messenger.LoginSmokeTestKt")
+    classpath = configurations["desktopRuntimeClasspath"] + files(tasks.named("desktopJar"))
+    val currentJavaHome = org.gradle.internal.jvm.Jvm.current().javaHome
+    jvmArgs = listOf(
+        "--module-path", File(currentJavaHome, "jmods").absolutePath,
+        "--limit-modules", "java.base,java.logging,java.net.http,jdk.crypto.ec,jdk.crypto.cryptoki"
+    )
+}
+
 compose.desktop {
     application {
         mainClass = "com.matrix.messenger.MainKt"
