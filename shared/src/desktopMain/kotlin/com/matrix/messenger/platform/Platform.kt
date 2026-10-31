@@ -143,7 +143,7 @@ actual fun startIncomingCallRingtone(): () -> Unit {
     }
 }
 
-actual fun appVersionName(): String = "1.14.2"
+actual fun appVersionName(): String = "1.14.3"
 
 actual fun setMessageNotificationsEnabled(enabled: Boolean) = Unit
 
