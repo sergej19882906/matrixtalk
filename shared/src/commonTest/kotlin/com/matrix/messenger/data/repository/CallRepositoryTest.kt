@@ -51,6 +51,7 @@ class CallRepositoryTest {
         override suspend fun loginWithToken(homeServer: String, userId: String, accessToken: String) = LoginResult.Error("test")
         override suspend fun logout() = Unit
         override fun getRoomsFlow(): Flow<List<ChatRoom>> = MutableStateFlow(emptyList())
+        override fun getInvitesFlow(): Flow<List<ChatRoom>> = MutableStateFlow(emptyList())
         override fun getMessagesFlow(roomId: String): Flow<List<Message>> = MutableStateFlow(emptyList())
         override suspend fun loadEarlierMessages(roomId: String) = Unit
         override suspend fun canLoadMoreMessages(roomId: String) = true

@@ -55,6 +55,9 @@ interface MatrixRepository {
 
     fun getRoomsFlow(): Flow<List<ChatRoom>>
 
+    /** Rooms the user is invited to (membership=invite). */
+    fun getInvitesFlow(): Flow<List<ChatRoom>>
+
     suspend fun searchUsers(query: String): List<MatrixUser>
 
     fun getMessagesFlow(roomId: String): Flow<List<Message>>

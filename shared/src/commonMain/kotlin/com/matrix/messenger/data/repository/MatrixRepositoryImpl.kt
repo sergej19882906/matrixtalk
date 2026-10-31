@@ -431,6 +431,20 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
     }
 
+    override fun getInvitesFlow(): Flow<List<ChatRoom>> = _clientState.flatMapLatest { c ->
+        if (c == null) {
+            flowOf(emptyList())
+        } else {
+            c.room.getAll()
+                .flattenValues()
+                .mapLatest { rooms ->
+                    rooms
+                        .filter { it.membership == Membership.INVITE && !it.hasBeenReplaced }
+                        .map { room -> room.toChatRoom(c) }
+                }
+        }
+    }
+
     override suspend fun searchUsers(query: String): List<MatrixUser> {
         val c = requireClient()
         val request = apiJson.encodeToString(UserDirectorySearchRequest(query.trim()))

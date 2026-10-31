@@ -29,7 +29,8 @@ data class HomeUiState(
     val contactSearchQuery: String = "",
     val contacts: List<MatrixUser> = emptyList(),
     val isSearchingContacts: Boolean = false,
-    val contactSearchError: String? = null
+    val contactSearchError: String? = null,
+    val invites: List<ChatRoom> = emptyList()
 )
 
 class HomeViewModel(
@@ -49,6 +50,31 @@ class HomeViewModel(
     init {
         observeUser()
         observeRooms()
+        viewModelScope.launch {
+            matrixRepository.getInvitesFlow().collect { invites ->
+                _uiState.value = _uiState.value.copy(invites = invites)
+            }
+        }
+    }
+
+    fun acceptInvite(roomId: String) {
+        viewModelScope.launch {
+            try {
+                matrixRepository.joinRoom(roomId)
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Не удалось принять приглашение: ${e.message}"))
+            }
+        }
+    }
+
+    fun declineInvite(roomId: String) {
+        viewModelScope.launch {
+            try {
+                matrixRepository.leaveRoom(roomId)
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Не удалось отклонить приглашение: ${e.message}"))
+            }
+        }
     }
 
     private fun observeUser() {

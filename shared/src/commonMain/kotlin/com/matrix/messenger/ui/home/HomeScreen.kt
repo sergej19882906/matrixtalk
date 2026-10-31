@@ -161,6 +161,13 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         singleLine = true
                     )
+                    if (uiState.invites.isNotEmpty()) {
+                        InvitesSection(
+                            invites = uiState.invites,
+                            onAccept = viewModel::acceptInvite,
+                            onDecline = viewModel::declineInvite
+                        )
+                    }
                     when {
                         uiState.isLoading -> {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -310,6 +317,56 @@ fun HomeScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun InvitesSection(
+    invites: List<com.matrix.messenger.data.model.ChatRoom>,
+    onAccept: (String) -> Unit,
+    onDecline: (String) -> Unit
+) {
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+            Text(
+                text = "Приглашения: ${invites.size}",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+            invites.forEach { invite ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = invite.name ?: invite.roomId,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "Принять",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier
+                            .clip(MaterialTheme.shapes.small)
+                            .clickable { onAccept(invite.roomId) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Отклонить",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier
+                            .clip(MaterialTheme.shapes.small)
+                            .clickable { onDecline(invite.roomId) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
