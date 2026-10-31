@@ -160,6 +160,22 @@ class HomeViewModel(
         }
     }
 
+    fun createGroupChat(name: String, userIds: List<String>) {
+        viewModelScope.launch {
+            try {
+                val roomId = matrixRepository.createRoom(
+                    name = name.takeIf { it.isNotBlank() },
+                    topic = null,
+                    isDirect = false,
+                    userIds = userIds
+                )
+                _events.send(UiEvent.NavigateToChat(roomId))
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка создания чата: ${e.message}"))
+            }
+        }
+    }
+
     fun createDirectChat(userId: String) {
         viewModelScope.launch {
             try {

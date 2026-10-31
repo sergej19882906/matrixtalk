@@ -77,7 +77,6 @@ import org.koin.compose.viewmodel.koinViewModel
 fun HomeScreen(
     onRoomClick: (String) -> Unit,
     onLogout: () -> Unit,
-    onCreateChat: () -> Unit,
     onBridges: () -> Unit,
     onSettings: () -> Unit,
     onSearch: () -> Unit,
@@ -88,6 +87,9 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    var showCreateChatDialog by remember { mutableStateOf(false) }
+    var createChatName by remember { mutableStateOf("") }
+    var createChatUsers by remember { mutableStateOf("") }
     var profileDialogVisible by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
     var roomToLeave by remember { mutableStateOf<ChatRoom?>(null) }
@@ -123,7 +125,7 @@ fun HomeScreen(
                     IconButton(onClick = { profileDialogVisible = true }) {
                         Icon(Icons.Default.AccountCircle, contentDescription = "Профиль")
                     }
-                    IconButton(onClick = onCreateChat) {
+                    IconButton(onClick = { showCreateChatDialog = true }) {
                         Icon(Icons.Default.Add, contentDescription = "Создать чат")
                     }
                     IconButton(onClick = onBridges) {
@@ -328,6 +330,51 @@ fun HomeScreen(
                 TextButton(onClick = { roomToLeave = null }) {
                     Text("Отмена")
                 }
+            }
+        )
+    }
+    if (showCreateChatDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showCreateChatDialog = false },
+            title = { Text("Создать чат") },
+            text = {
+                Column {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = createChatName,
+                        onValueChange = { createChatName = it },
+                        label = { Text("Название (необязательно)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = createChatUsers,
+                        onValueChange = { createChatUsers = it },
+                        label = { Text("Участники") },
+                        placeholder = { Text("@user1:server, @user2:server") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val ids = createChatUsers.split(",", ";", " ")
+                        .map { it.trim() }
+                        .filter { it.startsWith("@") && it.contains(":") }
+                    if (ids.isEmpty()) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Укажите минимум одного участника (@user:server)")
+                        }
+                    } else {
+                        showCreateChatDialog = false
+                        viewModel.createGroupChat(createChatName, ids)
+                        createChatName = ""
+                        createChatUsers = ""
+                    }
+                }) { Text("Создать") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateChatDialog = false }) { Text("Отмена") }
             }
         )
     }

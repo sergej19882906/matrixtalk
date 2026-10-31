@@ -62,9 +62,6 @@ fun AppNavigation(
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
                 },
-                onCreateChat = {
-                    // TODO: Показать диалог создания чата
-                },
                 onBridges = {
                     navController.navigate(Screen.Bridges.route)
                 },
