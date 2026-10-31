@@ -216,18 +216,60 @@ class MatrixRepositoryImpl : MatrixRepository {
                 genericSearchTerm = query?.trim()?.takeIf { it.isNotEmpty() }
             )
         ).getOrThrow()
-        return response.chunk.map { room ->
-            PublicRoomItem(
-                roomId = room.roomId.full,
-                name = room.name,
-                alias = room.canonicalAlias?.full,
-                topic = room.topic,
-                avatarUrl = room.avatarUrl?.let(::mxcToHttp),
-                joinedMembers = room.joinedMembersCount,
-                joinRule = room.joinRule.toString()
-            )
+        return response.chunk.map { it.toPublicRoomItem() }
+    }
+
+    override fun getSpacesFlow(): Flow<List<ChatRoom>> = _clientState.flatMapLatest { c ->
+        if (c == null) {
+            flowOf(emptyList())
+        } else {
+            c.room.getAll()
+                .flattenValues()
+                .mapLatest { rooms ->
+                    rooms
+                        .filter {
+                            it.membership == Membership.JOIN && !it.hasBeenReplaced &&
+                                it.createEventContent?.type is net.folivo.trixnity.core.model.events.m.room.CreateEventContent.RoomType.Space
+                        }
+                        .map { room -> room.toChatRoom(c) }
+                }
         }
     }
+
+    override suspend fun getSpaceChildren(spaceId: String): List<PublicRoomItem> {
+        val c = requireClient()
+        val response = c.api.room.getHierarchy(
+            roomId = RoomId(spaceId),
+            from = "",
+            limit = 100,
+            maxDepth = 1
+        ).getOrThrow()
+        return response.rooms
+            .filter { it.roomId.full != spaceId }
+            .map { it.toPublicRoomItem() }
+    }
+
+    private fun net.folivo.trixnity.clientserverapi.model.rooms.GetHierarchy.Response.PublicRoomsChunk.toPublicRoomItem() =
+        PublicRoomItem(
+            roomId = roomId.full,
+            name = name,
+            alias = canonicalAlias?.full,
+            topic = topic,
+            avatarUrl = avatarUrl?.let(::mxcToHttp),
+            joinedMembers = joinedMembersCount,
+            joinRule = joinRule.toString()
+        )
+
+    private fun net.folivo.trixnity.clientserverapi.model.rooms.GetPublicRoomsResponse.PublicRoomsChunk.toPublicRoomItem() =
+        PublicRoomItem(
+            roomId = roomId.full,
+            name = name,
+            alias = canonicalAlias?.full,
+            topic = topic,
+            avatarUrl = avatarUrl?.let(::mxcToHttp),
+            joinedMembers = joinedMembersCount,
+            joinRule = joinRule.toString()
+        )
 
     @Serializable
     private data class TurnServerResponse(

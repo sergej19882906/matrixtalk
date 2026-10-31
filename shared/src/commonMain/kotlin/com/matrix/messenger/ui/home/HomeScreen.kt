@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Workspaces
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -77,6 +80,7 @@ fun HomeScreen(
     onSettings: () -> Unit,
     onSearch: () -> Unit,
     onRoomsCatalog: () -> Unit,
+    onOpenSpace: (String) -> Unit,
     viewModel: HomeViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -166,6 +170,12 @@ fun HomeScreen(
                             invites = uiState.invites,
                             onAccept = viewModel::acceptInvite,
                             onDecline = viewModel::declineInvite
+                        )
+                    }
+                    if (uiState.spaces.isNotEmpty()) {
+                        SpacesRow(
+                            spaces = uiState.spaces,
+                            onSpaceClick = onOpenSpace
                         )
                     }
                     when {
@@ -317,6 +327,48 @@ fun HomeScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun SpacesRow(
+    spaces: List<com.matrix.messenger.data.model.ChatRoom>,
+    onSpaceClick: (String) -> Unit
+) {
+    androidx.compose.foundation.lazy.LazyRow(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp)
+    ) {
+        items(
+            items = spaces,
+            key = { "space_${it.roomId}" }
+        ) { space ->
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.clickable { onSpaceClick(space.roomId) }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Workspaces,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = space.name ?: space.roomId,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
     }
 }
 

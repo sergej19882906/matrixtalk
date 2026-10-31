@@ -44,6 +44,8 @@ class CallRepositoryTest {
         override suspend fun resolveDirectChatPeerId(roomId: String): String? = null
         override suspend fun searchMessages(query: String, limit: Int): List<SearchResultItem> = emptyList()
         override suspend fun searchPublicRooms(query: String?, limit: Int): List<PublicRoomItem> = emptyList()
+        override fun getSpacesFlow(): Flow<List<ChatRoom>> = MutableStateFlow(emptyList())
+        override suspend fun getSpaceChildren(spaceId: String): List<PublicRoomItem> = emptyList()
         override val currentUser: Flow<MatrixUser?> = MutableStateFlow(null)
         override val connectionState: Flow<ConnectionState> = MutableStateFlow(ConnectionState.Connected)
         override suspend fun initialize() = Unit

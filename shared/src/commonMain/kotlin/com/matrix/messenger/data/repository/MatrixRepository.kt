@@ -37,6 +37,12 @@ interface MatrixRepository {
     /** Public room directory of the homeserver. */
     suspend fun searchPublicRooms(query: String?, limit: Int = 30): List<PublicRoomItem>
 
+    /** Joined spaces (rooms with m.space type). */
+    fun getSpacesFlow(): Flow<List<ChatRoom>>
+
+    /** Rooms of a space via the hierarchy endpoint. */
+    suspend fun getSpaceChildren(spaceId: String): List<PublicRoomItem>
+
     suspend fun initialize()
 
     suspend fun login(

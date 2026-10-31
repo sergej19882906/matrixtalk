@@ -76,6 +76,9 @@ fun AppNavigation(
                 },
                 onRoomsCatalog = {
                     navController.navigate(Screen.RoomsCatalog.route)
+                },
+                onOpenSpace = { spaceId ->
+                    navController.navigate(Screen.SpaceChildren.createRoute(spaceId, ""))
                 }
             )
         }
@@ -134,6 +137,25 @@ fun AppNavigation(
 
         composable(Screen.RoomsCatalog.route) {
             com.matrix.messenger.ui.rooms.RoomsCatalogScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenRoom = { roomId ->
+                    navController.navigate(Screen.Chat.createRoute(roomId))
+                }
+            )
+        }
+
+        composable(
+            route = Screen.SpaceChildren.route,
+            arguments = listOf(
+                navArgument("spaceId") { type = NavType.StringType },
+                navArgument("spaceName") { type = NavType.StringType }
+            )
+        ) { entry ->
+            val spaceId = entry.arguments?.getString("spaceId") ?: return@composable
+            val spaceName = entry.arguments?.getString("spaceName") ?: ""
+            com.matrix.messenger.ui.rooms.SpaceChildrenScreen(
+                spaceId = spaceId,
+                spaceName = spaceName,
                 onNavigateBack = { navController.popBackStack() },
                 onOpenRoom = { roomId ->
                     navController.navigate(Screen.Chat.createRoute(roomId))

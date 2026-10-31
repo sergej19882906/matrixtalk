@@ -30,7 +30,8 @@ data class HomeUiState(
     val contacts: List<MatrixUser> = emptyList(),
     val isSearchingContacts: Boolean = false,
     val contactSearchError: String? = null,
-    val invites: List<ChatRoom> = emptyList()
+    val invites: List<ChatRoom> = emptyList(),
+    val spaces: List<ChatRoom> = emptyList()
 )
 
 class HomeViewModel(
@@ -53,6 +54,11 @@ class HomeViewModel(
         viewModelScope.launch {
             matrixRepository.getInvitesFlow().collect { invites ->
                 _uiState.value = _uiState.value.copy(invites = invites)
+            }
+        }
+        viewModelScope.launch {
+            matrixRepository.getSpacesFlow().collect { spaces ->
+                _uiState.value = _uiState.value.copy(spaces = spaces)
             }
         }
     }
