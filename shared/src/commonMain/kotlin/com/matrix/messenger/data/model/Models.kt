@@ -18,7 +18,9 @@ data class ChatRoom(
     val lastMessage: LastMessage?,
     val unreadCount: Int,
     val isDirect: Boolean,
-    val membersCount: Int
+    val membersCount: Int,
+    val isFavorite: Boolean = false,
+    val isLowPriority: Boolean = false
 )
 
 data class LastMessage(
@@ -54,7 +56,9 @@ data class Message(
     val encryptedFile: EncryptedFile? = null,
     val replyTo: ReplyInfo? = null,
     /** HTML body (org.matrix.custom.html) when the sender used rich formatting. */
-    val formattedBody: String? = null
+    val formattedBody: String? = null,
+    /** Root event id when the message belongs to a thread (m.thread). */
+    val threadRootId: String? = null
 )
 
 /** Quoted original of a reply (m.in_reply_to). */

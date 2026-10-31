@@ -232,10 +232,24 @@ class HomeViewModel(
     }
 
     private fun filterRooms(rooms: List<ChatRoom>, query: String): List<ChatRoom> {
-        if (query.isBlank()) return rooms.sortedByDescending { it.lastMessage?.timestamp ?: 0 }
-        return rooms.filter {
+        val sorted = rooms.sortedWith(
+            compareByDescending<ChatRoom> { it.isFavorite }
+                .thenByDescending { it.lastMessage?.timestamp ?: 0 }
+        )
+        if (query.isBlank()) return sorted
+        return sorted.filter {
             it.name?.contains(query, ignoreCase = true) == true ||
             it.topic?.contains(query, ignoreCase = true) == true
-        }.sortedByDescending { it.lastMessage?.timestamp ?: 0 }
+        }
+    }
+
+    fun toggleFavorite(roomId: String) {
+        viewModelScope.launch {
+            try {
+                matrixRepository.toggleFavorite(roomId)
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Не удалось изменить избранное: ${e.message}"))
+            }
+        }
     }
 }

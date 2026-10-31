@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Workspaces
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -208,7 +210,8 @@ fun HomeScreen(
                                     RoomItem(
                                         room = room,
                                         onClick = { viewModel.onRoomClick(room.roomId) },
-                                        onLeave = { roomToLeave = room }
+                                        onLeave = { roomToLeave = room },
+                                        onToggleFavorite = { viewModel.toggleFavorite(room.roomId) }
                                     )
                                 }
                             }
@@ -487,7 +490,8 @@ private fun ContactItem(user: MatrixUser, onClick: () -> Unit) {
 private fun RoomItem(
     room: ChatRoom,
     onClick: () -> Unit,
-    onLeave: () -> Unit
+    onLeave: () -> Unit,
+    onToggleFavorite: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Surface(
@@ -584,6 +588,15 @@ private fun RoomItem(
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                         }
+                    }
+                    IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            if (room.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = if (room.isFavorite) "Убрать из избранного" else "В избранное",
+                            tint = if (room.isFavorite) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                     Box {
                         IconButton(onClick = { menuExpanded = true }) {

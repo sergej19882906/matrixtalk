@@ -43,6 +43,15 @@ interface MatrixRepository {
     /** Rooms of a space via the hierarchy endpoint. */
     suspend fun getSpaceChildren(spaceId: String): List<PublicRoomItem>
 
+    /** Current user's tags of a room (m.favourite / m.lowpriority). */
+    suspend fun getRoomTags(roomId: String): Set<String>
+
+    /** Adds or removes the m.favourite tag. Returns the new favorite state. */
+    suspend fun toggleFavorite(roomId: String): Boolean
+
+    /** Invites a user to a room. */
+    suspend fun inviteUserToRoom(roomId: String, userId: String)
+
     suspend fun initialize()
 
     suspend fun login(
@@ -77,8 +86,9 @@ interface MatrixRepository {
 
     suspend fun sendTextMessage(roomId: String, text: String)
 
-    /** Sends a reply: text with m.in_reply_to relation to [eventId]. */
-    suspend fun replyToMessage(roomId: String, eventId: String, text: String)
+    /** Sends a reply: text with m.in_reply_to relation to [eventId];
+     * keeps the thread when [threadRootId] is set. */
+    suspend fun replyToMessage(roomId: String, eventId: String, text: String, threadRootId: String? = null)
 
     suspend fun sendFileMessage(
         roomId: String,

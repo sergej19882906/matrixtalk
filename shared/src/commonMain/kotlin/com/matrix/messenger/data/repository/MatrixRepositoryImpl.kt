@@ -570,9 +570,16 @@ class MatrixRepositoryImpl : MatrixRepository {
         requireClient().room.sendMessage(RoomId(roomId)) { text(text) }
     }
 
-    override suspend fun replyToMessage(roomId: String, eventId: String, text: String) {
+    override suspend fun replyToMessage(roomId: String, eventId: String, text: String, threadRootId: String?) {
         requireClient().room.sendMessage(RoomId(roomId)) {
-            reply(EventId(eventId), null)
+            val thread = threadRootId?.let {
+                net.folivo.trixnity.core.model.events.m.RelatesTo.Thread(
+                    eventId = EventId(it),
+                    replyTo = net.folivo.trixnity.core.model.events.m.RelatesTo.ReplyTo(EventId(eventId)),
+                    isFallingBack = false
+                )
+            }
+            reply(EventId(eventId), thread)
             text(text)
         }
     }
@@ -975,12 +982,55 @@ class MatrixRepositoryImpl : MatrixRepository {
         return c.media.uploadMedia(cacheUri).getOrThrow()
     }
 
+    private val roomTagsCache = mutableMapOf<String, Pair<Long, Set<String>>>()
+
+    private suspend fun tagsFor(c: MatrixClient, roomId: String): Set<String> {
+        val now = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+        roomTagsCache[roomId]?.let { (ts, tags) ->
+            if (now - ts < ROOM_TAGS_CACHE_MS) return tags
+        }
+        val tags = runCatching {
+            c.api.room.getTags(c.userId, RoomId(roomId)).getOrNull()?.tags?.keys?.map { it.name }?.toSet()
+        }.getOrNull() ?: emptySet()
+        roomTagsCache[roomId] = now to tags
+        return tags
+    }
+
+    override suspend fun getRoomTags(roomId: String): Set<String> {
+        val c = client ?: return emptySet()
+        return tagsFor(c, roomId)
+    }
+
+    override suspend fun toggleFavorite(roomId: String): Boolean {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        val current = tagsFor(c, roomId)
+        val now = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+        return if (current.contains(FAVORITE_TAG)) {
+            c.api.room.deleteTag(c.userId, rId, FAVORITE_TAG).getOrThrow()
+            roomTagsCache[roomId] = now to (current - FAVORITE_TAG)
+            false
+        } else {
+            c.api.room.setTag(
+                c.userId, rId, FAVORITE_TAG,
+                net.folivo.trixnity.core.model.events.m.TagEventContent.Tag(order = 0.0)
+            ).getOrThrow()
+            roomTagsCache[roomId] = now to (current + FAVORITE_TAG)
+            true
+        }
+    }
+
+    override suspend fun inviteUserToRoom(roomId: String, userId: String) {
+        requireClient().api.room.inviteUser(RoomId(roomId), UserId(userId)).getOrThrow()
+    }
+
     private suspend fun Room.toChatRoom(c: MatrixClient): ChatRoom {
         val lastMsg = lastRelevantEventId?.let { eventId ->
             withTimeoutOrNull(LAST_EVENT_TIMEOUT_MS) {
                 c.room.getTimelineEvent(roomId, eventId).firstOrNull()
             }?.toLastMessage(c)
         }
+        val tags = tagsFor(c, roomId.full)
         return ChatRoom(
             roomId = roomId.full,
             name = computeDisplayName(),
@@ -989,7 +1039,9 @@ class MatrixRepositoryImpl : MatrixRepository {
             lastMessage = lastMsg,
             unreadCount = unreadMessageCount.toInt(),
             isDirect = isDirect,
-            membersCount = (name?.heroes?.size ?: 0) + (name?.otherUsersCount ?: 0) + 1
+            membersCount = (name?.heroes?.size ?: 0) + (name?.otherUsersCount ?: 0) + 1,
+            isFavorite = FAVORITE_TAG in tags,
+            isLowPriority = LOW_PRIORITY_TAG in tags
         )
     }
 
@@ -1055,7 +1107,8 @@ class MatrixRepositoryImpl : MatrixRepository {
             mediaUrl = mediaUrl,
             encryptedFile = encryptedFile,
             replyTo = replyTo,
-            formattedBody = (messageContent as? RoomMessageEventContent.TextBased)?.formattedBody
+            formattedBody = (messageContent as? RoomMessageEventContent.TextBased)?.formattedBody,
+            threadRootId = (messageContent?.relatesTo as? RelatesTo.Thread)?.eventId?.full
         )
     }
 
@@ -1146,5 +1199,8 @@ class MatrixRepositoryImpl : MatrixRepository {
         const val TYPING_DISPLAY_TIMEOUT_MS = 6_000L
         const val PINNED_RESOLVE_TIMEOUT_MS = 400L
         const val SEARCH_SNIPPET_MAX = 200
+        const val ROOM_TAGS_CACHE_MS = 120_000L
+        const val FAVORITE_TAG = "m.favourite"
+        const val LOW_PRIORITY_TAG = "m.lowpriority"
     }
 }

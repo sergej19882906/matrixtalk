@@ -135,7 +135,8 @@ class ChatViewModel(
                     matrixRepository.replyToMessage(
                         roomId = state.roomId,
                         eventId = replyingTo.eventId,
-                        text = message
+                        text = message,
+                        threadRootId = replyingTo.threadRootId
                     )
                 } else {
                     matrixRepository.sendTextMessage(
@@ -306,6 +307,24 @@ class ChatViewModel(
                 _events.send(UiEvent.NavigateBack)
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка выхода из комнаты: ${e.message}"))
+            }
+        }
+    }
+
+    fun inviteUser(userId: String) {
+        val target = userId.trim()
+        if (target.isBlank() || !target.startsWith("@")) {
+            viewModelScope.launch {
+                _events.send(UiEvent.ShowSnackbar("Введите user ID вида @user:server"))
+            }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                matrixRepository.inviteUserToRoom(_uiState.value.roomId, target)
+                _events.send(UiEvent.ShowSnackbar("Приглашение отправлено"))
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Не удалось пригласить: ${e.message}"))
             }
         }
     }

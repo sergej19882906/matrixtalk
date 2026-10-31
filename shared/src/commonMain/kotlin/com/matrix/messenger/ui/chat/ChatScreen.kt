@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PresentToAll
@@ -97,6 +98,8 @@ fun ChatScreen(
     var editText by remember { mutableStateOf("") }
     var showPinned by remember { mutableStateOf(false) }
     var showGallery by remember { mutableStateOf(false) }
+    var showInviteDialog by remember { mutableStateOf(false) }
+    var inviteInput by remember { mutableStateOf("") }
     var messageToDelete by remember { mutableStateOf<Message?>(null) }
     var roomMenuExpanded by remember { mutableStateOf(false) }
     var confirmLeaveRoom by remember { mutableStateOf(false) }
@@ -239,6 +242,14 @@ fun ChatScreen(
                             onDismissRequest = { roomMenuExpanded = false }
                         ) {
                             DropdownMenuItem(
+                                text = { Text("Пригласить пользователя") },
+                                leadingIcon = { Icon(Icons.Default.PersonAdd, contentDescription = null) },
+                                onClick = {
+                                    roomMenuExpanded = false
+                                    showInviteDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Выйти и удалить чат") },
                                 leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
                                 onClick = {
@@ -340,8 +351,33 @@ fun ChatScreen(
         }
     }
 
-    screenSources?.let { sources ->
+    if (showInviteDialog) {
         AlertDialog(
+            onDismissRequest = { showInviteDialog = false },
+            title = { Text("Пригласить пользователя") },
+            text = {
+                OutlinedTextField(
+                    value = inviteInput,
+                    onValueChange = { inviteInput = it },
+                    label = { Text("User ID") },
+                    placeholder = { Text("@user:matrix.org") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showInviteDialog = false
+                    viewModel.inviteUser(inviteInput)
+                    inviteInput = ""
+                }) { Text("Пригласить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showInviteDialog = false }) { Text("Отмена") }
+            }
+        )
+    }
+
+    screenSources?.let { sources ->        AlertDialog(
             onDismissRequest = { screenSources = null },
             title = { Text("Что показать?") },
             text = {
