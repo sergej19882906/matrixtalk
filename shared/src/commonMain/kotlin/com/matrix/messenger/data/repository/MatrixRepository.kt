@@ -9,6 +9,7 @@ import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
+import com.matrix.messenger.data.model.PublicRoomItem
 import com.matrix.messenger.data.model.SearchResultItem
 import com.matrix.messenger.data.model.VerificationUiState
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +33,9 @@ interface MatrixRepository {
 
     /** Server-side full-text search over message bodies. */
     suspend fun searchMessages(query: String, limit: Int = 30): List<SearchResultItem>
+
+    /** Public room directory of the homeserver. */
+    suspend fun searchPublicRooms(query: String?, limit: Int = 30): List<PublicRoomItem>
 
     suspend fun initialize()
 

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MoreVert
@@ -75,6 +76,7 @@ fun HomeScreen(
     onBridges: () -> Unit,
     onSettings: () -> Unit,
     onSearch: () -> Unit,
+    onRoomsCatalog: () -> Unit,
     viewModel: HomeViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -108,6 +110,9 @@ fun HomeScreen(
                 actions = {
                     IconButton(onClick = onSearch) {
                         Icon(Icons.Default.Search, contentDescription = "Поиск сообщений")
+                    }
+                    IconButton(onClick = onRoomsCatalog) {
+                        Icon(Icons.Default.Explore, contentDescription = "Каталог комнат")
                     }
                     IconButton(onClick = { profileDialogVisible = true }) {
                         Icon(Icons.Default.AccountCircle, contentDescription = "Профиль")

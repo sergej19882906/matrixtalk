@@ -73,6 +73,9 @@ fun AppNavigation(
                 },
                 onSearch = {
                     navController.navigate(Screen.Search.route)
+                },
+                onRoomsCatalog = {
+                    navController.navigate(Screen.RoomsCatalog.route)
                 }
             )
         }
@@ -122,6 +125,15 @@ fun AppNavigation(
 
         composable(Screen.Search.route) {
             com.matrix.messenger.ui.search.SearchScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenRoom = { roomId ->
+                    navController.navigate(Screen.Chat.createRoute(roomId))
+                }
+            )
+        }
+
+        composable(Screen.RoomsCatalog.route) {
+            com.matrix.messenger.ui.rooms.RoomsCatalogScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onOpenRoom = { roomId ->
                     navController.navigate(Screen.Chat.createRoute(roomId))

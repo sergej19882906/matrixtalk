@@ -97,6 +97,17 @@ data class SearchResultItem(
     val timestamp: Long
 )
 
+/** A public room from the server directory. */
+data class PublicRoomItem(
+    val roomId: String,
+    val name: String?,
+    val alias: String?,
+    val topic: String?,
+    val avatarUrl: String?,
+    val joinedMembers: Long,
+    val joinRule: String
+)
+
 sealed class LoginResult {
     data class Success(val userId: String) : LoginResult()
     data class Error(val message: String) : LoginResult()

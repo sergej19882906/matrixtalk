@@ -13,6 +13,7 @@ import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
+import com.matrix.messenger.data.model.PublicRoomItem
 import com.matrix.messenger.data.model.ReplyInfo
 import com.matrix.messenger.data.model.SearchResultItem
 import com.matrix.messenger.data.model.VerificationUiState
@@ -86,6 +87,7 @@ import net.folivo.trixnity.client.verification.VerificationService
 import net.folivo.trixnity.clientserverapi.client.SyncState
 import net.folivo.trixnity.clientserverapi.client.UIA
 import net.folivo.trixnity.clientserverapi.model.authentication.IdentifierType
+import net.folivo.trixnity.clientserverapi.model.rooms.GetPublicRoomsWithFilter
 import net.folivo.trixnity.clientserverapi.model.uia.AuthenticationRequest
 import net.folivo.trixnity.clientserverapi.model.uia.AuthenticationType
 import net.folivo.trixnity.core.model.EventId
@@ -204,6 +206,27 @@ class MatrixRepositoryImpl : MatrixRepository {
                 timestamp = event.originTimestamp
             )
         }.take(limit)
+    }
+
+    override suspend fun searchPublicRooms(query: String?, limit: Int): List<PublicRoomItem> {
+        val c = requireClient()
+        val response = c.api.room.getPublicRooms(
+            limit = limit.toLong(),
+            filter = GetPublicRoomsWithFilter.Request.Filter(
+                genericSearchTerm = query?.trim()?.takeIf { it.isNotEmpty() }
+            )
+        ).getOrThrow()
+        return response.chunk.map { room ->
+            PublicRoomItem(
+                roomId = room.roomId.full,
+                name = room.name,
+                alias = room.canonicalAlias?.full,
+                topic = room.topic,
+                avatarUrl = room.avatarUrl?.let(::mxcToHttp),
+                joinedMembers = room.joinedMembersCount,
+                joinRule = room.joinRule.toString()
+            )
+        }
     }
 
     @Serializable
