@@ -59,6 +59,34 @@ jobs:
       - name: Unit tests (shared, Desktop target)
         run: ./gradlew :shared:desktopTest
 
+      - name: Package and smoke test Desktop app
+        # Catches packaged-only startup regressions (DI, ProGuard, natives).
+        shell: bash
+        run: |
+          set -u
+          ./gradlew :desktop-app:createDistributable
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+            runner="xvfb-run -a"
+          else
+            runner=""
+          fi
+          bin="desktop-app/build/compose/binaries/main/app/MatrixTalk/bin/MatrixTalk"
+          test -x "$bin" || { echo "packaged binary not found"; exit 1; }
+          out=$(mktemp)
+          $runner "$bin" >"$out" 2>&1 &
+          pid=$!
+          sleep 30
+          if ! kill -0 $pid 2>/dev/null; then
+            echo "Packaged app exited early:"; cat "$out"; exit 1
+          fi
+          kill $pid 2>/dev/null || true
+          sleep 2
+          if grep -qE "Exception|Error" "$out"; then
+            echo "Packaged app logged exceptions:"; cat "$out"; exit 1
+          fi
+          echo "Packaged app smoke test OK"
+
   validate-compose:
     runs-on: ubuntu-latest
 

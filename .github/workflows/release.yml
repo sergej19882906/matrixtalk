@@ -101,6 +101,36 @@ jobs:
         shell: bash
         run: ./gradlew :desktop-app:${{ matrix.task }}
 
+      - name: Smoke test packaged app
+        # Startup regressions in the packaged (minified) app are invisible to
+        # compile tasks and unit tests — launch the real binary and check output.
+        shell: bash
+        timeout-minutes: 3
+        run: |
+          set -u
+          dir="desktop-app/build/compose/binaries/main/app/MatrixTalk"
+          if [ -f "$dir/MatrixTalk.exe" ]; then bin="$dir/MatrixTalk.exe"; else
+            bin="$dir/bin/MatrixTalk"
+            if [ "$RUNNER_OS" = "Linux" ]; then
+              sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+              runner="xvfb-run -a"
+            fi
+          fi
+          test -x "$bin" || { echo "packaged binary not found"; exit 1; }
+          out=$(mktemp)
+          ${runner:-} "$bin" >"$out" 2>&1 &
+          pid=$!
+          sleep 30
+          if ! kill -0 $pid 2>/dev/null; then
+            echo "Packaged app exited early:"; cat "$out"; exit 1
+          fi
+          kill $pid 2>/dev/null || true
+          sleep 2
+          if grep -qE "Exception|Error" "$out"; then
+            echo "Packaged app logged exceptions:"; cat "$out"; exit 1
+          fi
+          echo "Packaged app smoke test OK"
+
       - name: Prepare artifact
         shell: bash
         run: |
