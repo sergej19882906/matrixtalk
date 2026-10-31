@@ -329,6 +329,26 @@ class ChatViewModel(
         }
     }
 
+    fun createPoll(question: String, answers: List<String>) {
+        viewModelScope.launch {
+            try {
+                matrixRepository.sendPoll(_uiState.value.roomId, question.trim(), answers.map { it.trim() })
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Не удалось создать опрос: ${e.message}"))
+            }
+        }
+    }
+
+    fun votePoll(message: Message, answerIds: List<String>) {
+        viewModelScope.launch {
+            try {
+                matrixRepository.sendPollVote(_uiState.value.roomId, message.eventId, answerIds)
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Не удалось проголосовать: ${e.message}"))
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         viewModelScope.launch {

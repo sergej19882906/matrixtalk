@@ -38,6 +38,7 @@ enum class MessageType {
     AUDIO,
     FILE,
     EMOTE,
+    POLL,
     UNKNOWN
 }
 
@@ -58,7 +59,13 @@ data class Message(
     /** HTML body (org.matrix.custom.html) when the sender used rich formatting. */
     val formattedBody: String? = null,
     /** Root event id when the message belongs to a thread (m.thread). */
-    val threadRootId: String? = null
+    val threadRootId: String? = null,
+    /** MSC3381 poll payload when this message is a poll. */
+    val poll: com.matrix.messenger.data.poll.PollInfo? = null,
+    /** Aggregated poll votes: answerId -> number of voters. */
+    val pollVotes: Map<String, Int> = emptyMap(),
+    val pollTotalVoters: Int = 0,
+    val pollMyAnswers: List<String> = emptyList()
 )
 
 /** Quoted original of a reply (m.in_reply_to). */

@@ -49,6 +49,8 @@ class CallRepositoryTest {
         override suspend fun getRoomTags(roomId: String): Set<String> = emptySet()
         override suspend fun toggleFavorite(roomId: String): Boolean = false
         override suspend fun inviteUserToRoom(roomId: String, userId: String) = Unit
+        override suspend fun sendPoll(roomId: String, question: String, answers: List<String>) = Unit
+        override suspend fun sendPollVote(roomId: String, pollEventId: String, answerIds: List<String>) = Unit
         override val currentUser: Flow<MatrixUser?> = MutableStateFlow(null)
         override val connectionState: Flow<ConnectionState> = MutableStateFlow(ConnectionState.Connected)
         override suspend fun initialize() = Unit

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
@@ -100,6 +101,9 @@ fun ChatScreen(
     var showGallery by remember { mutableStateOf(false) }
     var showInviteDialog by remember { mutableStateOf(false) }
     var inviteInput by remember { mutableStateOf("") }
+    var showPollDialog by remember { mutableStateOf(false) }
+    var pollQuestion by remember { mutableStateOf("") }
+    var pollOptions by remember { mutableStateOf(listOf("", "")) }
     var messageToDelete by remember { mutableStateOf<Message?>(null) }
     var roomMenuExpanded by remember { mutableStateOf(false) }
     var confirmLeaveRoom by remember { mutableStateOf(false) }
@@ -274,7 +278,8 @@ fun ChatScreen(
                 isRecordingVoice = uiState.isRecordingVoice,
                 recordingSeconds = uiState.recordingSeconds,
                 onStartVoice = viewModel::startVoiceRecording,
-                onStopVoice = { send -> viewModel.stopVoiceRecording(send) }
+                onStopVoice = { send -> viewModel.stopVoiceRecording(send) },
+                onCreatePoll = { showPollDialog = true }
             )
         }
     ) { paddingValues ->
@@ -340,6 +345,7 @@ fun ChatScreen(
                                 onOpenAttachment = { viewModel.openAttachment(message) },
                                 onReply = { viewModel.replyToMessage(message) },
                                 onPlayAudio = { viewModel.playAudioMessage(message) },
+                                onVotePoll = { ids -> viewModel.votePoll(message, ids) },
                                 isPinned = uiState.pinnedMessages.any { it.eventId == message.eventId },
                                 onTogglePin = { viewModel.togglePin(message) }
                             )
@@ -373,6 +379,60 @@ fun ChatScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showInviteDialog = false }) { Text("Отмена") }
+            }
+        )
+    }
+
+    if (showPollDialog) {
+        AlertDialog(
+            onDismissRequest = { showPollDialog = false },
+            title = { Text("Новый опрос") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = pollQuestion,
+                        onValueChange = { pollQuestion = it },
+                        label = { Text("Вопрос") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    pollOptions.forEachIndexed { index, option ->
+                        OutlinedTextField(
+                            value = option,
+                            onValueChange = { value ->
+                                pollOptions = pollOptions.toMutableList().also { it[index] = value }
+                            },
+                            label = { Text("Вариант ${index + 1}") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    if (pollOptions.size < 5) {
+                        TextButton(onClick = { pollOptions = pollOptions + "" }) {
+                            Text("Добавить вариант")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val answers = pollOptions.map { it.trim() }.filter { it.isNotEmpty() }
+                    if (pollQuestion.isBlank() || answers.size < 2) {
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar("Нужен вопрос и минимум 2 варианта")
+                        }
+                    } else {
+                        showPollDialog = false
+                        viewModel.createPoll(pollQuestion, answers)
+                        pollQuestion = ""
+                        pollOptions = listOf("", "")
+                    }
+                }) { Text("Создать") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPollDialog = false }) { Text("Отмена") }
             }
         )
     }
@@ -493,7 +553,8 @@ private fun MessageItem(
     onOpenAttachment: () -> Unit,
     onReply: () -> Unit,
     onTogglePin: () -> Unit,
-    onPlayAudio: () -> Unit
+    onPlayAudio: () -> Unit,
+    onVotePoll: (List<String>) -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
@@ -572,7 +633,13 @@ private fun MessageItem(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             } else {
+                                val poll = message.poll
                                 when {
+                                    poll != null -> PollContent(
+                                        message = message,
+                                        onVote = onVotePoll
+                                    )
+
                                     message.messageType == MessageType.IMAGE &&
                                         (message.mediaUrl != null || message.encryptedFile != null) -> {
                                         AsyncImage(
@@ -878,7 +945,8 @@ private fun MessageInputBar(
     isRecordingVoice: Boolean,
     recordingSeconds: Int,
     onStartVoice: () -> Unit,
-    onStopVoice: (send: Boolean) -> Unit
+    onStopVoice: (send: Boolean) -> Unit,
+    onCreatePoll: () -> Unit
 ) {
     Surface(
         tonalElevation = 2.dp,
@@ -934,6 +1002,12 @@ private fun MessageInputBar(
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(Icons.Default.AttachFile, contentDescription = "Прикрепить файл")
+                }
+                IconButton(
+                    onClick = onCreatePoll,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(Icons.Default.HowToVote, contentDescription = "Создать опрос")
                 }
                 if (isRecordingVoice) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

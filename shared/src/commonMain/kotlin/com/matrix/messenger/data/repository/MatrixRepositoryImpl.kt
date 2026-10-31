@@ -519,11 +519,20 @@ class MatrixRepositoryImpl : MatrixRepository {
                         combine(eventFlows) { events -> events.toList() }
                             .mapLatest { events ->
                                 val reactions = aggregateReactions(events)
+                                val polls = aggregatePolls(events, c.userId)
                                 events.mapNotNull { it.toMessageOrNull(c) }
                                     .map { message ->
                                         val counts = reactions[message.eventId]
-                                        if (counts.isNullOrEmpty()) message
+                                        val withReactions = if (counts.isNullOrEmpty()) message
                                         else message.copy(reactions = counts)
+                                        val pollSummary = polls[message.eventId]
+                                        if (pollSummary != null) {
+                                            withReactions.copy(
+                                                pollVotes = pollSummary.votes,
+                                                pollTotalVoters = pollSummary.totalVoters,
+                                                pollMyAnswers = pollSummary.myAnswers
+                                            )
+                                        } else withReactions
                                     }
                             }
                     }
@@ -563,6 +572,32 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
         return aggregated.mapValues { (_, byKey) ->
             byKey.mapValues { (_, senders) -> senders.size }
+        }
+    }
+
+    private data class PollSummary(
+        val votes: Map<String, Int>,
+        val totalVoters: Int,
+        val myAnswers: List<String>
+    )
+
+    /** Aggregates MSC3381 poll responses: one vote per user per poll (latest wins). */
+    private fun aggregatePolls(events: List<TimelineEvent>, myUserId: UserId): Map<String, PollSummary> {
+        val votesByPoll = mutableMapOf<String, MutableMap<String, List<String>>>()
+        events.forEach { timelineEvent ->
+            val content = timelineEvent.content?.getOrNull() as? UnknownEventContent ?: return@forEach
+            val response = com.matrix.messenger.data.poll.parsePollResponse(content.raw) ?: return@forEach
+            val byUser = votesByPoll.getOrPut(response.pollEventId) { mutableMapOf() }
+            byUser[timelineEvent.sender.full] = response.answers
+        }
+        return votesByPoll.mapValues { (_, byUser) ->
+            val counts = mutableMapOf<String, Int>()
+            byUser.values.forEach { answers -> answers.forEach { counts[it] = (counts[it] ?: 0) + 1 } }
+            PollSummary(
+                votes = counts,
+                totalVoters = byUser.size,
+                myAnswers = byUser[myUserId.full].orEmpty()
+            )
         }
     }
 
@@ -1024,6 +1059,19 @@ class MatrixRepositoryImpl : MatrixRepository {
         requireClient().api.room.inviteUser(RoomId(roomId), UserId(userId)).getOrThrow()
     }
 
+    override suspend fun sendPoll(roomId: String, question: String, answers: List<String>) {
+        if (answers.size < 2) error("Нужно минимум 2 варианта ответа")
+        requireClient().room.sendMessage(RoomId(roomId)) {
+            content(com.matrix.messenger.data.poll.buildPollStartContent(question, answers))
+        }
+    }
+
+    override suspend fun sendPollVote(roomId: String, pollEventId: String, answerIds: List<String>) {
+        requireClient().room.sendMessage(RoomId(roomId)) {
+            content(com.matrix.messenger.data.poll.buildPollResponseContent(pollEventId, answerIds))
+        }
+    }
+
     private suspend fun Room.toChatRoom(c: MatrixClient): ChatRoom {
         val lastMsg = lastRelevantEventId?.let { eventId ->
             withTimeoutOrNull(LAST_EVENT_TIMEOUT_MS) {
@@ -1074,6 +1122,24 @@ class MatrixRepositoryImpl : MatrixRepository {
     private suspend fun TimelineEvent.toMessageOrNull(c: MatrixClient): Message? {
         val rawContent = content ?: return null
         val eventContent = rawContent.getOrNull() ?: return null
+        if (eventContent is UnknownEventContent) {
+            val poll = com.matrix.messenger.data.poll.parsePollStart(eventContent.raw)
+            if (poll != null) {
+                return Message(
+                    eventId = eventId.full,
+                    senderId = sender.full,
+                    senderName = c.resolveSenderName(roomId, sender),
+                    body = poll.question,
+                    timestamp = originTimestamp,
+                    messageType = MessageType.POLL,
+                    isMine = sender == c.userId,
+                    isEdited = false,
+                    isDeleted = false,
+                    poll = poll
+                )
+            }
+            return null
+        }
         val isDeleted = eventContent is RedactedEventContent
         val messageContent = eventContent as? RoomMessageEventContent
         if (messageContent?.relatesTo is RelatesTo.Replace) return null

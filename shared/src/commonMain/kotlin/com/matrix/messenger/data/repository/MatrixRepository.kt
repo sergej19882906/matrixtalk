@@ -52,6 +52,12 @@ interface MatrixRepository {
     /** Invites a user to a room. */
     suspend fun inviteUserToRoom(roomId: String, userId: String)
 
+    /** Creates an MSC3381 poll in the room. */
+    suspend fun sendPoll(roomId: String, question: String, answers: List<String>)
+
+    /** Votes in a poll (replaces the previous vote of this device/user). */
+    suspend fun sendPollVote(roomId: String, pollEventId: String, answerIds: List<String>)
+
     suspend fun initialize()
 
     suspend fun login(
