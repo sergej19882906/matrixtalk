@@ -17,7 +17,9 @@ import org.koin.dsl.module
 
 val sharedModule = module {
     singleOf<MatrixRepository>(::MatrixRepositoryImpl)
-    singleOf(::CallRepository)
+    // Explicit lambda (not singleOf): the engine is a default constructor parameter
+    // and must not be resolved by Koin.
+    single { CallRepository(get()) }
     viewModelOf(::LoginViewModel)
     viewModelOf(::HomeViewModel)
     viewModelOf(::ChatViewModel)
