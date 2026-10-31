@@ -23,6 +23,25 @@ fun main(): Unit = runBlocking {
     SessionStore.clear()
     println("STORE: OK (no Unsafe required)")
 
+    // 2. Coil network fetcher must work (avatars/attachments; ServiceLoader
+    // registration is easily lost to ProGuard in packaged builds)
+    com.matrix.messenger.media.setupImageLoader()
+    val ctx = coil3.PlatformContext.INSTANCE
+    val loader = coil3.SingletonImageLoader.get(ctx)
+    val imageResult = runCatching {
+        loader.execute(
+            coil3.request.ImageRequest.Builder(ctx)
+                .data("https://picsum.photos/64")
+                .build()
+        )
+    }
+    if (imageResult.getOrNull() is coil3.request.SuccessResult) {
+        println("COIL: OK (network image loaded)")
+    } else {
+        println("COIL FAIL: ${imageResult.exceptionOrNull()?.stackTraceToString()}")
+        kotlin.system.exitProcess(1)
+    }
+
     startKoin { modules(sharedModule) }
     val repo = getKoin().get<MatrixRepository>()
     println("=== smoke test: login with fake credentials on matrix.org ===")

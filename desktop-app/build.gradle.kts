@@ -20,6 +20,7 @@ kotlin {
                 implementation("io.insert-koin:koin-compose:4.0.0")
                 implementation("org.jetbrains.androidx.navigation:navigation-compose:2.8.0-alpha10")
                 implementation("org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0")
+                implementation("io.coil-kt.coil3:coil-compose:3.0.4")
             }
         }
     }
@@ -59,11 +60,18 @@ tasks.register<JavaExec>("loginSmokeTestNoUnsafe") {
 compose.desktop {
     application {
         mainClass = "com.matrix.messenger.MainKt"
+
+        buildTypes.release.proguard {
+            // Keep Coil's network fetcher + ServiceLoader registration,
+            // okhttp/okio — without this, packaged builds lose image loading.
+            configurationFiles.from(project.file("proguard-desktop.pro"))
+        }
+
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Dmg)
 
             packageName = "MatrixTalk"
-            packageVersion = "1.14.4"
+            packageVersion = "1.14.5"
 
             windows {
                 menuGroup = "Matrix Talk"

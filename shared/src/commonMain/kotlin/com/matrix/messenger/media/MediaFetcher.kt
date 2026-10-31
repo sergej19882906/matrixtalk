@@ -41,8 +41,10 @@ class MatrixMediaFetcher(
     }
 
     class Factory : Fetcher.Factory<MatrixMedia> {
-        override fun create(data: MatrixMedia, options: Options, imageLoader: ImageLoader): Fetcher =
-            MatrixMediaFetcher(data)
+        // Only intercept encrypted media; plain URLs must fall through to the
+        // network fetcher (otherwise avatar/attachment loads fail on every platform).
+        override fun create(data: MatrixMedia, options: Options, imageLoader: ImageLoader): Fetcher? =
+            if (data.encryptedFile != null) MatrixMediaFetcher(data) else null
     }
 }
 
