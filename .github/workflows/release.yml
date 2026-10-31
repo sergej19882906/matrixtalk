@@ -49,21 +49,6 @@ jobs:
         if: ${{ env.KEYSTORE_BASE64 == '' }}
         run: ./gradlew :app:assembleDebug
 
-      - name: Store check on packaged classpath (no-jdk.unsupported runtime)
-        # Reproduces the installer jlink runtime: sun.misc.Unsafe unavailable.
-        # The prefs store must survive it (regression: v1.14.x desktop login crash).
-        shell: bash
-        run: |
-          set -u
-          dir="desktop-app/build/compose/binaries/main/app/MatrixTalk"
-          if [ -f "$dir/MatrixTalk.exe" ]; then appdir="$dir"; else appdir="$dir"; fi
-          mods="$(dirname "$(readlink -f "$(command -v java)")")/../jmods"
-          if [ ! -d "$mods" ]; then
-            java_home_bin="$(dirname "$(readlink -f "$(command -v java)")")"
-            mods="$(cd "$java_home_bin/.." && pwd)/jmods"
-          fi
-          if [ ! -d "$mods" ]; then echo "jmods not found; skipping module-limited check"; exit 0; fi
-          java --module-path "$mods" --limit-modules java.base,java.logging,java.net.http,jdk.crypto.ec,jdk.crypto.cryptoki             -cp "$appdir/app/*" com.matrix.messenger.LoginSmokeTestKt 2>&1 | grep -E "STORE|RESULT|Exception"
 
       - name: Prepare artifact
         shell: bash
@@ -155,6 +140,22 @@ jobs:
             echo "Packaged app logged exceptions:"; cat "$out"; exit 1
           fi
           echo "Packaged app smoke test OK"
+
+      - name: Store check on packaged classpath (no-jdk.unsupported runtime)
+        # Reproduces the installer jlink runtime: sun.misc.Unsafe unavailable.
+        # The prefs store must survive it (regression: v1.14.x desktop login crash).
+        shell: bash
+        run: |
+          set -u
+          appdir="desktop-app/build/compose/binaries/main/app/MatrixTalk"
+          java_bin="$(readlink -f "$(command -v java)")"
+          mods="$(cd "$(dirname "$java_bin")/.." && pwd)/jmods"
+          if [ ! -d "$mods" ]; then echo "jmods not found; skipping module-limited check"; exit 0; fi
+          out=$(java --module-path "$mods" \
+            --limit-modules java.base,java.logging,java.net.http,jdk.crypto.ec,jdk.crypto.cryptoki \
+            -cp "$appdir/app/*" com.matrix.messenger.LoginSmokeTestKt 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q "STORE: OK" || { echo "STORE CHECK FAILED"; exit 1; }
 
       - name: Prepare artifact
         shell: bash
