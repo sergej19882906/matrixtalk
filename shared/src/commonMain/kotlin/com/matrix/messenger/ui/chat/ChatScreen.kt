@@ -104,6 +104,16 @@ fun ChatScreen(
     var showPollDialog by remember { mutableStateOf(false) }
     var pollQuestion by remember { mutableStateOf("") }
     var pollOptions by remember { mutableStateOf(listOf("", "")) }
+    val coroutineScope = rememberCoroutineScope()
+    val requestMicPermission = rememberCallPermissionRequester { granted ->
+        if (granted) {
+            viewModel.startVoiceRecording()
+        } else {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("Нет доступа к микрофону — запись невозможна")
+            }
+        }
+    }
     var messageToDelete by remember { mutableStateOf<Message?>(null) }
     var roomMenuExpanded by remember { mutableStateOf(false) }
     var confirmLeaveRoom by remember { mutableStateOf(false) }
@@ -113,7 +123,6 @@ fun ChatScreen(
 
     val callRepository: CallRepository = koinInject()
     val matrixRepository: MatrixRepository = koinInject()
-    val coroutineScope = rememberCoroutineScope()
     val currentUser by matrixRepository.currentUser.collectAsState(initial = null)
     var pendingVideoCall by remember { mutableStateOf(false) }
     var pendingScreenShareId by remember { mutableStateOf<Long?>(null) }
@@ -277,7 +286,7 @@ fun ChatScreen(
                 onCancelReply = viewModel::cancelReply,
                 isRecordingVoice = uiState.isRecordingVoice,
                 recordingSeconds = uiState.recordingSeconds,
-                onStartVoice = viewModel::startVoiceRecording,
+                onStartVoice = { requestMicPermission(false) },
                 onStopVoice = { send -> viewModel.stopVoiceRecording(send) },
                 onCreatePoll = { showPollDialog = true }
             )

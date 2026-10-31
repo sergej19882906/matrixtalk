@@ -76,19 +76,19 @@ fun SpaceChildrenScreen(
                 text = "Загрузка…",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(paddingValues).padding(16.dp)
             )
             error != null -> Text(
                 text = error!!,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(paddingValues).padding(16.dp)
             )
             children.isEmpty() -> Text(
                 text = "В спейсе пока нет комнат",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(paddingValues).padding(16.dp)
             )
             else -> LazyColumn(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                 items(

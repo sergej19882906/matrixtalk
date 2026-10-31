@@ -350,6 +350,11 @@ class ChatViewModel(
     }
 
     override fun onCleared() {
+        // Never leave a running recorder behind when the chat is closed.
+        recordingTimerJob?.cancel()
+        recordingTimerJob = null
+        voiceRecorder?.cancel()
+        voiceRecorder = null
         super.onCleared()
         viewModelScope.launch {
             matrixRepository.sendTypingNotification(_uiState.value.roomId, false)
