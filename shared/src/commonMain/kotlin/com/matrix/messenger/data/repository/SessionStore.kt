@@ -1,19 +1,21 @@
 package com.matrix.messenger.data.repository
 
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
+import com.matrix.messenger.platform.readFileBytes
 import com.matrix.messenger.platform.sessionStorePath
-import kotlinx.coroutines.flow.first
-import okio.Path.Companion.toPath
+import com.matrix.messenger.platform.writeFileBytes
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
-private val sessionDataStore: DataStore<Preferences> by lazy {
-    PreferenceDataStoreFactory.createWithPath(produceFile = { sessionStorePath().toPath() })
-}
-
+/**
+ * App settings storage: session credentials, theme mode, notification toggle.
+ *
+ * Plain JSON file instead of DataStore: the protobuf layer inside DataStore
+ * hard-references sun.misc.Unsafe, which the jlink runtime of desktop
+ * installers does not ship (NoClassDefFoundError at runtime). A tiny prefs
+ * file needs none of that.
+ */
 object SessionStore {
 
     data class Session(
@@ -23,45 +25,79 @@ object SessionStore {
         val accessToken: String
     )
 
-    private val homeServerKey = stringPreferencesKey("home_server")
-    private val userIdKey = stringPreferencesKey("user_id")
-    private val deviceIdKey = stringPreferencesKey("device_id")
-    private val accessTokenKey = stringPreferencesKey("access_token")
-    private val themeModeKey = stringPreferencesKey("theme_mode")
-    private val notificationsEnabledKey = booleanPreferencesKey("notifications_enabled")
+    @Serializable
+    private data class StoredPrefs(
+        val homeServer: String? = null,
+        val userId: String? = null,
+        val deviceId: String? = null,
+        val accessToken: String? = null,
+        val themeMode: String? = null,
+        val notificationsEnabled: Boolean? = null
+    )
 
-    suspend fun readThemeMode(): String? = sessionDataStore.data.first()[themeModeKey]
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val mutex = Mutex()
+    private var cache: StoredPrefs? = null
 
-    suspend fun saveThemeMode(mode: String) {
-        sessionDataStore.edit { it[themeModeKey] = mode }
+    private fun filePath(): String =
+        sessionStorePath().removeSuffix("session.preferences_pb") + "settings.json"
+
+    private suspend fun load(): StoredPrefs {
+        cache?.let { return it }
+        val prefs = runCatching {
+            json.decodeFromString<StoredPrefs>(readFileBytes(filePath()).decodeToString())
+        }.getOrNull() ?: readLegacy() ?: StoredPrefs()
+        cache = prefs
+        return prefs
     }
 
-    /** null = never configured (treated as enabled). */
-    suspend fun readNotificationsEnabled(): Boolean? = sessionDataStore.data.first()[notificationsEnabledKey]
+    /** Best-effort migration from the old DataStore file; any failure (including
+     *  LinkageError from the missing Unsafe class) means "no legacy session". */
+    private suspend fun readLegacy(): StoredPrefs? = runCatching {
+        val legacy = LegacyDataStore.readSession()
+        legacy?.let {
+            StoredPrefs(
+                homeServer = it.homeServer,
+                userId = it.userId,
+                deviceId = it.deviceId,
+                accessToken = it.accessToken
+            )
+        }
+    }.getOrNull()
 
-    suspend fun saveNotificationsEnabled(enabled: Boolean) {
-        sessionDataStore.edit { it[notificationsEnabledKey] = enabled }
-    }
-
-    suspend fun save(session: Session) {
-        sessionDataStore.edit { prefs ->
-            prefs[homeServerKey] = session.homeServer
-            prefs[userIdKey] = session.userId
-            prefs[deviceIdKey] = session.deviceId
-            prefs[accessTokenKey] = session.accessToken
+    private suspend fun save(prefs: StoredPrefs) {
+        cache = prefs
+        runCatching {
+            writeFileBytes(filePath(), json.encodeToString(StoredPrefs.serializer(), prefs).encodeToByteArray())
         }
     }
 
-    suspend fun read(): Session? {
-        val prefs = sessionDataStore.data.first()
-        val homeServer = prefs[homeServerKey] ?: return null
-        val userId = prefs[userIdKey] ?: return null
-        val deviceId = prefs[deviceIdKey] ?: return null
-        val accessToken = prefs[accessTokenKey] ?: return null
-        return Session(homeServer, userId, deviceId, accessToken)
+    suspend fun save(session: Session) = mutex.withLock {
+        save(load().copy(homeServer = session.homeServer, userId = session.userId, deviceId = session.deviceId, accessToken = session.accessToken))
     }
 
-    suspend fun clear() {
-        sessionDataStore.edit { it.clear() }
+    suspend fun read(): Session? = mutex.withLock {
+        load().let { p ->
+            if (p.homeServer != null && p.userId != null && p.deviceId != null && p.accessToken != null) {
+                Session(p.homeServer, p.userId, p.deviceId, p.accessToken)
+            } else null
+        }
+    }
+
+    suspend fun clear() = mutex.withLock {
+        save(StoredPrefs())
+    }
+
+    suspend fun readThemeMode(): String? = mutex.withLock { load().themeMode }
+
+    suspend fun saveThemeMode(mode: String) = mutex.withLock {
+        save(load().copy(themeMode = mode))
+    }
+
+    /** null = never configured (treated as enabled). */
+    suspend fun readNotificationsEnabled(): Boolean? = mutex.withLock { load().notificationsEnabled }
+
+    suspend fun saveNotificationsEnabled(enabled: Boolean) = mutex.withLock {
+        save(load().copy(notificationsEnabled = enabled))
     }
 }
