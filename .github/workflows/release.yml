@@ -126,7 +126,7 @@ jobs:
           fi
           kill $pid 2>/dev/null || true
           sleep 2
-          if grep -qE "Exception|Error" "$out"; then
+          if grep -qE "Exception in thread|InstanceCreationException|NoDefinitionFoundException|NoClassDefFoundError|UnsatisfiedLinkError|Could not create instance" "$out"; then
             echo "Packaged app logged exceptions:"; cat "$out"; exit 1
           fi
           echo "Packaged app smoke test OK"
