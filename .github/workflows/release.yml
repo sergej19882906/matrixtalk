@@ -105,6 +105,95 @@ jobs:
         # Startup regressions in the packaged (minified) app are invisible to
         # compile tasks and unit tests — launch the real binary and check output.
         shell: bash
+        timeout-minutes: 5
+        run: |
+          set -u
+          dir="desktop-app/build/compose/binaries/main/app/MatrixTalk"
+          if [ ! -e "$dir" ]; then
+            ./gradlew :desktop-app:createDistributable
+          fi
+          if [ -f "$dir/MatrixTalk.exe" ]; then bin="$dir/MatrixTalk.exe"; else
+            bin="$dir/bin/MatrixTalk"
+            if [ "$RUNNER_OS" = "Linux" ]; then
+              sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
+              runner="xvfb-run -a"
+            fi
+          fi
+          if [ ! -e "$bin" ]; then
+            echo "packaged binary not found, directory contents:"
+            ls -laR "$dir" 2>&1 | head -30
+            exit 1
+          fi
+          out=$(mktemp)
+          ${runner:-} "$bin" >"$out" 2>&1 &
+          pid=$!
+          sleep 30
+          if ! kill -0 $pid 2>/dev/null; then
+            echo "Packaged app exited early:"; cat "$out"; exit 1
+          fi
+          kill $pid 2>/dev/null || true
+          sleep 2
+          if grep -qE "Exception in thread|InstanceCreationException|NoDefinitionFoundException|NoClassDefFoundError|UnsatisfiedLinkError|Could not create instance" "$out"; then
+            echo "Packaged app logged exceptions:"; cat "$out"; exit 1
+          fi
+          echo "Packaged app smoke test OK"
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk "release-assets/MatrixTalk-${{ github.ref_name }}.apk"
+          else
+            cp app/build/outputs/apk/debug/app-debug.apk "release-assets/MatrixTalk-${{ github.ref_name }}-debug.apk"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: release-assets/*.apk
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            task: packageMsi
+            format: msi
+            glob: '*.msi'
+          - os: ubuntu-latest
+            task: packageDeb
+            format: deb
+            glob: '*.deb'
+          - os: macos-latest
+            task: packageDmg
+            format: dmg
+            glob: '*.dmg'
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        if: runner.os != 'Windows'
+        run: chmod +x gradlew
+
+      - name: Package ${{ matrix.format }}
+        shell: bash
+        run: ./gradlew :desktop-app:${{ matrix.task }}
+
+      - name: Smoke test packaged app
+        # Startup regressions in the packaged (minified) app are invisible to
+        # compile tasks and unit tests — launch the real binary and check output.
+        shell: bash
         timeout-minutes: 3
         run: |
           set -u
