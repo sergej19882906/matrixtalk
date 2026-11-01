@@ -1124,6 +1124,8 @@ class MatrixRepositoryImpl : MatrixRepository {
         val rawContent = content ?: return null
         val eventContent = rawContent.getOrNull() ?: return null
         if (eventContent is UnknownEventContent) {
+            // Polls and call invites surface as dedicated message types;
+            // other unknown events stay hidden.
             val poll = com.matrix.messenger.data.poll.parsePollStart(eventContent.raw)
             if (poll != null) {
                 return Message(
@@ -1137,6 +1139,25 @@ class MatrixRepositoryImpl : MatrixRepository {
                     isEdited = false,
                     isDeleted = false,
                     poll = poll
+                )
+            }
+            if (eventContent.eventType == "m.call.invite") {
+                val callEvent = com.matrix.messenger.data.call.parseCallEvent(
+                    eventContent.eventType, eventContent.raw, roomId.full, sender.full
+                ) as? com.matrix.messenger.data.call.CallSignalingEvent.Incoming
+                val isVideo = callEvent?.isVideo == true
+                val isMine = sender == c.userId
+                return Message(
+                    eventId = eventId.full,
+                    senderId = sender.full,
+                    senderName = c.resolveSenderName(roomId, sender),
+                    body = if (isMine) (if (isVideo) "Исходящий видеозвонок" else "Исходящий звонок")
+                    else (if (isVideo) "Входящий видеозвонок" else "Входящий звонок"),
+                    timestamp = originTimestamp,
+                    messageType = MessageType.CALL,
+                    isMine = isMine,
+                    isEdited = false,
+                    isDeleted = false
                 )
             }
             return null

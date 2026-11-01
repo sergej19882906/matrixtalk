@@ -210,6 +210,7 @@ class ChatViewModel(
                     mimeType = mimeType.orEmpty()
                 )
             } catch (e: Exception) {
+                com.matrix.messenger.platform.logError("Chat", "File send failed ($filePath)", e)
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки файла: ${e.message}"))
             }
         }

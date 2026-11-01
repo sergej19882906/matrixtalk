@@ -39,6 +39,7 @@ enum class MessageType {
     FILE,
     EMOTE,
     POLL,
+    CALL,
     UNKNOWN
 }
 

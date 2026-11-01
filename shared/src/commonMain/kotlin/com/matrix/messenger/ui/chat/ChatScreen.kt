@@ -649,6 +649,23 @@ private fun MessageItem(
                                         onVote = onVotePoll
                                     )
 
+                                    message.messageType == MessageType.CALL -> {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                Icons.Default.Call,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(20.dp),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = message.body,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+
                                     message.messageType == MessageType.IMAGE &&
                                         (message.mediaUrl != null || message.encryptedFile != null) -> {
                                         AsyncImage(
