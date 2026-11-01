@@ -1099,49 +1099,25 @@ class MatrixRepositoryImpl : MatrixRepository {
         verificationRefresh.value++
     }
 
-    override suspend fun respondToVerificationRequest(roomId: String, requestEventId: String) {
+    override suspend fun startInRoomVerification(peerUserId: String) {
         val c = requireClient()
         val service = c.di.get<VerificationService>()
         // Same stale-verification guard as startDeviceVerification.
         runCatching { service.activeDeviceVerification.value?.cancel() }
-        val existing = activeUserVerification
-        if (existing != null && existing.requestEventId.full == requestEventId) {
-            // Re-click on the same request: reuse the running in-room verification.
-            // Superseding it would cancel a flow that may already show the emoji
-            // comparison on the other client.
-            logError("Verification", "Reusing active in-room verification for $requestEventId", null)
-            return
-        }
-        val auv = service.getActiveUserVerification(RoomId(roomId), EventId(requestEventId))
-            ?: error("Запрос верификации не найден или устарел - попросите собеседника отправить новый")
         activeUserVerification?.cancel("superseded by a new verification")
+        val auv = service.createUserVerificationRequest(UserId(peerUserId)).getOrThrow()
         activeUserVerification = auv
         userVerificationState.value = VerificationUiState.Waiting
         // The AU state machine runs the whole in-room flow; our mapping auto-sends
-        // ready, starts SAS and routes Compare/Done/Cancel into the shared state.
-        repositoryScope.launch {
-            // Diagnostic: log every in-room verification step the peer sends,
-            // so a stalled flow can be attributed to a missing peer event.
-            runCatching {
-                c.room.getTimelineEvents(
-                    RoomId(roomId),
-                    EventId(requestEventId),
-                    net.folivo.trixnity.clientserverapi.model.rooms.GetEvents.Direction.FORWARDS
-                ).collect { timelineEventFlow ->
-                    timelineEventFlow.filterNotNull().firstOrNull()?.let { te ->
-                        val name = te.content?.getOrNull()?.let { it::class.simpleName }
-                        if (name?.contains("Verification") == true || name?.contains("Sas") == true) {
-                            logError("Verification", "peer room step: $name", null)
-                        }
-                    }
-                }
-            }
-        }
+        // ready (when Element accepts), starts SAS and routes Compare/Done/Cancel
+        // into the shared state.
         repositoryScope.launch {
             auv.state.flatMapLatest { state -> handleVerificationState(state) }
                 .collect { userVerificationState.value = it }
         }
     }
+
+
 
     override suspend fun confirmVerification(matches: Boolean) {
         val comparison = currentComparison ?: return

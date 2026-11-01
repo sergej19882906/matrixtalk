@@ -191,14 +191,11 @@ interface MatrixRepository {
     suspend fun startDeviceVerification(deviceId: String)
 
     /**
-     * Responds to an in-room key verification request: hands the request to
-     * trixnity's ActiveUserVerification, which runs the whole SAS flow in the
-     * room (ready -> start/accept -> key -> mac) natively.
+     * Starts an in-room user verification with [peerUserId] from OUR side.
+     * Being the initiator makes the SAS commitment check deterministic:
+     * the acceptor (Element) hashes the bytes we actually sent.
      */
-    suspend fun respondToVerificationRequest(
-        roomId: String,
-        requestEventId: String
-    )
+    suspend fun startInRoomVerification(peerUserId: String)
 
     /** Confirms or rejects the currently shown emoji/decimal comparison. */
     suspend fun confirmVerification(matches: Boolean)
