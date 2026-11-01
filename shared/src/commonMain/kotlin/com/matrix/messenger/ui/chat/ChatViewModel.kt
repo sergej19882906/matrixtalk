@@ -291,11 +291,23 @@ class ChatViewModel(
             try {
                 val path = matrixRepository.resolveMediaFile(message.eventId, message.body)
                 if (path != null) {
-                    openUrl("file://$path")
+                    com.matrix.messenger.platform.openLocalFile(path)
                 } else {
+                    // No EncryptedFile was captured for this event (e.g. message
+                    // loaded before the mapping existed) — log for diagnostics.
+                    com.matrix.messenger.platform.logError(
+                        "Chat",
+                        "Attachment ${message.eventId} has no encrypted file descriptor",
+                        null
+                    )
                     _events.send(UiEvent.ShowSnackbar("Не удалось открыть файл"))
                 }
             } catch (e: Exception) {
+                com.matrix.messenger.platform.logError(
+                    "Chat",
+                    "Attachment open failed: ${message.eventId} (${message.body})",
+                    e
+                )
                 _events.send(UiEvent.ShowSnackbar("Ошибка открытия файла: ${e.message}"))
             }
         }

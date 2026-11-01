@@ -29,6 +29,33 @@ actual fun openUrl(url: String) {
     // Requires Android Context — handled via PlatformContext in Android module
 }
 
+actual fun openLocalFile(path: String) {
+    val context = appContext ?: return
+    runCatching {
+        val file = java.io.File(path)
+        // targetSdk 30+ forbids file:// URIs across app boundaries: share through
+        // FileProvider (cache-path covers the attachments dir).
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            context.packageName + ".fileprovider",
+            file
+        )
+        val mime = MimeTypeMap.getSingleton()
+            .getMimeTypeFromExtension(file.extension.lowercase())
+            ?: "application/octet-stream"
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
+            addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+            )
+        }
+        context.startActivity(intent)
+    }.onFailure {
+        logError("Platform", "openLocalFile failed ($path)", it)
+    }
+}
+
 var appContext: Context? = null
 
 actual fun readFileBytes(path: String): ByteArray {

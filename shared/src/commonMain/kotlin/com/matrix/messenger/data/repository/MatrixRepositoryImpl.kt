@@ -160,7 +160,14 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     override suspend fun sendCallEvent(roomId: String, command: CallSignalingCommand) {
         val c = requireClient()
-        c.room.sendMessage(RoomId(roomId)) { content(buildCallContent(command, partyId = c.deviceId)) }
+        // m.call.* goes as UnknownEventContent, which the persistent (Realm) outbox
+        // cannot serialize: its repository resolves the serializer by exact kClass
+        // and hard-fails with "Required value was null." Signaling is ephemeral and
+        // needs no outbox retry, so it is sent straight through the API.
+        c.api.room.sendMessageEvent(
+            RoomId(roomId),
+            buildCallContent(command, partyId = c.deviceId)
+        ).getOrThrow()
     }
 
     override suspend fun resolveDirectChatPeerId(roomId: String): String? {
@@ -659,7 +666,13 @@ class MatrixRepositoryImpl : MatrixRepository {
                     url = mxc
                 )
         }
-        c.room.sendMessage(RoomId(roomId)) { content(messageContent) }
+        // Sent via the API directly, bypassing the outbox: Trixnity 4.9.2's outbox
+        // media uploader unconditionally re-uploads the content url (even an already
+        // valid mxc://) and crashes its retry loop on it, silently stalling every
+        // later message in the queue. The media is already uploaded above, so a
+        // straight send is both correct and observable (errors reach the snackbar).
+        c.api.room.sendMessageEvent(RoomId(roomId), messageContent)
+            .getOrThrow()
     }
 
     override suspend fun getRoomInfo(roomId: String): ChatRoom? {
@@ -959,8 +972,40 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     private fun requireClient(): MatrixClient = client ?: error("Не выполнен вход")
 
-    private suspend fun attachClient(c: MatrixClient, url: String) {
-        client?.let { old ->
+    /**
+     * Drops file/image/video/audio rows from the outbox. Trixnity 4.9.2's outbox
+     * sender re-"uploads" the content url of ANY FileBased row unconditionally
+     * (fileRoomMessageEventContentMediaUploader calls upload() even for a plain
+     * mxc:// url), which throws and crashes its retry loop forever — silently
+     * blocking ALL later messages (texts included) behind it. File messages are
+     * therefore sent via the API directly (see sendFileMessage) and any file row
+     * found in the persistent outbox is poison from an older run: remove it.
+     */
+    private fun purgeUnsendableOutbox(c: MatrixClient) {
+        repositoryScope.launch {
+            runCatching {
+                val outbox = c.room.getOutbox().first()
+                outbox.forEach { entryFlow ->
+                    val message = runCatching { entryFlow.first() }.getOrNull() ?: return@forEach
+                    if (message?.content is RoomMessageEventContent.FileBased) {
+                        runCatching {
+                            c.room.cancelSendMessage(message.roomId, message.transactionId)
+                        }.onSuccess {
+                            logError(
+                                "Chat",
+                                "Purged unsendable outbox file message ${message.transactionId}",
+                                null
+                            )
+                        }
+                    }
+                }
+            }.onFailure { t ->
+                logError("Chat", "Outbox purge failed", t)
+            }
+        }
+    }
+
+    private suspend fun attachClient(c: MatrixClient, url: String) {        client?.let { old ->
             try {
                 old.stopSync()
             } catch (e: Exception) {
@@ -970,6 +1015,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         userNameCache.clear()
         baseUrl = url.trimEnd('/')
         client = c
+        purgeUnsendableOutbox(c)
         MediaBytesProvider.resolver = { file ->
             c.media.getEncryptedMedia(file).getOrThrow().toByteArray()
         }
@@ -1062,15 +1108,18 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     override suspend fun sendPoll(roomId: String, question: String, answers: List<String>) {
         if (answers.size < 2) error("Нужно минимум 2 варианта ответа")
-        requireClient().room.sendMessage(RoomId(roomId)) {
-            content(com.matrix.messenger.data.poll.buildPollStartContent(question, answers))
-        }
+        // m.poll.* is UnknownEventContent -> same outbox limitation as call signaling.
+        requireClient().api.room.sendMessageEvent(
+            RoomId(roomId),
+            com.matrix.messenger.data.poll.buildPollStartContent(question, answers)
+        ).getOrThrow()
     }
 
     override suspend fun sendPollVote(roomId: String, pollEventId: String, answerIds: List<String>) {
-        requireClient().room.sendMessage(RoomId(roomId)) {
-            content(com.matrix.messenger.data.poll.buildPollResponseContent(pollEventId, answerIds))
-        }
+        requireClient().api.room.sendMessageEvent(
+            RoomId(roomId),
+            com.matrix.messenger.data.poll.buildPollResponseContent(pollEventId, answerIds)
+        ).getOrThrow()
     }
 
     private suspend fun Room.toChatRoom(c: MatrixClient): ChatRoom {

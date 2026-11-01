@@ -19,6 +19,9 @@ expect fun rememberFilePicker(
 
 expect fun openUrl(url: String)
 
+/** Opens a downloaded attachment with the OS default application for its type. */
+expect fun openLocalFile(path: String)
+
 expect fun readFileBytes(path: String): ByteArray
 
 expect fun writeFileBytes(path: String, bytes: ByteArray)

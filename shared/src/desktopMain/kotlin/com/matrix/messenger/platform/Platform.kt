@@ -64,6 +64,24 @@ actual fun openUrl(url: String) {
     }
 }
 
+actual fun openLocalFile(path: String) {
+    if (!Desktop.isDesktopSupported()) return
+    val desktop = Desktop.getDesktop()
+    val file = java.io.File(path)
+    if (desktop.isSupported(Desktop.Action.OPEN)) {
+        try {
+            // The system file association — what "open attachment" means. Unlike
+            // browse(URI), open() accepts plain paths with spaces/Cyrillic safely.
+            desktop.open(file)
+        } catch (t: Throwable) {
+            // Rare association gaps: fall back to the shell handler.
+            desktop.browse(file.toURI())
+        }
+    } else {
+        desktop.browse(file.toURI())
+    }
+}
+
 actual fun readFileBytes(path: String): ByteArray = File(path).readBytes()
 
 actual fun writeFileBytes(path: String, bytes: ByteArray) {
