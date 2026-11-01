@@ -37,6 +37,14 @@ tasks.register<JavaExec>("loginSmokeTest") {
     classpath = configurations["desktopRuntimeClasspath"] + files(tasks.named("desktopJar"))
 }
 
+// Debug logs for the E2EE verification flow (slf4j-simple is on the classpath).
+tasks.withType<JavaExec>().configureEach {
+    jvmArgs(
+        "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.verification=trace",
+        "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.key=debug"
+    )
+}
+
 tasks.register<JavaExec>("engineSmokeTest") {
     group = "verification"
     description = "Temporary smoke test: desktop WebRTC engine init + local offer"

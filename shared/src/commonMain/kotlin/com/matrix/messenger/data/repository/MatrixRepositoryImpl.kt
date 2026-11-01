@@ -1079,8 +1079,11 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     override suspend fun startDeviceVerification(deviceId: String) {
         val c = requireClient()
-        c.di.get<VerificationService>()
-            .createDeviceVerificationRequest(c.userId, setOf(deviceId))
+        val service = c.di.get<VerificationService>()
+        // A stale active verification (e.g. a request nobody accepted within the
+        // 10-minute window) makes trixnity auto-cancel every new request.
+        runCatching { service.activeDeviceVerification.value?.cancel() }
+        service.createDeviceVerificationRequest(c.userId, setOf(deviceId))
             .getOrThrow()
         verificationRefresh.value++
     }
@@ -1091,6 +1094,9 @@ class MatrixRepositoryImpl : MatrixRepository {
         deviceId: String
     ) {
         val c = requireClient()
+        val service = c.di.get<VerificationService>()
+        // Same stale-verification guard as startDeviceVerification.
+        runCatching { service.activeDeviceVerification.value?.cancel() }
         // Element keeps its in-room request active; a new to-device request would be
         // silently auto-cancelled as a duplicate. Cancel the in-room one politely first.
         runCatching {
@@ -1106,8 +1112,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         }.onFailure { e ->
             logError("Chat", "Failed to cancel in-room verification request", e)
         }
-        c.di.get<VerificationService>()
-            .createDeviceVerificationRequest(c.userId, setOf(deviceId))
+        service.createDeviceVerificationRequest(c.userId, setOf(deviceId))
             .getOrThrow()
         verificationRefresh.value++
         logError("Chat", "Responded to in-room verification request: cancelled in-room, started to-device with $deviceId", null)
