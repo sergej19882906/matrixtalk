@@ -67,6 +67,7 @@ import net.folivo.trixnity.crypto.olm.StoredInboundMegolmSession
 import net.folivo.trixnity.olm.*
 import net.folivo.trixnity.client.key.KeyService
 import net.folivo.trixnity.client.store.AccountStore
+import net.folivo.trixnity.client.store.KeyStore
 import net.folivo.trixnity.client.store.OlmCryptoStore
 import net.folivo.trixnity.client.key.UserTrustLevel
 import org.koin.core.qualifier.named
@@ -1091,10 +1092,20 @@ class MatrixRepositoryImpl : MatrixRepository {
     override suspend fun respondToVerificationRequest(
         roomId: String,
         requestEventId: String,
-        deviceId: String
+        deviceId: String,
+        peerUserId: String
     ) {
         val c = requireClient()
         val service = c.di.get<VerificationService>()
+        // The peer's device keys may never have been fetched (unencrypted rooms do
+        // not trigger device-key tracking) - without them every olm-encrypted
+        // to-device step fails with KeyNotFound(Curve25519).
+        val keyStore = c.di.get<KeyStore>()
+        val peer = UserId(peerUserId)
+        keyStore.updateOutdatedKeys { it + peer }
+        withTimeoutOrNull(5_000) {
+            c.di.get<KeyService>().getDeviceKeys(peer).first { it != null }
+        } ?: logError("Chat", "Peer device keys for $peerUserId did not arrive in 5s", null)
         // Same stale-verification guard as startDeviceVerification.
         runCatching { service.activeDeviceVerification.value?.cancel() }
         // Element keeps its in-room request active; a new to-device request would be

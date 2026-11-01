@@ -425,7 +425,8 @@ fun ChatScreen(
                                                 viewModel.acceptVerificationRequest(
                                                     roomId = roomId,
                                                     eventId = item.message.eventId,
-                                                    deviceId = device
+                                                    deviceId = device,
+                                                    peerUserId = item.message.senderId
                                                 )
                                             }
                                         },

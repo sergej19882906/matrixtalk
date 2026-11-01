@@ -198,7 +198,8 @@ interface MatrixRepository {
     suspend fun respondToVerificationRequest(
         roomId: String,
         requestEventId: String,
-        deviceId: String
+        deviceId: String,
+        peerUserId: String
     )
 
     /** Confirms or rejects the currently shown emoji/decimal comparison. */
