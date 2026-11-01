@@ -59,6 +59,7 @@ import net.folivo.trixnity.client.flattenValues
 import net.folivo.trixnity.client.fromStore
 import net.folivo.trixnity.client.key.KeyBackupService
 import net.folivo.trixnity.client.key.KeyService
+import org.koin.core.qualifier.named
 import net.folivo.trixnity.client.loginWith
 import net.folivo.trixnity.client.loginWithPassword
 import net.folivo.trixnity.client.media
@@ -836,7 +837,9 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     override fun getKeyBackupVersionFlow(): Flow<String?> = _clientState.flatMapLatest { c ->
         if (c == null) flowOf(null)
-        else c.di.get<KeyBackupService>().version.map { it?.version }
+        // Trixnity binds KeyBackupService with a named qualifier: a plain get()
+        // throws NoDefinitionFoundException (seen in error.log on the devices screen).
+        else c.di.get<KeyBackupService>(named<KeyBackupService>()).version.map { it?.version }
     }
 
     override suspend fun bootstrapKeyBackup(passwordProvider: suspend () -> String?): String {
