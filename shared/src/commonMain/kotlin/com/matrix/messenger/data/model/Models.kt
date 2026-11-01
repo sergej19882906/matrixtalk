@@ -50,6 +50,7 @@ enum class MessageType {
     EMOTE,
     POLL,
     CALL,
+    VERIFICATION_REQUEST,
     UNKNOWN
 }
 
@@ -65,6 +66,8 @@ data class Message(
     val isDeleted: Boolean,
     /** Resolved https avatar of the sender (room member), null when unavailable. */
     val senderAvatarUrl: String? = null,
+    /** Requesting device id for in-room key verification requests (m.key.verification.request). */
+    val verificationDeviceId: String? = null,
     val reactions: Map<String, Int> = emptyMap(),
     val mediaUrl: String? = null,
     val encryptedFile: EncryptedFile? = null,

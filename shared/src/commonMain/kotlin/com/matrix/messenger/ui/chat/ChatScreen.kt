@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -79,6 +80,7 @@ import coil3.compose.AsyncImage
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
 import com.matrix.messenger.data.model.UiEvent
+import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.data.repository.CallRepository
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.media.MatrixMedia
@@ -118,6 +120,7 @@ fun ChatScreen(
     viewModel: ChatViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val verificationState by viewModel.verificationState.collectAsState()
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     var editingMessage by remember { mutableStateOf<Message?>(null) }
@@ -416,6 +419,11 @@ fun ChatScreen(
                                         onReaction = { emoji ->
                                             viewModel.sendReaction(item.message.eventId, emoji)
                                         },
+                                        onAcceptVerification = {
+                                            item.message.verificationDeviceId?.let { deviceId ->
+                                                viewModel.acceptVerificationRequest(deviceId)
+                                            }
+                                        },
                                         onEdit = {
                                             editText = item.message.body
                                             editingMessage = item.message
@@ -619,6 +627,65 @@ fun ChatScreen(
             }
         )
     }
+
+    // In-chat SAS verification (triggered by "Верифицировать" on a key verification request)
+    when (val vs = verificationState) {
+        is com.matrix.messenger.data.model.VerificationUiState.Waiting,
+        is com.matrix.messenger.data.model.VerificationUiState.Compare -> {
+            AlertDialog(
+                onDismissRequest = { viewModel.cancelVerification() },
+                title = { Text("Верификация устройства") },
+                text = {
+                    if (vs is com.matrix.messenger.data.model.VerificationUiState.Compare) {
+                        Column {
+                            Text("Сравните эмодзи с другим устройством. Они должны совпадать:")
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = vs.emojis.joinToString("  ") { it.second },
+                                style = MaterialTheme.typography.headlineSmall
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Код: " + vs.decimal.joinToString(" "),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Text("Ожидание другого устройства… Оно должно подтвердить запрос на верификацию.")
+                    }
+                },
+                confirmButton = {
+                    if (vs is com.matrix.messenger.data.model.VerificationUiState.Compare) {
+                        TextButton(onClick = { viewModel.confirmVerification(true) }) {
+                            Text("Совпадают")
+                        }
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        if (vs is com.matrix.messenger.data.model.VerificationUiState.Compare) {
+                            TextButton(onClick = { viewModel.confirmVerification(false) }) {
+                                Text("Не совпадают", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        TextButton(onClick = { viewModel.cancelVerification() }) { Text("Отмена") }
+                    }
+                }
+            )
+        }
+        com.matrix.messenger.data.model.VerificationUiState.Done -> {
+            AlertDialog(
+                onDismissRequest = { viewModel.cancelVerification() },
+                title = { Text("Устройство верифицировано") },
+                text = { Text("Сессии подтверждены. Ключи зашифрованных чатов будут доступны обоим устройствам.") },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.cancelVerification() }) { Text("Готово") }
+                }
+            )
+        }
+        else -> Unit
+    }
 }
 
 @Composable
@@ -631,6 +698,7 @@ private fun MessageItem(
     groupedWithNext: Boolean,
     isPinned: Boolean,
     onReaction: (String) -> Unit,
+    onAcceptVerification: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onOpenAttachment: () -> Unit,
@@ -720,6 +788,44 @@ private fun MessageItem(
                                         message = message,
                                         onVote = onVotePoll
                                     )
+
+                                    message.messageType == MessageType.VERIFICATION_REQUEST -> {
+                                        Column {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    Icons.Default.VerifiedUser,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Запрос верификации ключа",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                            if (!message.isMine) {
+                                                if (message.verificationDeviceId != null) {
+                                                    Text(
+                                                        text = "Устройство ${message.verificationDeviceId}",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Button(onClick = onAcceptVerification) {
+                                                    Text("Верифицировать")
+                                                }
+                                            } else {
+                                                Text(
+                                                    text = "Запрос отправлен",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
 
                                     message.messageType == MessageType.CALL -> {
                                         Row(verticalAlignment = Alignment.CenterVertically) {

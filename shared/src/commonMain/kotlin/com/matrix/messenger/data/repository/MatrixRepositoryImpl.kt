@@ -1347,6 +1347,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         val eventContent = content?.getOrNull() ?: return null
         val body = when (eventContent) {
             is RedactedEventContent -> "Сообщение удалено"
+            is RoomMessageEventContent.VerificationRequest -> "Запрос верификации ключа"
             is RoomMessageEventContent -> eventContent.body
             else -> return null
         }
@@ -1406,6 +1407,23 @@ class MatrixRepositoryImpl : MatrixRepository {
         val isDeleted = eventContent is RedactedEventContent
         val messageContent = eventContent as? RoomMessageEventContent
         if (messageContent?.relatesTo is RelatesTo.Replace) return null
+        // In-room key verification request (Element sends these into the DM):
+        // render as an actionable verification bubble instead of the English fallback text.
+        if (messageContent is RoomMessageEventContent.VerificationRequest && !isDeleted) {
+            return Message(
+                eventId = eventId.full,
+                senderId = sender.full,
+                senderName = c.resolveSenderName(roomId, sender),
+                senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
+                body = "Запрос верификации ключа",
+                timestamp = originTimestamp,
+                messageType = MessageType.VERIFICATION_REQUEST,
+                isMine = sender == c.userId,
+                isEdited = false,
+                isDeleted = false,
+                verificationDeviceId = messageContent.fromDevice
+            )
+        }
         val body = when {
             isDeleted -> ""
             messageContent is RoomMessageEventContent.FileBased ->
@@ -1472,6 +1490,7 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     private fun RoomEventContent.toMessageType(): MessageType = when (this) {
         is RoomMessageEventContent.TextBased.Emote -> MessageType.EMOTE
+        is RoomMessageEventContent.VerificationRequest -> MessageType.VERIFICATION_REQUEST
         is RoomMessageEventContent.FileBased.Image -> MessageType.IMAGE
         is RoomMessageEventContent.FileBased.Video -> MessageType.VIDEO
         is RoomMessageEventContent.FileBased.Audio -> MessageType.AUDIO

@@ -6,13 +6,16 @@ import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.RoomTrust
 import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.UiState
+import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.data.repository.MatrixRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class ChatUiState(
@@ -46,6 +49,28 @@ class ChatViewModel(
 
     private val _events = Channel<UiEvent>()
     val events = _events.receiveAsFlow()
+
+    /** SAS verification state (in-chat verification of the requesting device). */
+    val verificationState: StateFlow<VerificationUiState> = matrixRepository.verificationState
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerificationUiState.Idle)
+
+    fun acceptVerificationRequest(deviceId: String) {
+        viewModelScope.launch {
+            try {
+                matrixRepository.startDeviceVerification(deviceId)
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Не удалось начать верификацию: ${e.message}"))
+            }
+        }
+    }
+
+    fun confirmVerification(matches: Boolean) {
+        viewModelScope.launch { matrixRepository.confirmVerification(matches) }
+    }
+
+    fun cancelVerification() {
+        viewModelScope.launch { matrixRepository.cancelVerification() }
+    }
 
     fun setRoomId(roomId: String) {
         if (_uiState.value.roomId != roomId) {
