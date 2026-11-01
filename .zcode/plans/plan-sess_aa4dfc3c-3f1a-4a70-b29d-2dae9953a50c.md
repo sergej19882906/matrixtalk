@@ -1,55 +1,39 @@
-# Редизайн UI «как у Element X» — главные экраны (v1.15)
+# Вторая волна редизайна + аудит аватаров (v1.16)
 
 ## Контекст
 
-Последний неотвеченный запрос старой сессии: «интерфейс как у element». Функциональный паритет с Element уже достигнут (ответы, пины, опросы, звонки, устройства и т.д.), но выглядит приложение как типовой Material-шаблон: 7 иконок в шапке списка, звезда+меню в каждой строке, вечный overlay MoreVert на каждом пузыре, нет разделителей дат, нет эмодзи-кнопки, аватары продублированы инлайном 6 раз, `formatTime()` показывает время суток от epoch вместо даты (баг в `HomeScreen.kt:672` и `ChatScreen.kt:1084`).
+Первая волна (v1.15.0) перестроила главные экраны. Вторая — второстепенные экраны. Параллельный аудит «отображения аватаров» нашёл **6 реальных багов рендеринга**, самый серьёзный: незашифрованные картинки в чате и галерее, а также аватар профиля в настройках **никогда не отображаются** — фабрика Coil возвращает `null` для `MatrixMedia(url, null)`, но coil3 не «проваливает» запрос к сетевой фабрике для чужого типа данных (та регистрируется на `Uri`, а не `MatrixMedia`) → «Unable to create a fetcher». Работают только незашифрованные `String`-модели (аватары списков) и зашифрованные вложения.
 
-Решения пользователя: **одна колонка на всех платформах** (навигация не меняется), референс **Element X**, объём — **главные экраны** (список чатов + чат + общие компоненты). Вся UI в `shared/src/commonMain` — один рестайл накрывает Android и десктоп. Навигация (`AppNavigation.kt`), ViewModel'ы и модели не трогаем.
+## Часть A — фиксы аватаров/медиа
 
-## 1. Дизайн-токены (Element X)
+1. **`media/MediaFetcher.kt`** (одна точка, чинит сразу 3 места): в `MatrixMediaFetcher.Factory.create` для `encryptedFile == null` явно строить сетевой fetcher: `NetworkFetcher.Factory().create(url.toUri(), options, imageLoader)` (импорт `coil3.network.NetworkFetcher`, `coil3.toUri`; coil-network-core уже в classpath через coil-network-okhttp).
+2. **Аватар комнаты в шапке чата**: `ChatUiState` + `roomAvatarUrl`; `ChatViewModel.observeMessages` (сейчас отбрасывает `getRoomInfo().avatarUrl`); `ChatScreen` TopAppBar — `MatrixAvatar(avatarUrl = uiState.roomAvatarUrl)`.
+3. **Аватары отправителей в ленте**: `Message.senderAvatarUrl: String?`; в `MatrixRepositoryImpl` рядом с `userNameCache` добавить кэш аватаров (`resolveSenderAvatar` через `c.user.getById(roomId, sender).avatarUrl` + `mxcToHttp`, с таймаутом как у имени); прокинуть в `mapToMessage`; `ChatScreen.MessageItem` — передавать в MatrixAvatar (36dp, CircleShape).
+4. **DM-фоллбэк в списке чатов**: `toChatRoom` — если у комнаты нет `m.room.avatar`, а это личный чат, взять аватар hero (собеседника) через `c.user.getById`.
+5. **Аватары контактов**: `searchUsers` отдаёт сырой `mxc://` → обернуть `mxcToHttp` (сейчас Coil не может загрузить).
+6. **Дедупликация**: инлайновые аватары `SettingsScreen` (профиль, 56dp) и `RoomsCatalogScreen.PublicRoomRow` (44dp) → `MatrixAvatar`; в диалоге «Профиль» на `HomeScreen` — MatrixAvatar вместо голого AsyncImage (буква-фоллбэк).
 
-**`ui/theme/Color.kt`** — оставить `MatrixGreen = 0xFF0DBD8B` (это и есть зелёный Element), убрать остатки Purple/Pink, добавить палитру Element X для тёмной/светлой темы (`0xFF15191E`/`0xFF101317` фоны, `0xFF1D2126` surface, зелёные контейнеры и т.п.).
+## Часть B — второстепенные экраны (в стиль Element X)
 
-**`ui/theme/Theme.kt`** — заполнить слоты `colorScheme`, на которые сейчас полагаются дефолты: вся семья `surfaceContainer*`, `outlineVariant`, `secondaryContainer`, `errorContainer`, `inverseSurface`, `onSurfaceVariant`. Исходящие пузыри — `primaryContainer` (как сейчас), входящие — `surfaceContainerHighest`.
+Референс-паттерн: TopAppBar + строки на `surfaceContainerLow`, поля с `shapes.extraLarge`, иконки/виджеты из общего набора.
 
-**`ui/theme/Type.kt`** — расширить типографику (сейчас только 3 стиля): `titleLarge/Medium`, `bodyLarge/Medium`, `labelLarge/Medium`.
+- **SettingsScreen**: MatrixAvatar в профиле, заголовки секций `labelMedium`/`onSurfaceVariant`, выравнивание TopAppBar с Home/Chat.
+- **DevicesScreen**: строки устройств на `surfaceContainerLow`; `formatSeen` частично на `TimeFormat`; диалоги получают новый вид бесплатно (shapes).
+- **SearchScreen**: поле поиска — скруглённый pill (как в Home), строки с Surface + `TimeFormat` вместо локального `formatSearchTime`.
+- **RoomsCatalogScreen**: MatrixAvatar, «Вступить» → TextButton, строки на `surfaceContainerLow`.
+- **SpaceChildrenScreen**: извлечь композабл строки, добавить MatrixAvatar (буквенный), «Открыть» → TextButton.
+- **BridgesScreen**: лёгкая полировка Card (цвет `surfaceContainerLow`).
+- **LoginScreen**: лёгкая полировка — скруглённые поля (`shapes.extraLarge`), брендовый блок; Scaffold не добавляем.
 
-## 2. Новые общие компоненты `ui/components/`
-
-Сейчас avatar-логика скопирована ~6 раз инлайном. Извлечь:
-
-- **`MatrixAvatar.kt`** — AsyncImage (Coil, как в существующем коде) или letter-fallback с детерминированным цветом фона (hash имени → палитра из 8 цветов Element X). Параметры: `size`, `shape` (скруглённый квадрат 12dp для комнат/юзеров — стиль Element X; круг для мелких аватаров в чате).
-- **`UnreadBadge.kt`** — pill-бейдж (minWidth 20dp, `primary`, счётчик >99 → «99+»).
-- **`DateSeparator.kt`** — центрированная «таблетка» на `surfaceContainerHighest` («Сегодня», «Вчера», «12 октября»).
-- **`TimeFormat.kt`** — функция, чинящая баг `formatTime`: сегодня → HH:MM, вчера → «Вчера», последние 7 дней → день недели, иначе dd.MM.yy. Используется и в списке, и в пузырях.
-
-## 3. HomeScreen (список чатов) — `ui/home/HomeScreen.kt`
-
-- **Шапка**: `LargeTopAppBar`-стиль Element X — заголовок «Чаты», справа только Search + аватар текущего пользователя (открывает существующий профильный диалог). Лишние 5 иконок (Каталог, Мосты, Настройки, Создать, Выйти) — в overflow-меню под аватаром (сохранить весь функционал).
-- **FAB**: `ExtendedFloatingActionButton` «Новый чат» (CreateIcon) → существующий диалог создания. Взамен иконки Add в шапке.
-- **Фильтр-чипы** (Signature Element X): одна строка `FilterChip` «Все / Личные / Группы / Избранные / Непрочитанные» — клиентская фильтрация `rooms` по `isDirect/isFavorite/unreadCount` (локальное состояние, VM не трогаем).
-- **RoomItem**: MatrixAvatar 52dp скруглённый квадрат; строка 1 — имя (жирное если непрочитан) + дата из TimeFormat; строка 2 — «Отправитель: текст» + UnreadBadge. **Убрать** всегда видимые Star и MoreVert из строки; оба действия → DropdownMenu по клику на трейл (на десктопе) / удержанию не требуется. Вкладка «Контакты» и нижний NavigationBar остаются как есть.
-
-## 4. ChatScreen (чат) — `ui/chat/ChatScreen.kt`
-
-- **Шапка**: назад, MatrixAvatar 36dp + Column(имя, «печатает…»), actions только: Call, Videocam, MoreVert. В меню переносятся: демонстрация экрана, галерея вложений, закреплённые, пригласить, выйти (весь функционал сохранён).
-- **Разделители дат**: sealed `TimelineItem(DateHeader | Msg)` строится `remember(uiState.messages)` из списка; в `LazyColumn` — `key = "date_<dayStart>"` / `eventId`. Автоскролл (существующий `LaunchedEffect` на `ChatScreen.kt:157`) правится на индекс последнего сообщения в объединённом списке.
-- **Группировка сообщений**: подряд идущие от одного отправителя (<5 мин) — имя и аватар только у первого; «хвост» скруглений пузыря 4dp между соседними.
-- **MessageItem**: убрать всегда видимый overlay-IconButton `MoreVert` (`ChatScreen.kt:778`) — меню открывается кликом по пузырю. В меню добавить ряд быстрых реакций (👍 ❤️ 😂 😮 😢) вместо жёстко зашитого 👍. Реакции-чипы и таймстамп внутри пузыря — оставить, отполировать отступы.
-- **MessageInputBar**: контейнер Element X — одно скруглённое поле, внутри слева кнопка эмодзи (Popup-сетка ~64 частых эмодзи, вставка в конец ввода), справа «+» → меню «Файл / Опрос» (существующие `pickAttachment`/`showPollDialog`), Mic; при непустом тексте Mic прячется, появляется круглая заполненная кнопка Send. Запись голоса — как сейчас.
-- Старые приватные `formatTime` в обоих файлах удалить, заменить на `TimeFormat`.
-
-## 5. Не входит в этот заход
-
-Настройки/Устройства/Поиск/Каталог/Бриджи/Звонки (следующий релиз), двухпанельный десктоп, свайп-жесты, полный эмодзи-пикер, markdown. Релиз/тег не делаем — только сборка и локальная проверка (релиз отдельной командой, как в старой сессии).
+**Не трогаем**: CallScreen (намеренно самостоятельный оверлей с своими цветами), аватары в результатах поиска (данных нет в `SearchResultItem` — отдельно, если попросите), аутентифицированные медиа MSC3916 (matrix.org пока принимает legacy-эндпоинт — риск задокументирован).
 
 ## Файлы
 
-- Новые: `shared/src/commonMain/kotlin/com/matrix/messenger/ui/components/{MatrixAvatar,UnreadBadge,DateSeparator,TimeFormat}.kt`
-- Правка: `ui/theme/{Color,Theme,Type}.kt`, `ui/home/HomeScreen.kt`, `ui/chat/ChatScreen.kt`, (опц.) `desktop-app/.../Main.kt` — min/preferred размер окна.
+- Правка: `media/MediaFetcher.kt`, `data/model/Models.kt` (+1 поле), `data/repository/MatrixRepositoryImpl.kt`, `ui/chat/{ChatViewModel,ChatScreen}.kt`, `ui/home/HomeScreen.kt` (диалог профиля), `ui/settings/{SettingsScreen,DevicesScreen}.kt`, `ui/search/SearchScreen.kt`, `ui/rooms/{RoomsCatalogScreen,SpaceChildrenScreen}.kt`, `ui/bridges/BridgesScreen.kt`, `ui/login/LoginScreen.kt`
+- Переиспользуем: `MatrixAvatar`, `TimeFormat`, палитру/типографику темы из v1.15.0
 
 ## Проверка
 
-1. `gradlew :shared:compileKotlinDesktop :desktop-app:compileKotlinDesktop :app:assembleDebug` — все три таргета.
-2. `gradlew :shared:testDebugUnitTest` — регресс не задет.
-3. `gradlew :desktop-app:run` вручную: список чатов (чипы, FAB, меню аватара, бейджи, даты в превью), чат (разделители дат, группировка, меню пузыря с быстрыми реакциями, эмодзи-кнопка, «+»-меню, отправка текста/файла), переключение тёмной/светлой темы.
+1. `gradlew :shared:compileKotlinDesktop :desktop-app:compileKotlinDesktop :app:assembleDebug` + `:shared:desktopTest :shared:testDebugUnitTest`
+2. `gradlew :desktop-app:run` — визуально: шапка чата с аватаром комнаты, аватары собеседников в ленте, незашифрованная картинка в чате/галерее, профиль в настройках с фото, список чатов с DM-аватарами
+3. Вручную у вас: тот же чат, где проверяли отправку — аватары с обеих сторон

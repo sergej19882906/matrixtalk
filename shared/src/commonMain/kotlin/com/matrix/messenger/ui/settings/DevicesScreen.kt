@@ -347,7 +347,7 @@ private fun DeviceRow(
     onDelete: () -> Unit,
     onVerify: () -> Unit
 ) {
-    Surface {
+    Surface(color = MaterialTheme.colorScheme.surface) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically

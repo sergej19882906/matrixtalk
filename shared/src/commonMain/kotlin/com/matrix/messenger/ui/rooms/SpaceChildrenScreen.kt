@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.matrix.messenger.data.model.PublicRoomItem
 import com.matrix.messenger.data.repository.MatrixRepository
+import com.matrix.messenger.ui.components.MatrixAvatar
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -95,45 +97,53 @@ fun SpaceChildrenScreen(
                     items = children,
                     key = { it.roomId }
                 ) { child ->
-                    Surface {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpenRoom(child.roomId) }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = child.name ?: child.alias ?: child.roomId,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (child.topic != null) {
-                                    Text(
-                                        text = child.topic!!,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                Text(
-                                    text = "${child.joinedMembers} участников",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Открыть",
-                                color = MaterialTheme.colorScheme.primary,
-                                style = MaterialTheme.typography.labelLarge
-                            )
-                        }
-                    }
+                    SpaceChildRow(child = child, onOpen = { onOpenRoom(child.roomId) })
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpaceChildRow(child: PublicRoomItem, onOpen: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpen)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MatrixAvatar(
+                name = child.name ?: child.alias ?: child.roomId,
+                avatarUrl = child.avatarUrl,
+                size = 44.dp
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = child.name ?: child.alias ?: child.roomId,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (child.topic != null) {
+                    Text(
+                        text = child.topic!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = "${child.joinedMembers} участников",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            TextButton(onClick = onOpen) {
+                Text("Открыть", style = MaterialTheme.typography.labelLarge)
             }
         }
     }

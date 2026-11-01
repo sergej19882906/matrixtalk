@@ -343,14 +343,14 @@ fun HomeScreen(
             title = { Text("Профиль") },
             text = {
                 Column {
-                    uiState.currentUser?.avatarUrl?.let { avatarUrl ->
-                        AsyncImage(
-                            model = avatarUrl,
-                            contentDescription = "Аватар профиля",
-                            modifier = Modifier.size(72.dp).clip(CircleShape)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
+                    MatrixAvatar(
+                        name = uiState.currentUser?.displayName
+                            ?: uiState.currentUser?.userId,
+                        avatarUrl = uiState.currentUser?.avatarUrl,
+                        size = 72.dp,
+                        shape = CircleShape
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = uiState.currentUser?.userId.orEmpty(),
                         style = MaterialTheme.typography.bodySmall

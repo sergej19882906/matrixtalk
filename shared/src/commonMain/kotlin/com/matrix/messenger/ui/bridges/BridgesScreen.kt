@@ -98,7 +98,12 @@ fun BridgesScreen(onNavigateBack: () -> Unit) {
                 Spacer(modifier = Modifier.height(4.dp))
             }
             items(bridges) { bridge ->
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    )
+                ) {
                     Row(
                         modifier = Modifier.padding(16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)

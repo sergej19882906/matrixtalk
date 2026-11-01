@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,9 +62,25 @@ fun LoginScreen(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp)
         ) {
             Spacer(modifier = Modifier.height(48.dp))
+
+            // Brand mark
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary
+            ) {
+                Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "M",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Text(
                 text = "Matrix Talk",
@@ -86,6 +105,7 @@ fun LoginScreen(
                 placeholder = { Text("matrix.org или ваш сервер") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                shape = MaterialTheme.shapes.extraLarge,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Uri,
                     imeAction = ImeAction.Next
@@ -101,6 +121,7 @@ fun LoginScreen(
                 placeholder = { Text("@username:matrix.org") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                shape = MaterialTheme.shapes.extraLarge,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Email,
                     imeAction = ImeAction.Next
@@ -148,7 +169,8 @@ fun LoginScreen(
                         keyboardController?.hide()
                         viewModel.login()
                     }
-                )
+                ),
+                shape = MaterialTheme.shapes.extraLarge
             )
 
             uiState.error?.let { error ->

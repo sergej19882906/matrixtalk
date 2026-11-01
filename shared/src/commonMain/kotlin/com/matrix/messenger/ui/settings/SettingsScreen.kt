@@ -14,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
@@ -29,7 +28,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -38,13 +36,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
-import com.matrix.messenger.media.MatrixMedia
 import com.matrix.messenger.platform.appVersionName
 import com.matrix.messenger.platform.rememberFilePicker
+import com.matrix.messenger.ui.components.MatrixAvatar
 import com.matrix.messenger.ui.theme.ThemeMode
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -84,24 +79,12 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(shape = CircleShape, modifier = Modifier.size(56.dp)) {
-                    val avatar = uiState.user?.avatarUrl
-                    if (avatar != null) {
-                        AsyncImage(
-                            model = MatrixMedia(avatar, null),
-                            contentDescription = "Аватар",
-                            modifier = Modifier.size(56.dp).clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(
-                            Icons.Default.AccountCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(56.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+                MatrixAvatar(
+                    name = uiState.user?.displayName ?: uiState.user?.userId,
+                    avatarUrl = uiState.user?.avatarUrl,
+                    size = 56.dp,
+                    shape = CircleShape
+                )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -127,6 +110,7 @@ fun SettingsScreen(
                     onValueChange = viewModel::onDisplayNameChange,
                     label = { Text("Отображаемое имя") },
                     singleLine = true,
+                    shape = MaterialTheme.shapes.extraLarge,
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -255,8 +239,8 @@ fun SettingsScreen(
 private fun SettingsSectionHeader(title: String) {
     Text(
         text = title,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
     )
 }

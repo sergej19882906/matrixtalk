@@ -19,6 +19,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -29,9 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.matrix.messenger.data.model.SearchResultItem
-import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
+import com.matrix.messenger.ui.components.TimeFormat
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,7 +61,8 @@ fun SearchScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Поиск по всем чатам…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true
+                singleLine = true,
+                shape = MaterialTheme.shapes.extraLarge
             )
             when {
                 uiState.isSearching -> Text(
@@ -98,40 +98,35 @@ fun SearchScreen(
 
 @Composable
 private fun SearchResultRow(item: SearchResultItem, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = item.roomName ?: item.roomId,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = TimeFormat.listLabel(item.timestamp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Text(
-                text = item.roomName ?: item.roomId,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = formatSearchTime(item.timestamp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "${item.senderName?.substringBefore(":") ?: "?"}: ${item.body}",
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
-        Text(
-            text = "${item.senderName?.substringBefore(":") ?: "?"}: ${item.body}",
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
     }
-}
-
-private fun formatSearchTime(ts: Long): String {
-    val local = Instant.fromEpochMilliseconds(ts).toLocalDateTime(TimeZone.currentSystemDefault())
-    return "${local.dayOfMonth.toString().padStart(2, '0')}." +
-        "${local.monthNumber.toString().padStart(2, '0')}." +
-        "${local.hour.toString().padStart(2, '0')}:${local.minute.toString().padStart(2, '0')}"
 }

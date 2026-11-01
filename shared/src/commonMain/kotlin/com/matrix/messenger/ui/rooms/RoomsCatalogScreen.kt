@@ -1,17 +1,14 @@
 package com.matrix.messenger.ui.rooms
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
@@ -23,6 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,12 +28,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.matrix.messenger.data.model.PublicRoomItem
+import com.matrix.messenger.ui.components.MatrixAvatar
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -74,7 +70,8 @@ fun RoomsCatalogScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Поиск по каталогу сервера…") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true
+                singleLine = true,
+                shape = MaterialTheme.shapes.extraLarge
             )
             when {
                 uiState.isLoading -> Text(
@@ -110,29 +107,16 @@ fun RoomsCatalogScreen(
 
 @Composable
 private fun PublicRoomRow(room: PublicRoomItem, onJoin: () -> Unit) {
-    Surface {
+    Surface(color = MaterialTheme.colorScheme.surface) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(shape = CircleShape, modifier = Modifier.size(44.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                if (room.avatarUrl != null) {
-                    AsyncImage(
-                        model = room.avatarUrl,
-                        contentDescription = null,
-                        modifier = Modifier.size(44.dp).clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = (room.name ?: "#").take(1).uppercase(),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    }
-                }
-            }
+            MatrixAvatar(
+                name = room.name ?: room.alias ?: room.roomId,
+                avatarUrl = room.avatarUrl,
+                size = 44.dp
+            )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -156,12 +140,9 @@ private fun PublicRoomRow(room: PublicRoomItem, onJoin: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Text(
-                text = "Вступить",
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.clip(MaterialTheme.shapes.small).clickable(onClick = onJoin).padding(8.dp)
-            )
+            TextButton(onClick = onJoin) {
+                Text("Вступить", style = MaterialTheme.typography.labelLarge)
+            }
         }
     }
 }
