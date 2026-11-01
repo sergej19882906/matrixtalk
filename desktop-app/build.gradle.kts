@@ -21,6 +21,10 @@ kotlin {
                 implementation("org.jetbrains.androidx.navigation:navigation-compose:2.8.0-alpha10")
                 implementation("org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0")
                 implementation("io.coil-kt.coil3:coil-compose:3.0.4")
+                // SLF4J binding: without it Trixnity's internal logs (sync, outbox
+                // sender, crypto) are silently discarded ("Defaulting to no-operation"),
+                // hiding exactly the errors needed for error.log diagnostics.
+                implementation("org.slf4j:slf4j-simple:2.0.13")
             }
         }
     }
@@ -71,7 +75,7 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Dmg)
 
             packageName = "MatrixTalk"
-            packageVersion = "1.14.6"
+            packageVersion = "1.15.0"
 
             windows {
                 menuGroup = "Matrix Talk"
