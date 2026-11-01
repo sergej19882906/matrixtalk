@@ -1120,6 +1120,24 @@ class MatrixRepositoryImpl : MatrixRepository {
         // The AU state machine runs the whole in-room flow; our mapping auto-sends
         // ready, starts SAS and routes Compare/Done/Cancel into the shared state.
         repositoryScope.launch {
+            // Diagnostic: log every in-room verification step the peer sends,
+            // so a stalled flow can be attributed to a missing peer event.
+            runCatching {
+                c.room.getTimelineEvents(
+                    RoomId(roomId),
+                    EventId(requestEventId),
+                    net.folivo.trixnity.clientserverapi.model.rooms.GetEvents.Direction.FORWARDS
+                ).collect { timelineEventFlow ->
+                    timelineEventFlow.filterNotNull().firstOrNull()?.let { te ->
+                        val name = te.content?.getOrNull()?.let { it::class.simpleName }
+                        if (name?.contains("Verification") == true || name?.contains("Sas") == true) {
+                            logError("Verification", "peer room step: $name", null)
+                        }
+                    }
+                }
+            }
+        }
+        repositoryScope.launch {
             auv.state.flatMapLatest { state -> handleVerificationState(state) }
                 .collect { userVerificationState.value = it }
         }
