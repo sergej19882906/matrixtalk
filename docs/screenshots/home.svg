@@ -5,7 +5,7 @@
   <circle cx="296" cy="40" r="14" fill="none" stroke="#A9B2BC" stroke-width="2"/>
   <line x1="306" y1="50" x2="316" y2="60" stroke="#A9B2BC" stroke-width="2" stroke-linecap="round"/>
   <circle cx="334" cy="41" r="16" fill="#AC3BA8"/>
-  <text x="334" y="47" fill="#fff" font-family="sans-serif" font-size="14" text-anchor="middle">С</text>
+  <text x="334" y="47" fill="#fff" font-family="sans-serif" font-size="14" text-anchor="middle">А</text>
 
   <!-- search pill -->
   <rect x="16" y="76" width="328" height="44" rx="22" fill="#1C2025" stroke="#2F353B"/>
