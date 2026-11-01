@@ -638,7 +638,9 @@ fun ChatScreen(
         is com.matrix.messenger.data.model.VerificationUiState.Waiting,
         is com.matrix.messenger.data.model.VerificationUiState.Compare -> {
             AlertDialog(
-                onDismissRequest = { viewModel.cancelVerification() },
+                // Outside clicks must NOT cancel: the SAS flow continues while the
+                // peer decides; only the explicit buttons confirm or cancel.
+                onDismissRequest = {},
                 title = { Text("Верификация устройства") },
                 text = {
                     if (vs is com.matrix.messenger.data.model.VerificationUiState.Compare) {

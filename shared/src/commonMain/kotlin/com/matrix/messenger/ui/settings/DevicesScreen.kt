@@ -273,7 +273,8 @@ fun DevicesScreen(
     when (val vs = verificationState) {
         is VerificationUiState.Waiting, is VerificationUiState.Compare -> {
             AlertDialog(
-                onDismissRequest = viewModel::cancelVerification,
+                // Outside clicks must NOT cancel the ongoing SAS flow.
+                onDismissRequest = {},
                 title = { Text("Верификация устройства") },
                 text = {
                     when (vs) {
