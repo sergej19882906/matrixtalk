@@ -1,35 +1,48 @@
 # MatrixTalk
 
-Мультиплатформенный клиент для децентрализованной сети **Matrix**, написанный на **Kotlin Multiplatform** с общим UI на **Compose Multiplatform**. Один код — три платформы.
+Мультиплатформенный клиент для децентрализованной сети **Matrix**, написанный на **Kotlin Multiplatform** с общим UI на **Compose Multiplatform** в стиле **Element X**. Один код — Android и Desktop (Windows / Linux / macOS).
 
 | Платформа | Статус |
 |-----------|--------|
 | 🤖 Android | ✅ Готово (APK в [релизах](https://github.com/sergej19882906/matrixtalk/releases)) |
-| 🖥️ Windows / Linux / macOS | ✅ Готово (MSI / DEB / DMG в [релизах](https://github.com/sergej19882906/matrixtalk/releases)) |
+| 🖥️ Windows / Linux / macOS | ✅ Готово (MSI / DEB / DMG / AppImage в [релизах](https://github.com/sergej19882906/matrixtalk/releases)) |
 | 🍎 iOS | 🚧 В планах |
 
 ## Возможности
 
 ### 💬 Мессенджер
-- ✅ Вход по логину/паролю и по Matrix access token
-- ✅ Список чатов/комнат с непрочитанными и последним сообщением
-- ✅ Отправка текстовых сообщений, изображений, видео, аудио и файлов
-- ✅ Просмотр вложений в чате: изображения инлайн, файлы по клику (включая E2E-шифрованные)
-- ✅ Загрузка истории переписки («Загрузить ранее»)
+- ✅ Вход по логину/паролю и по Matrix access token, server discovery (.well-known)
+- ✅ Список чатов в стиле Element X: фильтр-чипы (Все / Личные / Группы / Избранные / Непрочитанные), FAB, непрочитанные, даты «Вчера / Понедельник / 12.10.25»
+- ✅ Избранное, приглашения (принять/отклонить), Spaces, каталог публичных комнат, контакты (поиск по user directory)
+- ✅ Отправка текстовых сообщений, изображений, видео, аудио и файлов; голосовые сообщения
+- ✅ Опросы (MSC3381, совместимые с Element): создание, голосование, результаты
+- ✅ Ответы, упоминания с подсветкой, закреплённые сообщения, редактирование, удаление
+- ✅ Реакции (ряд быстрых реакций в меню сообщения, счётчики), rich-text HTML (спойлеры, код, ссылки)
+- ✅ Чат в стиле Element X: разделители дат, группировка сообщений одного отправителя, эмодзи-палитра в поле ввода
+- ✅ Вложения в чате: изображения инлайн, галерея комнаты, файлы по клику — включая E2E-шифрованные
+- ✅ Загрузка истории переписки («Загрузить ранее»), серверный поиск по сообщениям
 - ✅ Индикатор набора текста (typing)
-- ✅ Реакции с отображением счётчиков, редактирование и удаление сообщений
 - ✅ Прямые чаты (DM) и групповые комнаты: создание, вход по alias, выход
 - ✅ Профиль: display name и аватар
 - ✅ Персистентная сессия — автовход при перезапуске
 - ✅ Персистентный кэш (Realm): быстрый запуск без полной синхронизации
 - ✅ E2E-шифрование (через libolm), в т.ч. просмотр зашифрованных вложений
+- ✅ Медиа через аутентифицированный клиент (MSC3916) — работает на homeservers с отключённым legacy-эндпоинтом (matrix.org)
 - ✅ Уведомления о новых сообщениях на Android (фоновая синхронизация)
-- ✅ Material Design 3 и тёмная тема, корректная работа с вырезами экрана и наэкранными кнопками
+- ✅ Material Design 3, тёмная/светлая/системная тема
+
+### 🔐 Безопасность
+- ✅ Управление устройствами: список сессий, переименование, удаление, «последняя активность»
+- ✅ Верификация устройств по эмодзи (SAS), совместимо с Element
+- ✅ Резервное копирование ключей (key backup) с ключом восстановления
+- ✅ Подтверждение паролем (UIA) для чувствительных операций
 
 ### 📞 Аудио-видео звонки (VoIP)
 - ✅ Сигналинг Matrix (m.call.invite/answer/candidates/hangup/reject, VoIP v0 + party_id для совместимости с Element)
 - ✅ WebRTC-медиа на Android (stream-webrtc-android) и Desktop (webrtc-java): аудио + видео, TURN/STUN с хомсервера
 - ✅ Входящие/исходящие звонки из интерфейса, экран звонка с микрофоном/камерой/динамиком, foreground-сервис на Android
+- ✅ Демонстрация экрана на Desktop (выбор экрана/окна)
+- ✅ История звонков в чате («Входящий/Исходящий видеозвонок»)
 - 🚧 iOS — в планах
 - ✅ Серверная часть: Coturn (TURN/STUN) включён в Docker-стек
 
@@ -57,6 +70,8 @@
 
 ## Скриншоты интерфейса
 
+Иллюстративные макеты интерфейса (тёмная тема):
+
 <p>
   <img src="docs/screenshots/login.svg" alt="Экран входа" width="220">
   <img src="docs/screenshots/home.svg" alt="Список чатов" width="220">
@@ -68,14 +83,14 @@
 | Компонент | Технология |
 |-----------|-----------|
 | **Язык** | Kotlin Multiplatform (2.0.21) |
-| **UI** | Compose Multiplatform + Material 3 |
+| **UI** | Compose Multiplatform + Material 3 (стиль Element X) |
 | **Архитектура** | MVVM + Clean Architecture, общий модуль `shared` |
 | **DI** | Koin 4 |
-| **Matrix SDK** | [Trixnity](https://github.com/connect2x-de/trixnity) 4.11 |
+| **Matrix SDK** | [Trixnity](https://github.com/trixnity/trixnity) 4.9.2 |
 | **E2E-шифрование** | libolm (trixnity-olm) |
 | **Сеть** | Ktor client 3 |
-| **Изображения** | Coil 3 (KMP) |
-| **Сессия/кэш** | DataStore Preferences, Realm (trixnity-client-repository-realm) |
+| **Изображения** | Coil 3 (KMP), медиа через аутентифицированный клиент (MSC3916) |
+| **Сессия/кэш** | JSON-файл сессии + Realm (trixnity-client-repository-realm); миграция с legacy DataStore |
 | **Сборка** | Gradle KMP: Android + Desktop(JVM); iOS в планах |
 
 ## Структура проекта
@@ -129,16 +144,17 @@ chmod +x gradlew
 
 GitHub Actions:
 
-- **CI** (push/PR в `main`) — сборка Android APK + компиляция Desktop, валидация docker-compose.
-- **Release** (тег `v*`) — подписанный Android APK + инсталляторы MSI/DEB/DMG, публикация [GitHub Release](https://github.com/sergej19882906/matrixtalk/releases) с заметками из `RELEASE_NOTES.md`.
+- **CI** (push/PR в `main`) — сборка Android APK, компиляция Desktop и юнит-тесты, валидация docker-compose.
+- **Release** (тег `v*`) — подписанный Android APK + инсталляторы MSI/DEB/DMG (со smoke-тестами упакованных сборок), публикация [GitHub Release](https://github.com/sergej19882906/matrixtalk/releases) с заметками из `RELEASE_NOTES.md`.
+- **Linux AppImage** (после публикации релиза) — AppImage прикрепляется к релизу.
 - **Docker** (push в `main`, теги) — сборка и пуш образов сервера в ghcr.io (`linux/amd64` + `linux/arm64`).
 
 Подпись release APK в CI настраивается секретами репозитория: `KEYSTORE_BASE64`, `KEYSTORE_ALIAS`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD`.
 
-Чтобы выпустить версию: обновите `versionName`/`packageVersion`, добавьте секцию в `RELEASE_NOTES.md`, затем:
+Чтобы выпустить версию: обновите `versionCode`/`versionName` (`app/build.gradle.kts`) и `packageVersion` (`desktop-app/build.gradle.kts`), добавьте секцию в `RELEASE_NOTES.md`, затем:
 
 ```bash
-git tag v1.5.0 && git push origin v1.5.0
+git tag v1.16.0 && git push origin v1.16.0
 ```
 
 ## История версий
