@@ -25,8 +25,8 @@
 
   <!-- room rows -->
   <rect x="16" y="190" width="52" height="52" rx="20" fill="#03B381"/>
-  <text x="42" y="223" fill="#fff" font-family="sans-serif" font-size="20" text-anchor="middle">С</text>
-  <text x="82" y="212" fill="#EDF0F3" font-family="sans-serif" font-size="16" font-weight="600">Сергей Алешко</text>
+  <text x="42" y="223" fill="#fff" font-family="sans-serif" font-size="20" text-anchor="middle">А</text>
+  <text x="82" y="212" fill="#EDF0F3" font-family="sans-serif" font-size="16" font-weight="600">Александр</text>
   <text x="82" y="234" fill="#A9B2BC" font-family="sans-serif" font-size="13">Как дела?</text>
   <text x="344" y="212" fill="#A9B2BC" font-family="sans-serif" font-size="12" text-anchor="end">12:40</text>
   <rect x="316" y="222" width="28" height="20" rx="10" fill="#0DBD8B"/>
