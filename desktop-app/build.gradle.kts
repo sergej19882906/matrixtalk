@@ -47,10 +47,10 @@ tasks.withType<JavaExec>().configureEach {
 
 // These JVM args apply to the Compose Desktop run task and packaged builds.
 compose.desktop.application {
-    applicationDefaultJvmArgs = listOf(
+    jvmArgs.addAll(listOf(
         "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.verification=trace",
         "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.key=debug"
-    )
+    ))
 }
 
 tasks.register<JavaExec>("engineSmokeTest") {
