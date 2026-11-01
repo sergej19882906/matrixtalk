@@ -128,9 +128,11 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     private var baseUrl: String = ""
     private val userNameCache = mutableMapOf<String, String>()
+    private val userAvatarCache = mutableMapOf<String, String>()
     private val eventRoomMap = mutableMapOf<String, String>()
     private val pageSizes = mutableMapOf<String, MutableStateFlow<Int>>()
     private val encryptedFiles = mutableMapOf<String, net.folivo.trixnity.core.model.events.m.room.EncryptedFile>()
+    private val mediaMxcCache = mutableMapOf<String, String>()
 
     private val _currentUser = MutableStateFlow<MatrixUser?>(null)
     override val currentUser: Flow<MatrixUser?> = _currentUser.asStateFlow()
@@ -263,7 +265,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             name = name,
             alias = canonicalAlias?.full,
             topic = topic,
-            avatarUrl = avatarUrl?.let(::mxcToHttp),
+            avatarUrl = avatarUrl,
             joinedMembers = joinedMembersCount,
             joinRule = joinRule.toString()
         )
@@ -274,7 +276,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             name = name,
             alias = canonicalAlias?.full,
             topic = topic,
-            avatarUrl = avatarUrl?.let(::mxcToHttp),
+            avatarUrl = avatarUrl,
             joinedMembers = joinedMembersCount,
             joinRule = joinRule.toString()
         )
@@ -455,7 +457,10 @@ class MatrixRepositoryImpl : MatrixRepository {
         client = null
         _currentUser.value = null
         userNameCache.clear()
+        userAvatarCache.clear()
+        mediaMxcCache.clear()
         MediaBytesProvider.resolver = null
+        MediaBytesProvider.mxcResolver = null
         SessionStore.clear()
         if (c != null) {
             try {
@@ -508,6 +513,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             MatrixUser(
                 userId = user.user_id,
                 displayName = user.display_name,
+                // Coil can only load resolved https urls, not raw mxc://
                 avatarUrl = user.avatar_url
             )
         }
@@ -557,10 +563,13 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     override suspend fun resolveMediaFile(eventId: String, fileName: String): String? {
         val c = client ?: return null
-        val encryptedFile = encryptedFiles[eventId] ?: return null
-        val bytes = c.media.getEncryptedMedia(encryptedFile).getOrThrow().toByteArray()
         val safeName = fileName.replace('/', '_').replace('\\', '_')
         val path = "${attachmentsDir()}/${eventId.removePrefix("$")}_$safeName"
+        val bytes = encryptedFiles[eventId]?.let { file ->
+            c.media.getEncryptedMedia(file).getOrThrow().toByteArray()
+        } ?: mediaMxcCache[eventId]?.let { mxc ->
+            c.media.getMedia(mxc).getOrThrow().toByteArray()
+        } ?: return null
         writeFileBytes(path, bytes)
         return path
     }
@@ -794,7 +803,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         val contentType = ContentType.parse(mimeType)
         val mxc = uploadBytes(c, bytes, contentType)
         c.setAvatarUrl(mxc).getOrThrow()
-        _currentUser.value = _currentUser.value?.copy(avatarUrl = mxcToHttp(mxc))
+        _currentUser.value = _currentUser.value?.copy(avatarUrl = mxc)
     }
 
     override suspend fun setDisplayName(name: String) {
@@ -1013,23 +1022,29 @@ class MatrixRepositoryImpl : MatrixRepository {
             }
         }
         userNameCache.clear()
+        userAvatarCache.clear()
         baseUrl = url.trimEnd('/')
         client = c
         purgeUnsendableOutbox(c)
         MediaBytesProvider.resolver = { file ->
             c.media.getEncryptedMedia(file).getOrThrow().toByteArray()
         }
+        // Plain mxc media downloads through the authenticated client (the legacy
+        // unauthenticated endpoint 404s on enforcing homeservers like matrix.org).
+        MediaBytesProvider.mxcResolver = { mxc ->
+            c.media.getMedia(mxc).getOrThrow().toByteArray()
+        }
         _currentUser.value = MatrixUser(
             userId = c.userId.full,
             displayName = c.displayName.value,
-            avatarUrl = c.avatarUrl.value?.let(::mxcToHttp)
+            avatarUrl = c.avatarUrl.value
         )
         repositoryScope.launch {
             combine(c.displayName, c.avatarUrl) { name, avatar -> name to avatar }
                 .collect { (name, avatar) ->
                     _currentUser.value = _currentUser.value?.copy(
                         displayName = name,
-                        avatarUrl = avatar?.let(::mxcToHttp)
+                        avatarUrl = avatar
                     )
                 }
         }
@@ -1129,11 +1144,21 @@ class MatrixRepositoryImpl : MatrixRepository {
             }?.toLastMessage(c)
         }
         val tags = tagsFor(c, roomId.full)
+        // DM rooms usually have no m.room.avatar: fall back to the peer's avatar.
+        val roomAvatar = avatarUrl
+            ?: if (isDirect) {
+                name?.heroes?.firstOrNull { it != c.userId }?.let { hero ->
+                    withTimeoutOrNull(RESOLVE_TIMEOUT_MS) {
+                        c.user.getById(roomId, hero).filterNotNull().first()
+                            .event.content.avatarUrl
+                    }
+                }
+            } else null
         return ChatRoom(
             roomId = roomId.full,
             name = computeDisplayName(),
             topic = null,
-            avatarUrl = avatarUrl?.let(::mxcToHttp),
+            avatarUrl = roomAvatar,
             lastMessage = lastMsg,
             unreadCount = unreadMessageCount.toInt(),
             isDirect = isDirect,
@@ -1181,6 +1206,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                     eventId = eventId.full,
                     senderId = sender.full,
                     senderName = c.resolveSenderName(roomId, sender),
+                    senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
                     body = poll.question,
                     timestamp = originTimestamp,
                     messageType = MessageType.POLL,
@@ -1200,6 +1226,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                     eventId = eventId.full,
                     senderId = sender.full,
                     senderName = c.resolveSenderName(roomId, sender),
+                    senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
                     body = if (isMine) (if (isVideo) "Исходящий видеозвонок" else "Исходящий звонок")
                     else (if (isVideo) "Входящий видеозвонок" else "Входящий звонок"),
                     timestamp = originTimestamp,
@@ -1224,9 +1251,10 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
         val replyTo = resolveReplyInfo(c, messageContent?.relatesTo)
         val mediaUrl = (messageContent as? RoomMessageEventContent.FileBased)
-            ?.url?.takeIf { messageContent.file == null }?.let(::mxcToHttp)
+            ?.url?.takeIf { messageContent.file == null }
         val encryptedFile = (messageContent as? RoomMessageEventContent.FileBased)?.file
         if (encryptedFile != null) encryptedFiles[eventId.full] = encryptedFile
+        if (mediaUrl != null) mediaMxcCache[eventId.full] = mediaUrl
         eventRoomMap[eventId.full] = roomId.full
         if (eventRoomMap.size > EVENT_ROOM_MAP_MAX) {
             eventRoomMap.entries.take(EVENT_ROOM_MAP_MAX / 2).forEach { eventRoomMap.remove(it.key) }
@@ -1235,6 +1263,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             eventId = eventId.full,
             senderId = sender.full,
             senderName = c.resolveSenderName(roomId, sender),
+            senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
             body = body,
             timestamp = originTimestamp,
             messageType = if (isDeleted) MessageType.TEXT else eventContent.toMessageType(),
@@ -1296,13 +1325,14 @@ class MatrixRepositoryImpl : MatrixRepository {
         return resolved
     }
 
-    private fun mxcToHttp(mxc: String): String {
-        if (!mxc.startsWith("mxc://")) return mxc
-        val withoutScheme = mxc.removePrefix("mxc://")
-        val serverName = withoutScheme.substringBefore('/')
-        val mediaId = withoutScheme.substringAfter('/', missingDelimiterValue = "")
-        if (mediaId.isEmpty()) return mxc
-        return "$baseUrl/_matrix/media/v3/download/$serverName/$mediaId"
+    private suspend fun MatrixClient.resolveSenderAvatar(roomId: RoomId, userId: UserId): String? {
+        val key = "${roomId.full}|${userId.full}"
+        userAvatarCache[key]?.let { return it }
+        val mxc = withTimeoutOrNull(RESOLVE_TIMEOUT_MS) {
+            user.getById(roomId, userId).filterNotNull().first().event.content.avatarUrl
+        } ?: return null
+        userAvatarCache[key] = mxc
+        return mxc
     }
 
     /**

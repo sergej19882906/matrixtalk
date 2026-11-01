@@ -20,9 +20,14 @@ data class MatrixMedia(val url: String?, val encryptedFile: EncryptedFile?)
 
 /**
  * Bridge to the active MatrixClient: set by the repository on login, cleared on logout.
+ * `resolver` decrypts EncryptedFile payloads; `mxcResolver` downloads plain mxc://
+ * media through the AUTHENTICATED client (modern /media/v1 endpoint). The legacy
+ * unauthenticated download endpoint returns 404 on enforcing homeservers (e.g.
+ * matrix.org), so plain https urls must not be used for Matrix content.
  */
 object MediaBytesProvider {
     var resolver: (suspend (EncryptedFile) -> ByteArray)? = null
+    var mxcResolver: (suspend (String) -> ByteArray)? = null
 }
 
 class MatrixMediaFetcher(
@@ -30,9 +35,20 @@ class MatrixMediaFetcher(
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult {
-        val file = media.encryptedFile ?: error("MatrixMediaFetcher only handles encrypted media")
-        val resolver = MediaBytesProvider.resolver ?: error("MediaBytesProvider is not initialized")
-        val bytes = resolver(file)
+        val bytes = when (val file = media.encryptedFile) {
+            null -> {
+                val mxc = media.url?.takeIf { it.startsWith("mxc://") }
+                    ?: error("MatrixMedia url must be an mxc:// uri: ${media.url}")
+                val mxcResolver = MediaBytesProvider.mxcResolver
+                    ?: error("MediaBytesProvider is not initialized")
+                mxcResolver(mxc)
+            }
+            else -> {
+                val resolver = MediaBytesProvider.resolver
+                    ?: error("MediaBytesProvider is not initialized")
+                resolver(file)
+            }
+        }
         return SourceFetchResult(
             source = ImageSource(Buffer().apply { write(bytes) }, FileSystem.SYSTEM),
             mimeType = null,
@@ -41,10 +57,10 @@ class MatrixMediaFetcher(
     }
 
     class Factory : Fetcher.Factory<MatrixMedia> {
-        // Only intercept encrypted media; plain URLs must fall through to the
-        // network fetcher (otherwise avatar/attachment loads fail on every platform).
+        // Handles BOTH encrypted and plain mxc media; coils network fetcher cannot
+        // load Matrix content at all (legacy endpoint 404 + no auth header support).
         override fun create(data: MatrixMedia, options: Options, imageLoader: ImageLoader): Fetcher? =
-            if (data.encryptedFile != null) MatrixMediaFetcher(data) else null
+            MatrixMediaFetcher(data)
     }
 }
 

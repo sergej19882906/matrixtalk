@@ -205,7 +205,7 @@ fun ChatScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         MatrixAvatar(
                             name = uiState.roomName ?: roomId,
-                            avatarUrl = null,
+                            avatarUrl = uiState.roomAvatarUrl,
                             size = 36.dp,
                             shape = CircleShape
                         )
@@ -627,7 +627,7 @@ private fun MessageItem(
                 if (isGroupStart) {
                     MatrixAvatar(
                         name = message.senderName ?: message.senderId,
-                        avatarUrl = null,
+                        avatarUrl = message.senderAvatarUrl,
                         size = 36.dp,
                         shape = CircleShape
                     )

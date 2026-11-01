@@ -6,7 +6,6 @@ import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.UiState
 import com.matrix.messenger.data.repository.MatrixRepository
-import com.matrix.messenger.platform.openUrl
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +17,7 @@ import kotlinx.coroutines.launch
 data class ChatUiState(
     val roomId: String = "",
     val roomName: String? = null,
+    val roomAvatarUrl: String? = null,
     val messages: List<Message> = emptyList(),
     val messageInput: String = "",
     val isLoading: Boolean = true,
@@ -67,7 +67,10 @@ class ChatViewModel(
 
         viewModelScope.launch {
             val roomInfo = matrixRepository.getRoomInfo(roomId)
-            _uiState.value = _uiState.value.copy(roomName = roomInfo?.name)
+            _uiState.value = _uiState.value.copy(
+                roomName = roomInfo?.name,
+                roomAvatarUrl = roomInfo?.avatarUrl
+            )
         }
 
         viewModelScope.launch {
@@ -268,9 +271,9 @@ class ChatViewModel(
     fun playAudioMessage(message: Message) {
         viewModelScope.launch {
             try {
-                val source = if (message.encryptedFile != null) {
-                    matrixRepository.resolveMediaFile(message.eventId, message.body)
-                } else message.mediaUrl
+                // Both encrypted and plain media resolve to a local file through
+                // the authenticated media client.
+                val source = matrixRepository.resolveMediaFile(message.eventId, message.body)
                 if (source != null) {
                     com.matrix.messenger.platform.playAudio(source)
                 } else {
@@ -283,10 +286,6 @@ class ChatViewModel(
     }
 
     fun openAttachment(message: Message) {
-        if (message.encryptedFile == null) {
-            message.mediaUrl?.let { openUrl(it) }
-            return
-        }
         viewModelScope.launch {
             try {
                 val path = matrixRepository.resolveMediaFile(message.eventId, message.body)
@@ -297,7 +296,7 @@ class ChatViewModel(
                     // loaded before the mapping existed) — log for diagnostics.
                     com.matrix.messenger.platform.logError(
                         "Chat",
-                        "Attachment ${message.eventId} has no encrypted file descriptor",
+                        "Attachment ${message.eventId} has no media descriptor",
                         null
                     )
                     _events.send(UiEvent.ShowSnackbar("Не удалось открыть файл"))

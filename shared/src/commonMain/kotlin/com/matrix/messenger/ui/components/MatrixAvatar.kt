@@ -45,7 +45,8 @@ fun MatrixAvatar(
     ) {
         if (avatarUrl != null) {
             AsyncImage(
-                model = avatarUrl,
+                // mxc:// avatars load through the authenticated media fetcher
+                model = com.matrix.messenger.media.MatrixMedia(avatarUrl, null),
                 contentDescription = "Аватар $displayName",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop

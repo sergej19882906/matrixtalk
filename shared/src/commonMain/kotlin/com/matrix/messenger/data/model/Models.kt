@@ -53,6 +53,8 @@ data class Message(
     val isMine: Boolean,
     val isEdited: Boolean,
     val isDeleted: Boolean,
+    /** Resolved https avatar of the sender (room member), null when unavailable. */
+    val senderAvatarUrl: String? = null,
     val reactions: Map<String, Int> = emptyMap(),
     val mediaUrl: String? = null,
     val encryptedFile: EncryptedFile? = null,
