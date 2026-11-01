@@ -123,6 +123,7 @@ import net.folivo.trixnity.core.model.events.m.room.PinnedEventsEventContent
 import net.folivo.trixnity.core.model.events.m.room.RoomMessageEventContent
 import net.folivo.trixnity.core.model.events.m.room.TopicEventContent
 import net.folivo.trixnity.core.model.events.m.room.VideoInfo
+import net.folivo.trixnity.core.model.events.m.key.verification.VerificationCancelEventContent
 import net.folivo.trixnity.core.model.events.m.key.verification.VerificationMethod
 import net.folivo.trixnity.utils.toByteArray
 import net.folivo.trixnity.utils.toByteArrayFlow
@@ -1082,6 +1083,34 @@ class MatrixRepositoryImpl : MatrixRepository {
             .createDeviceVerificationRequest(c.userId, setOf(deviceId))
             .getOrThrow()
         verificationRefresh.value++
+    }
+
+    override suspend fun respondToVerificationRequest(
+        roomId: String,
+        requestEventId: String,
+        deviceId: String
+    ) {
+        val c = requireClient()
+        // Element keeps its in-room request active; a new to-device request would be
+        // silently auto-cancelled as a duplicate. Cancel the in-room one politely first.
+        runCatching {
+            c.api.room.sendMessageEvent(
+                roomId = RoomId(roomId),
+                eventContent = VerificationCancelEventContent(
+                    code = VerificationCancelEventContent.Code.User,
+                    reason = "Продолжаем верификацию через приглашение на устройстве",
+                    relatesTo = RelatesTo.Reference(EventId(requestEventId)),
+                    transactionId = null
+                )
+            )
+        }.onFailure { e ->
+            logError("Chat", "Failed to cancel in-room verification request", e)
+        }
+        c.di.get<VerificationService>()
+            .createDeviceVerificationRequest(c.userId, setOf(deviceId))
+            .getOrThrow()
+        verificationRefresh.value++
+        logError("Chat", "Responded to in-room verification request: cancelled in-room, started to-device with $deviceId", null)
     }
 
     override suspend fun confirmVerification(matches: Boolean) {

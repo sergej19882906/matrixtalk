@@ -190,6 +190,17 @@ interface MatrixRepository {
     /** Starts an emoji-SAS verification with another device of the account. */
     suspend fun startDeviceVerification(deviceId: String)
 
+    /**
+     * Responds to an in-room key verification request: cancels it politely
+     * (in-room m.key.verification.cancel) and starts our own to-device
+     * verification with the requesting device, which Element then prompts.
+     */
+    suspend fun respondToVerificationRequest(
+        roomId: String,
+        requestEventId: String,
+        deviceId: String
+    )
+
     /** Confirms or rejects the currently shown emoji/decimal comparison. */
     suspend fun confirmVerification(matches: Boolean)
 
