@@ -16,6 +16,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -95,14 +96,24 @@ class HomeViewModel(
 
     private fun observeRooms() {
         viewModelScope.launch {
-            matrixRepository.getRoomsFlow().flowOn(Dispatchers.Default).collect { rooms ->
-                val filteredRooms = filterRooms(rooms, _uiState.value.searchQuery)
-                _uiState.value = _uiState.value.copy(
-                    rooms = filteredRooms,
-                    isLoading = false
-                )
-                _uiStateSealed.value = UiState.Success(filteredRooms)
-            }
+            // A single mapping/sorting error must not kill the rooms flow forever.
+            matrixRepository.getRoomsFlow().flowOn(Dispatchers.Default)
+                .catch { e ->
+                    com.matrix.messenger.platform.logError("Home", "Rooms flow failed", e)
+                }
+                .collect { rooms ->
+                    val filteredRooms = runCatching { filterRooms(rooms, _uiState.value.searchQuery) }
+                        .onFailure { e ->
+                            com.matrix.messenger.platform.logError("Home", "filterRooms failed", e)
+                        }
+                        .getOrNull()
+                        ?: return@collect
+                    _uiState.value = _uiState.value.copy(
+                        rooms = filteredRooms,
+                        isLoading = false
+                    )
+                    _uiStateSealed.value = UiState.Success(filteredRooms)
+                }
         }
     }
 
@@ -255,7 +266,7 @@ class HomeViewModel(
     private fun filterRooms(rooms: List<ChatRoom>, query: String): List<ChatRoom> {
         val sorted = rooms.sortedWith(
             compareByDescending<ChatRoom> { it.isFavorite }
-                .thenByDescending { it.lastMessage?.timestamp ?: 0 }
+                .thenByDescending { it.lastMessage?.timestamp ?: 0L }
         )
         if (query.isBlank()) return sorted
         return sorted.filter {
