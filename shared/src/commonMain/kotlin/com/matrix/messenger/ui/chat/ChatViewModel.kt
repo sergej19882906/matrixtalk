@@ -8,12 +8,14 @@ import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.UiState
 import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.data.repository.MatrixRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -81,7 +83,7 @@ class ChatViewModel(
 
     private fun observeMessages(roomId: String) {
         viewModelScope.launch {
-            matrixRepository.getMessagesFlow(roomId).collect { messages ->
+            matrixRepository.getMessagesFlow(roomId).flowOn(Dispatchers.Default).collect { messages ->
                 _uiState.value = _uiState.value.copy(
                     messages = messages.sortedBy { it.timestamp },
                     isLoading = false,
@@ -101,19 +103,19 @@ class ChatViewModel(
         }
 
         viewModelScope.launch {
-            matrixRepository.getRoomTrustFlow(roomId).collect { trust ->
+            matrixRepository.getRoomTrustFlow(roomId).flowOn(Dispatchers.Default).collect { trust ->
                 _uiState.value = _uiState.value.copy(roomTrust = trust)
             }
         }
 
         viewModelScope.launch {
-            matrixRepository.getTypingUsersFlow(roomId).collect { users ->
+            matrixRepository.getTypingUsersFlow(roomId).flowOn(Dispatchers.Default).collect { users ->
                 _uiState.value = _uiState.value.copy(typingUsers = users)
             }
         }
 
         viewModelScope.launch {
-            matrixRepository.getPinnedMessagesFlow(roomId).collect { pinned ->
+            matrixRepository.getPinnedMessagesFlow(roomId).flowOn(Dispatchers.Default).collect { pinned ->
                 _uiState.value = _uiState.value.copy(pinnedMessages = pinned)
             }
         }

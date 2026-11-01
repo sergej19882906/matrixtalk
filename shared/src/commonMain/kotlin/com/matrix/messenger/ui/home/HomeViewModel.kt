@@ -17,7 +17,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
@@ -52,12 +54,12 @@ class HomeViewModel(
         observeUser()
         observeRooms()
         viewModelScope.launch {
-            matrixRepository.getInvitesFlow().collect { invites ->
+            matrixRepository.getInvitesFlow().flowOn(Dispatchers.Default).collect { invites ->
                 _uiState.value = _uiState.value.copy(invites = invites)
             }
         }
         viewModelScope.launch {
-            matrixRepository.getSpacesFlow().collect { spaces ->
+            matrixRepository.getSpacesFlow().flowOn(Dispatchers.Default).collect { spaces ->
                 _uiState.value = _uiState.value.copy(spaces = spaces)
             }
         }
@@ -93,7 +95,7 @@ class HomeViewModel(
 
     private fun observeRooms() {
         viewModelScope.launch {
-            matrixRepository.getRoomsFlow().collect { rooms ->
+            matrixRepository.getRoomsFlow().flowOn(Dispatchers.Default).collect { rooms ->
                 val filteredRooms = filterRooms(rooms, _uiState.value.searchQuery)
                 _uiState.value = _uiState.value.copy(
                     rooms = filteredRooms,
