@@ -3,12 +3,15 @@ package com.matrix.messenger.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.matrix.messenger.data.model.DeviceInfo
+import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.data.repository.MatrixRepository
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -26,6 +29,9 @@ data class DevicesUiState(
 class DevicesViewModel(
     private val matrixRepository: MatrixRepository
 ) : ViewModel() {
+
+    private val _events = Channel<UiEvent>()
+    val events = _events.receiveAsFlow()
 
     private val _uiState = MutableStateFlow(DevicesUiState())
     val uiState: StateFlow<DevicesUiState> = _uiState.asStateFlow()
@@ -146,13 +152,13 @@ class DevicesViewModel(
         viewModelScope.launch {
             try {
                 matrixRepository.deleteDevice(deviceId, ::promptPassword)
-                _uiState.value = _uiState.value.copy(
-                    devices = _uiState.value.devices.filterNot { it.deviceId == deviceId }
-                )
+                refresh()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // user cancelled the password prompt
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                com.matrix.messenger.platform.logError("Devices", "Device deletion failed", e)
                 _uiState.value = _uiState.value.copy(error = e.message ?: "Не удалось удалить устройство")
+                _events.send(UiEvent.ShowSnackbar(e.message ?: "Не удалось удалить устройство"))
             }
         }
     }
