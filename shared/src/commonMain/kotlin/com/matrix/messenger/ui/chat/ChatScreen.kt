@@ -1,13 +1,14 @@
 package com.matrix.messenger.ui.chat
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,22 +17,24 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
@@ -44,6 +47,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -80,9 +84,27 @@ import com.matrix.messenger.platform.ScreenSource
 import com.matrix.messenger.platform.listScreenSources
 import com.matrix.messenger.platform.rememberCallPermissionRequester
 import com.matrix.messenger.platform.rememberFilePicker
+import com.matrix.messenger.ui.components.DateSeparator
+import com.matrix.messenger.ui.components.MatrixAvatar
+import com.matrix.messenger.ui.components.TimeFormat
+import com.matrix.messenger.ui.components.TimelineItem
+import com.matrix.messenger.ui.components.buildTimeline
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
+
+/** Quick reactions shown at the top of the message context menu (Element X). */
+private val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
+
+/** Compact emoji palette for the composer popup. */
+private val EmojiPalette = listOf(
+    "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🙂",
+    "😉", "😊", "😍", "🥰", "😘", "😜", "🤪", "🤗",
+    "🤔", "🤨", "😐", "😴", "😢", "😭", "😤", "😡",
+    "🥳", "🎉", "❤️", "🧡", "💛", "💚", "💙", "💜",
+    "👍", "👎", "👏", "🙏", "💪", "🔥", "⭐", "✨",
+    "🚀", "💯", "✅", "❌", "❓", "🤝", "👀", "🍀"
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -154,12 +176,15 @@ fun ChatScreen(
         viewModel.setRoomId(roomId)
     }
 
+    // Date headers + sender grouping projected once per message-list change.
+    val timeline = remember(uiState.messages) { buildTimeline(uiState.messages) }
+
     LaunchedEffect(uiState.messages.lastOrNull()?.eventId, uiState.messages.lastOrNull()?.isMine) {
         // Auto-scroll only for newly sent own messages or incoming messages while near the bottom;
         // loading earlier history must not jump to the bottom.
         val last = uiState.messages.lastOrNull() ?: return@LaunchedEffect
         if (last.isMine) {
-            listState.animateScrollToItem(uiState.messages.size - 1)
+            listState.animateScrollToItem(timeline.size - 1)
         }
     }
 
@@ -177,22 +202,31 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = uiState.roomName ?: "Чат",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        MatrixAvatar(
+                            name = uiState.roomName ?: roomId,
+                            avatarUrl = null,
+                            size = 36.dp,
+                            shape = CircleShape
                         )
-                        val typingUsers = uiState.typingUsers
-                        if (typingUsers.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
                             Text(
-                                text = when (typingUsers.size) {
-                                    1 -> "печатает…"
-                                    else -> "печатают…"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
+                                text = uiState.roomName ?: "Чат",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+                            val typingUsers = uiState.typingUsers
+                            if (typingUsers.isNotEmpty()) {
+                                Text(
+                                    text = when (typingUsers.size) {
+                                        1 -> "печатает…"
+                                        else -> "печатают…"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
                 },
@@ -202,24 +236,6 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    if (uiState.pinnedMessages.isNotEmpty()) {
-                        IconButton(onClick = { showPinned = !showPinned }) {
-                            Icon(
-                                Icons.Default.PushPin,
-                                contentDescription = "Закреплённые",
-                                tint = if (showPinned) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                    IconButton(onClick = { showGallery = !showGallery }) {
-                        Icon(
-                            Icons.Default.PhotoLibrary,
-                            contentDescription = "Вложения",
-                            tint = if (showGallery) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
                     IconButton(onClick = {
                         pendingVideoCall = false
                         pendingScreenShareId = null
@@ -234,18 +250,6 @@ fun ChatScreen(
                     }) {
                         Icon(Icons.Default.Videocam, contentDescription = "Видео звонок")
                     }
-                    IconButton(onClick = {
-                        coroutineScope.launch {
-                            val sources = listScreenSources()
-                            if (sources.isEmpty()) {
-                                snackbarHostState.showSnackbar("Демонстрация экрана недоступна на этом устройстве")
-                            } else {
-                                screenSources = sources
-                            }
-                        }
-                    }) {
-                        Icon(Icons.Default.PresentToAll, contentDescription = "Демонстрация экрана")
-                    }
                     Box {
                         IconButton(onClick = { roomMenuExpanded = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "Ещё")
@@ -254,6 +258,39 @@ fun ChatScreen(
                             expanded = roomMenuExpanded,
                             onDismissRequest = { roomMenuExpanded = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("Вложения") },
+                                leadingIcon = { Icon(Icons.Default.PhotoLibrary, contentDescription = null) },
+                                onClick = {
+                                    roomMenuExpanded = false
+                                    showGallery = !showGallery
+                                }
+                            )
+                            if (uiState.pinnedMessages.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text(if (showPinned) "Скрыть закреплённые" else "Закреплённые") },
+                                    leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
+                                    onClick = {
+                                        roomMenuExpanded = false
+                                        showPinned = !showPinned
+                                    }
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Демонстрация экрана") },
+                                leadingIcon = { Icon(Icons.Default.PresentToAll, contentDescription = null) },
+                                onClick = {
+                                    roomMenuExpanded = false
+                                    coroutineScope.launch {
+                                        val sources = listScreenSources()
+                                        if (sources.isEmpty()) {
+                                            snackbarHostState.showSnackbar("Демонстрация экрана недоступна на этом устройстве")
+                                        } else {
+                                            screenSources = sources
+                                        }
+                                    }
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("Пригласить пользователя") },
                                 leadingIcon = { Icon(Icons.Default.PersonAdd, contentDescription = null) },
@@ -322,44 +359,53 @@ fun ChatScreen(
                             state = listState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        if (uiState.canLoadMore) {
-                            item(key = "load_earlier") {
-                                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    if (uiState.isLoadingMore) {
-                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                    } else {
-                                        TextButton(onClick = { viewModel.loadEarlierMessages() }) {
-                                            Text("Загрузить ранее")
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (uiState.canLoadMore) {
+                                item(key = "load_earlier") {
+                                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                        if (uiState.isLoadingMore) {
+                                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                        } else {
+                                            TextButton(onClick = { viewModel.loadEarlierMessages() }) {
+                                                Text("Загрузить ранее")
+                                            }
                                         }
                                     }
                                 }
                             }
+                            items(
+                                items = timeline,
+                                key = { it.key },
+                                contentType = { it::class }
+                            ) { item ->
+                                when (item) {
+                                    is TimelineItem.Header -> DateSeparator(label = item.label)
+                                    is TimelineItem.Msg -> MessageItem(
+                                        message = item.message,
+                                        ownShortId = currentUser?.shortUserId,
+                                        ownDisplayName = currentUser?.displayName,
+                                        isGroupStart = item.isGroupStart,
+                                        groupedWithPrevious = item.groupedWithPrevious,
+                                        groupedWithNext = item.groupedWithNext,
+                                        onReaction = { emoji ->
+                                            viewModel.sendReaction(item.message.eventId, emoji)
+                                        },
+                                        onEdit = {
+                                            editText = item.message.body
+                                            editingMessage = item.message
+                                        },
+                                        onDelete = { messageToDelete = item.message },
+                                        onOpenAttachment = { viewModel.openAttachment(item.message) },
+                                        onReply = { viewModel.replyToMessage(item.message) },
+                                        onPlayAudio = { viewModel.playAudioMessage(item.message) },
+                                        onVotePoll = { ids -> viewModel.votePoll(item.message, ids) },
+                                        isPinned = uiState.pinnedMessages.any { it.eventId == item.message.eventId },
+                                        onTogglePin = { viewModel.togglePin(item.message) }
+                                    )
+                                }
+                            }
                         }
-                        items(
-                            items = uiState.messages,
-                            key = { it.eventId }
-                        ) { message ->
-                            MessageItem(
-                                message = message,
-                                ownShortId = currentUser?.shortUserId,
-                                ownDisplayName = currentUser?.displayName,
-                                onReaction = { viewModel.sendReaction(message.eventId, "👍") },
-                                onEdit = {
-                                    editText = message.body
-                                    editingMessage = message
-                                },
-                                onDelete = { messageToDelete = message },
-                                onOpenAttachment = { viewModel.openAttachment(message) },
-                                onReply = { viewModel.replyToMessage(message) },
-                                onPlayAudio = { viewModel.playAudioMessage(message) },
-                                onVotePoll = { ids -> viewModel.votePoll(message, ids) },
-                                isPinned = uiState.pinnedMessages.any { it.eventId == message.eventId },
-                                onTogglePin = { viewModel.togglePin(message) }
-                            )
-                        }
-                    }
                     }
                 }
             }
@@ -555,8 +601,11 @@ private fun MessageItem(
     message: Message,
     ownShortId: String?,
     ownDisplayName: String?,
+    isGroupStart: Boolean,
+    groupedWithPrevious: Boolean,
+    groupedWithNext: Boolean,
     isPinned: Boolean,
-    onReaction: () -> Unit,
+    onReaction: (String) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onOpenAttachment: () -> Unit,
@@ -575,43 +624,41 @@ private fun MessageItem(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (!message.isMine) {
-                Surface(
-                    modifier = Modifier.size(32.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = (message.senderName?.take(1)?.uppercase() ?: "?"),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
+                if (isGroupStart) {
+                    MatrixAvatar(
+                        name = message.senderName ?: message.senderId,
+                        avatarUrl = null,
+                        size = 36.dp,
+                        shape = CircleShape
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(36.dp))
                 }
             }
             Column {
-                if (!message.isMine) {
+                if (!message.isMine && isGroupStart) {
                     Text(
                         text = message.senderName?.substringBefore(":") ?: "Unknown",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Box {
                     Surface(
                         shape = RoundedCornerShape(
-                            topStart = 16.dp,
-                            topEnd = 16.dp,
-                            bottomStart = if (message.isMine) 16.dp else 4.dp,
-                            bottomEnd = if (message.isMine) 4.dp else 16.dp
+                            topStart = if (!message.isMine && groupedWithPrevious) 4.dp else 16.dp,
+                            topEnd = if (message.isMine && groupedWithPrevious) 4.dp else 16.dp,
+                            bottomStart = if (message.isMine && groupedWithNext) 4.dp else 16.dp,
+                            bottomEnd = if (!message.isMine && groupedWithNext) 4.dp else 16.dp
                         ),
                         color = if (message.isMine) {
                             MaterialTheme.colorScheme.primaryContainer
                         } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        }
+                            MaterialTheme.colorScheme.surfaceContainerHighest
+                        },
+                        modifier = Modifier.clickable { menuExpanded = true }
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                             val replyTo = message.replyTo
                             if (replyTo != null && !message.isDeleted) {
                                 Surface(
@@ -742,14 +789,14 @@ private fun MessageItem(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = formatTime(message.timestamp),
-                                    style = MaterialTheme.typography.bodySmall,
+                                    text = TimeFormat.timeOnly(message.timestamp),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 if (message.isEdited) {
                                     Text(
                                         text = "(ред.)",
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
@@ -761,7 +808,7 @@ private fun MessageItem(
                                 ) {
                                     message.reactions.forEach { (emoji, count) ->
                                         Surface(
-                                            shape = RoundedCornerShape(12.dp),
+                                            shape = MaterialTheme.shapes.extraLarge,
                                             color = MaterialTheme.colorScheme.surface
                                         ) {
                                             Text(
@@ -775,27 +822,29 @@ private fun MessageItem(
                             }
                         }
                     }
-                    IconButton(
-                        onClick = { menuExpanded = true },
-                        modifier = Modifier.align(Alignment.TopEnd).size(28.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.MoreVert,
-                            contentDescription = "Действия с сообщением",
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
                     DropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("👍 Реакция") },
-                            onClick = {
-                                menuExpanded = false
-                                onReaction()
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            QuickReactions.forEach { emoji ->
+                                Text(
+                                    text = emoji,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier
+                                        .clip(MaterialTheme.shapes.small)
+                                        .clickable {
+                                            menuExpanded = false
+                                            onReaction(emoji)
+                                        }
+                                        .padding(4.dp)
+                                )
                             }
-                        )
+                        }
+                        HorizontalDivider()
                         if (!message.isDeleted) {
                             DropdownMenuItem(
                                 text = { Text("Ответить") },
@@ -806,6 +855,7 @@ private fun MessageItem(
                             )
                             DropdownMenuItem(
                                 text = { Text(if (isPinned) "Открепить" else "Закрепить") },
+                                leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     onTogglePin()
@@ -822,6 +872,7 @@ private fun MessageItem(
                             )
                             DropdownMenuItem(
                                 text = { Text("Удалить") },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     onDelete()
@@ -832,7 +883,7 @@ private fun MessageItem(
                 }
             }
             if (message.isMine) {
-                Spacer(modifier = Modifier.width(32.dp))
+                Spacer(modifier = Modifier.width(36.dp))
             }
         }
     }
@@ -852,7 +903,7 @@ private fun GalleryPanel(
             !it.isDeleted && (it.mediaUrl != null || it.encryptedFile != null)
     }.asReversed()
 
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -927,7 +978,7 @@ private fun PinnedBanner(
     pinned: List<Message>,
     onClose: () -> Unit
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -974,15 +1025,19 @@ private fun MessageInputBar(
     onStopVoice: (send: Boolean) -> Unit,
     onCreatePoll: () -> Unit
 ) {
+    var emojiVisible by remember { mutableStateOf(false) }
+    var attachMenuVisible by remember { mutableStateOf(false) }
+    val hasText = value.isNotBlank()
+
     Surface(
-        tonalElevation = 2.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
             if (replyingTo != null) {
                 Surface(
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
-                    color = MaterialTheme.colorScheme.surfaceVariant
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(8.dp),
@@ -1014,76 +1069,147 @@ private fun MessageInputBar(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom
             ) {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    placeholder = { Text("Сообщение...") },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(24.dp),
-                    maxLines = 4
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(
-                    onClick = onFileSelected,
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(Icons.Default.AttachFile, contentDescription = "Прикрепить файл")
-                }
-                IconButton(
-                    onClick = onCreatePoll,
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(Icons.Default.HowToVote, contentDescription = "Создать опрос")
-                }
                 if (isRecordingVoice) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "● ${recordingSeconds / 60}:${(recordingSeconds % 60).toString().padStart(2, '0')}",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium
+                    OutlinedTextField(
+                        value = "● Голосовое ${recordingSeconds / 60}:${(recordingSeconds % 60).toString().padStart(2, '0')}",
+                        onValueChange = { },
+                        readOnly = true,
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.extraLarge,
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(onClick = { onStopVoice(false) }) {
+                        Icon(Icons.Default.Close, contentDescription = "Отменить запись")
+                    }
+                    IconButton(onClick = { onStopVoice(true) }) {
+                        Icon(
+                            Icons.Default.Send,
+                            contentDescription = "Отправить голосовое",
+                            tint = MaterialTheme.colorScheme.primary
                         )
-                        IconButton(onClick = { onStopVoice(false) }) {
-                            Icon(Icons.Default.Close, contentDescription = "Отменить запись")
-                        }
-                        IconButton(onClick = { onStopVoice(true) }) {
+                    }
+                } else {
+                    Box {
+                        IconButton(onClick = { emojiVisible = !emojiVisible }) {
                             Icon(
-                                Icons.Default.Send,
-                                contentDescription = "Отправить голосовое",
-                                tint = MaterialTheme.colorScheme.primary
+                                Icons.Default.EmojiEmotions,
+                                contentDescription = "Эмодзи",
+                                tint = if (emojiVisible) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        EmojiPickerMenu(
+                            expanded = emojiVisible,
+                            onDismiss = { emojiVisible = false },
+                            onPick = { emoji ->
+                                onValueChange(value + emoji)
+                            }
+                        )
+                    }
+                    OutlinedTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        placeholder = { Text("Сообщение...") },
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.extraLarge,
+                        maxLines = 4
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box {
+                        IconButton(onClick = { attachMenuVisible = !attachMenuVisible }) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = "Прикрепить",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = attachMenuVisible,
+                            onDismissRequest = { attachMenuVisible = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Файл") },
+                                leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) },
+                                onClick = {
+                                    attachMenuVisible = false
+                                    onFileSelected()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Опрос") },
+                                leadingIcon = { Icon(Icons.Default.HowToVote, contentDescription = null) },
+                                onClick = {
+                                    attachMenuVisible = false
+                                    onCreatePoll()
+                                }
                             )
                         }
                     }
-                } else {
-                    IconButton(
-                        onClick = onStartVoice,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(Icons.Default.Mic, contentDescription = "Голосовое сообщение")
-                    }
-                }
-                IconButton(
-                    onClick = onSend,
-                    enabled = value.isNotBlank(),
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Send,
-                        contentDescription = "Отправить",
-                        tint = if (value.isNotBlank()) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                    if (hasText) {
+                        // Element X: the mic becomes a filled circular send button once there is text
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 4.dp)
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                                .clickable(onClick = onSend),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Send,
+                                contentDescription = "Отправить",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
-                    )
+                    } else {
+                        IconButton(
+                            onClick = onStartVoice,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Голосовое сообщение")
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-private fun formatTime(timestamp: Long): String {
-    val totalSeconds = timestamp / 1000
-    val hours = ((totalSeconds % 86400) / 3600).toInt()
-    val minutes = ((totalSeconds % 3600) / 60).toInt()
-    return hours.toString().padStart(2, '0') + ":" + minutes.toString().padStart(2, '0')
+@Composable
+private fun EmojiPickerMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss
+    ) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(8),
+            modifier = Modifier.width(288.dp).height(240.dp).padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            gridItems(
+                items = EmojiPalette,
+                key = { it }
+            ) { emoji ->
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .clickable {
+                            onPick(emoji)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = emoji, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+    }
 }

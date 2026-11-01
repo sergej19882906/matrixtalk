@@ -1,6 +1,7 @@
 package com.matrix.messenger.ui.home
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,10 +17,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Explore
@@ -27,15 +29,19 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Workspaces
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Workspaces
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,14 +69,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.shape.CircleShape
 import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.platform.rememberFilePicker
+import com.matrix.messenger.ui.components.MatrixAvatar
+import com.matrix.messenger.ui.components.TimeFormat
+import com.matrix.messenger.ui.components.UnreadBadge
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
+
+/** Client-side room-list filters (Element X chips). */
+private enum class RoomFilter(val label: String) {
+    ALL("Все"),
+    DIRECT("Личные"),
+    GROUPS("Группы"),
+    FAVORITES("Избранные"),
+    UNREAD("Непрочитанные")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,13 +108,25 @@ fun HomeScreen(
     var createChatName by remember { mutableStateOf("") }
     var createChatUsers by remember { mutableStateOf("") }
     var profileDialogVisible by remember { mutableStateOf(false) }
+    var avatarMenuExpanded by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
+    var selectedFilter by remember { mutableStateOf(RoomFilter.ALL) }
     var roomToLeave by remember { mutableStateOf<ChatRoom?>(null) }
     var displayName by remember(uiState.currentUser?.displayName) {
         mutableStateOf(uiState.currentUser?.displayName.orEmpty())
     }
     val pickAvatar = rememberFilePicker(listOf("image/*")) { file ->
         viewModel.uploadAvatar(file.path, file.mimeType)
+    }
+
+    val filteredRooms = remember(uiState.rooms, selectedFilter) {
+        when (selectedFilter) {
+            RoomFilter.ALL -> uiState.rooms
+            RoomFilter.DIRECT -> uiState.rooms.filter { it.isDirect }
+            RoomFilter.GROUPS -> uiState.rooms.filter { !it.isDirect }
+            RoomFilter.FAVORITES -> uiState.rooms.filter { it.isFavorite }
+            RoomFilter.UNREAD -> uiState.rooms.filter { it.unreadCount > 0 }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -119,23 +148,62 @@ fun HomeScreen(
                     IconButton(onClick = onSearch) {
                         Icon(Icons.Default.Search, contentDescription = "Поиск сообщений")
                     }
-                    IconButton(onClick = onRoomsCatalog) {
-                        Icon(Icons.Default.Explore, contentDescription = "Каталог комнат")
-                    }
-                    IconButton(onClick = { profileDialogVisible = true }) {
-                        Icon(Icons.Default.AccountCircle, contentDescription = "Профиль")
-                    }
-                    IconButton(onClick = { showCreateChatDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "Создать чат")
-                    }
-                    IconButton(onClick = onBridges) {
-                        Icon(Icons.Default.Link, contentDescription = "Мосты")
-                    }
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Настройки")
-                    }
-                    IconButton(onClick = viewModel::logout) {
-                        Icon(Icons.Default.Logout, contentDescription = "Выйти")
+                    // Element X: one avatar button in the corner opening the account menu
+                    Box {
+                        IconButton(onClick = { avatarMenuExpanded = true }) {
+                            MatrixAvatar(
+                                name = uiState.currentUser?.displayName
+                                    ?: uiState.currentUser?.userId,
+                                avatarUrl = uiState.currentUser?.avatarUrl,
+                                size = 32.dp,
+                                shape = CircleShape
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = avatarMenuExpanded,
+                            onDismissRequest = { avatarMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Создать чат") },
+                                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                                onClick = {
+                                    avatarMenuExpanded = false
+                                    showCreateChatDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Каталог комнат") },
+                                leadingIcon = { Icon(Icons.Default.Explore, contentDescription = null) },
+                                onClick = {
+                                    avatarMenuExpanded = false
+                                    onRoomsCatalog()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Мосты") },
+                                leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) },
+                                onClick = {
+                                    avatarMenuExpanded = false
+                                    onBridges()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Настройки") },
+                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                onClick = {
+                                    avatarMenuExpanded = false
+                                    onSettings()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Выйти") },
+                                leadingIcon = { Icon(Icons.Default.Logout, contentDescription = null) },
+                                onClick = {
+                                    avatarMenuExpanded = false
+                                    viewModel.logout()
+                                }
+                            )
+                        }
                     }
                 }
             )
@@ -156,6 +224,15 @@ fun HomeScreen(
                 )
             }
         },
+        floatingActionButton = {
+            if (selectedTab == 0) {
+                ExtendedFloatingActionButton(
+                    onClick = { showCreateChatDialog = true },
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Новый чат") }
+                )
+            }
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
@@ -167,7 +244,12 @@ fun HomeScreen(
                         placeholder = { Text("Поиск чатов...") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        singleLine = true
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.extraLarge
+                    )
+                    FilterChipsRow(
+                        selected = selectedFilter,
+                        onSelect = { selectedFilter = it }
                     )
                     if (uiState.invites.isNotEmpty()) {
                         InvitesSection(
@@ -188,18 +270,15 @@ fun HomeScreen(
                                 CircularProgressIndicator()
                             }
                         }
-                        uiState.rooms.isEmpty() -> {
+                        filteredRooms.isEmpty() -> {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        Icons.Default.ChatBubbleOutline,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(64.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.height(16.dp))
                                     Text(
-                                        text = if (uiState.searchQuery.isBlank()) "Нет чатов" else "Чаты не найдены",
+                                        text = when {
+                                            uiState.searchQuery.isNotBlank() -> "Чаты не найдены"
+                                            selectedFilter != RoomFilter.ALL -> "В этой категории пусто"
+                                            else -> "Нет чатов"
+                                        },
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -207,8 +286,8 @@ fun HomeScreen(
                             }
                         }
                         else -> {
-                            LazyColumn {
-                                items(uiState.rooms, key = { it.roomId }) { room ->
+                            LazyColumn(contentPadding = PaddingValues(bottom = 88.dp)) {
+                                items(filteredRooms, key = { it.roomId }) { room ->
                                     RoomItem(
                                         room = room,
                                         onClick = { viewModel.onRoomClick(room.roomId) },
@@ -227,7 +306,8 @@ fun HomeScreen(
                         placeholder = { Text("Имя или Matrix ID") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        singleLine = true
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.extraLarge
                     )
                     when {
                         uiState.contactSearchQuery.trim().length < 2 -> ContactSearchMessage(
@@ -334,12 +414,12 @@ fun HomeScreen(
         )
     }
     if (showCreateChatDialog) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { showCreateChatDialog = false },
             title = { Text("Создать чат") },
             text = {
                 Column {
-                    androidx.compose.material3.OutlinedTextField(
+                    OutlinedTextField(
                         value = createChatName,
                         onValueChange = { createChatName = it },
                         label = { Text("Название (необязательно)") },
@@ -347,7 +427,7 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    androidx.compose.material3.OutlinedTextField(
+                    OutlinedTextField(
                         value = createChatUsers,
                         onValueChange = { createChatUsers = it },
                         label = { Text("Участники") },
@@ -381,11 +461,38 @@ fun HomeScreen(
 }
 
 @Composable
+private fun FilterChipsRow(
+    selected: RoomFilter,
+    onSelect: (RoomFilter) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        RoomFilter.entries.forEach { filter ->
+            FilterChip(
+                selected = selected == filter,
+                onClick = { onSelect(filter) },
+                label = { Text(filter.label) },
+                shape = MaterialTheme.shapes.extraLarge,
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            )
+        }
+    }
+}
+
+@Composable
 private fun SpacesRow(
     spaces: List<com.matrix.messenger.data.model.ChatRoom>,
     onSpaceClick: (String) -> Unit
 ) {
-    androidx.compose.foundation.lazy.LazyRow(
+    LazyRow(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(horizontal = 16.dp)
@@ -428,7 +535,7 @@ private fun InvitesSection(
     onAccept: (String) -> Unit,
     onDecline: (String) -> Unit
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
             Text(
                 text = "Приглашения: ${invites.size}",
@@ -493,26 +600,11 @@ private fun ContactItem(user: MatrixUser, onClick: () -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                modifier = Modifier.size(48.dp),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.primaryContainer
-            ) {
-                if (user.avatarUrl != null) {
-                    AsyncImage(
-                        model = user.avatarUrl,
-                        contentDescription = "Аватар ${user.displayName ?: user.userId}",
-                        modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.medium)
-                    )
-                } else {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = (user.displayName ?: user.userId).take(1).uppercase(),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-            }
+            MatrixAvatar(
+                name = user.displayName ?: user.userId,
+                avatarUrl = user.avatarUrl,
+                size = 48.dp
+            )
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text(
@@ -541,6 +633,7 @@ private fun RoomItem(
     onToggleFavorite: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val hasUnread = room.unreadCount > 0
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -550,44 +643,32 @@ private fun RoomItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar placeholder — Coil 3 async image will be added per platform
-            Surface(
-                modifier = Modifier.size(56.dp),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.primaryContainer
-            ) {
-                if (room.avatarUrl != null) {
-                    AsyncImage(
-                        model = room.avatarUrl,
-                        contentDescription = "Аватар ${room.name ?: "чата"}",
-                        modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.medium)
-                    )
-                } else {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = (room.name?.take(1)?.uppercase() ?: "?"),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-            }
+            MatrixAvatar(
+                name = room.name ?: room.roomId,
+                avatarUrl = room.avatarUrl,
+                size = 52.dp
+            )
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(14.dp))
 
             Column(
                 modifier = Modifier.weight(1f)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = room.name ?: "Без названия",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = if (hasUnread) {
+                            MaterialTheme.typography.titleMedium
+                        } else {
+                            MaterialTheme.typography.bodyLarge
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -597,14 +678,14 @@ private fun RoomItem(
 
                     room.lastMessage?.timestamp?.let { ts ->
                         Text(
-                            text = formatTime(ts),
-                            style = MaterialTheme.typography.bodySmall,
+                            text = TimeFormat.listLabel(ts),
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -619,40 +700,49 @@ private fun RoomItem(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (hasUnread) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
 
-                    if (room.unreadCount > 0) {
+                    if (hasUnread) {
                         Spacer(modifier = Modifier.width(8.dp))
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.primary
-                        ) {
-                            Text(
-                                text = room.unreadCount.toString(),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
+                        UnreadBadge(count = room.unreadCount)
                     }
-                    IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            if (room.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
-                            contentDescription = if (room.isFavorite) "Убрать из избранного" else "В избранное",
-                            tint = if (room.isFavorite) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
                     Box {
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Действия с чатом")
+                        IconButton(
+                            onClick = { menuExpanded = true },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "Действия с чатом",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         DropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text(if (room.isFavorite) "Убрать из избранного" else "В избранное") },
+                                leadingIcon = {
+                                    Icon(
+                                        if (room.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                                        contentDescription = null
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onToggleFavorite()
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("Выйти и удалить чат") },
                                 leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
@@ -667,11 +757,4 @@ private fun RoomItem(
             }
         }
     }
-}
-
-private fun formatTime(timestamp: Long): String {
-    val totalSeconds = timestamp / 1000
-    val hours = ((totalSeconds % 86400) / 3600).toInt()
-    val minutes = ((totalSeconds % 3600) / 60).toInt()
-    return hours.toString().padStart(2, '0') + ":" + minutes.toString().padStart(2, '0')
 }

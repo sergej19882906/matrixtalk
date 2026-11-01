@@ -1,39 +1,91 @@
 package com.matrix.messenger.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 private val DarkColorScheme = darkColorScheme(
     primary = MatrixGreen,
-    secondary = PurpleGrey80,
-    tertiary = Pink80,
-    background = MatrixDarkGray,
-    surface = MatrixDarkGray,
     onPrimary = MatrixBlack,
-    onBackground = MatrixLightGray,
-    onSurface = MatrixLightGray,
-    surfaceVariant = Color(0xFF2A2D31),
-    primaryContainer = Color(0xFF0A4D38),
-    onPrimaryContainer = MatrixGreen
+    primaryContainer = ElementDarkPrimaryContainer,
+    onPrimaryContainer = MatrixGreen,
+    secondary = ElementDarkOnSurfaceVariant,
+    onSecondary = MatrixBlack,
+    secondaryContainer = ElementDarkSecondaryContainer,
+    onSecondaryContainer = ElementDarkOnSurface,
+    tertiary = MatrixGreen,
+    background = ElementDarkBackground,
+    onBackground = ElementDarkOnSurface,
+    surface = ElementDarkBackground,
+    onSurface = ElementDarkOnSurface,
+    surfaceVariant = ElementDarkSurface,
+    onSurfaceVariant = ElementDarkOnSurfaceVariant,
+    surfaceContainerLowest = ElementDarkSurfaceLowest,
+    surfaceContainerLow = ElementDarkSurfaceLow,
+    surfaceContainer = ElementDarkSurface,
+    surfaceContainerHigh = ElementDarkSurfaceHigh,
+    surfaceContainerHighest = ElementDarkSurfaceHighest,
+    surfaceTint = Color.Transparent,
+    inverseSurface = ElementDarkOnSurface,
+    inverseOnSurface = ElementDarkBackground,
+    inversePrimary = MatrixGreenDark,
+    outline = ElementDarkOutline,
+    outlineVariant = ElementDarkOutlineVariant,
+    error = ElementDarkError,
+    onError = MatrixBlack,
+    errorContainer = ElementDarkErrorContainer,
+    onErrorContainer = ElementDarkOnSurface,
+    scrim = Color(0xFF000000)
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF0B8A66),
-    secondary = Color(0xFF5A655F),
-    tertiary = Color(0xFF8A4A62),
-    background = Color(0xFFF7F9F8),
-    surface = Color(0xFFF7F9F8),
+    primary = ElementLightPrimary,
     onPrimary = Color.White,
-    onBackground = Color(0xFF191C1A),
-    onSurface = Color(0xFF191C1A),
-    surfaceVariant = Color(0xFFDBE5DF),
-    primaryContainer = Color(0xFFA7F2D6),
-    onPrimaryContainer = Color(0xFF002117)
+    primaryContainer = ElementLightPrimaryContainer,
+    onPrimaryContainer = Color(0xFF002117),
+    secondary = Color(0xFF5A655F),
+    onSecondary = Color.White,
+    secondaryContainer = ElementLightSecondaryContainer,
+    onSecondaryContainer = ElementLightOnSurface,
+    tertiary = Color(0xFF8A4A62),
+    background = ElementLightBackground,
+    onBackground = ElementLightOnSurface,
+    surface = ElementLightBackground,
+    onSurface = ElementLightOnSurface,
+    surfaceVariant = ElementLightSurface,
+    onSurfaceVariant = ElementLightOnSurfaceVariant,
+    surfaceContainerLowest = ElementLightSurfaceLowest,
+    surfaceContainerLow = ElementLightSurfaceLow,
+    surfaceContainer = ElementLightSurface,
+    surfaceContainerHigh = ElementLightSurfaceHigh,
+    surfaceContainerHighest = ElementLightSurfaceHighest,
+    surfaceTint = Color.Transparent,
+    inverseSurface = ElementLightOnSurface,
+    inverseOnSurface = ElementLightBackground,
+    inversePrimary = MatrixGreen,
+    outline = ElementLightOutline,
+    outlineVariant = ElementLightOutlineVariant,
+    error = ElementLightError,
+    onError = Color.White,
+    errorContainer = ElementLightErrorContainer,
+    onErrorContainer = Color(0xFF4A0010),
+    scrim = Color(0xFF000000)
+)
+
+// Element X corners: moderately rounded everywhere
+private val ElementShapes = Shapes(
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(24.dp)
 )
 
 @Composable
@@ -50,6 +102,7 @@ fun MatrixMessengerTheme(
     MaterialTheme(
         colorScheme = if (dark) DarkColorScheme else LightColorScheme,
         typography = Typography,
+        shapes = ElementShapes,
         content = content
     )
 }
