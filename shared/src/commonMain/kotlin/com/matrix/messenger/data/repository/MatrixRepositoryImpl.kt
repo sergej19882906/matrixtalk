@@ -1104,6 +1104,14 @@ class MatrixRepositoryImpl : MatrixRepository {
         val service = c.di.get<VerificationService>()
         // Same stale-verification guard as startDeviceVerification.
         runCatching { service.activeDeviceVerification.value?.cancel() }
+        val existing = activeUserVerification
+        if (existing != null && existing.requestEventId.full == requestEventId) {
+            // Re-click on the same request: reuse the running in-room verification.
+            // Superseding it would cancel a flow that may already show the emoji
+            // comparison on the other client.
+            logError("Verification", "Reusing active in-room verification for $requestEventId", null)
+            return
+        }
         val auv = service.getActiveUserVerification(RoomId(roomId), EventId(requestEventId))
             ?: error("Запрос верификации не найден или устарел - попросите собеседника отправить новый")
         activeUserVerification?.cancel("superseded by a new verification")
