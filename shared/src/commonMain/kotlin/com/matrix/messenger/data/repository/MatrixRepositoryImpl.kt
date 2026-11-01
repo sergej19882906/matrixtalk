@@ -1164,6 +1164,12 @@ class MatrixRepositoryImpl : MatrixRepository {
             }
             is ActiveVerificationState.Cancel -> {
                 currentComparison = null
+                logError(
+                    "Verification",
+                    "Verification cancelled by peer: code=${state.content.code::class.simpleName} " +
+                        "(${state.content.code.value}) reason=${state.content.reason}",
+                    null
+                )
                 flowOf(VerificationUiState.Cancelled(state.content.reason))
             }
             else -> flowOf(VerificationUiState.Waiting)
@@ -1179,6 +1185,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             VerificationUiState.Waiting
         }
         is ActiveSasVerificationState.ComparisonByUser -> {
+            logError("Verification", "SAS comparison reached - emojis ready", null)
             currentComparison = sas
             VerificationUiState.Compare(
                 theirUserId = lastActiveVerification?.theirUserId?.full ?: "",
