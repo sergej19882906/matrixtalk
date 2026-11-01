@@ -1,6 +1,8 @@
 package com.matrix.messenger.data.repository
 
+import com.matrix.messenger.data.call.CallInviteEventContent
 import com.matrix.messenger.data.call.CallSignalingCommand
+import com.matrix.messenger.data.call.callEventContentSerializerMappingsModule
 import com.matrix.messenger.data.crypto.ExportedSession
 import com.matrix.messenger.data.crypto.decodeRoomKeysExport
 import com.matrix.messenger.data.crypto.encodeRoomKeysExport
@@ -111,6 +113,7 @@ import net.folivo.trixnity.core.model.keys.KeyAlgorithm
 import net.folivo.trixnity.core.model.RoomId
 import net.folivo.trixnity.core.model.UserId
 import net.folivo.trixnity.core.model.events.RedactedEventContent
+import net.folivo.trixnity.core.model.events.MessageEventContent
 import net.folivo.trixnity.core.model.events.RoomEventContent
 import net.folivo.trixnity.core.model.events.UnknownEventContent
 import net.folivo.trixnity.core.model.events.m.ReactionEventContent
@@ -166,11 +169,10 @@ class MatrixRepositoryImpl : MatrixRepository {
             c.room.getTimelineEventsFromNowOn().mapNotNull { timelineEvent ->
                 if (client !== c) return@mapNotNull null
                 if (timelineEvent.sender == c.userId) return@mapNotNull null
-                val content = timelineEvent.content?.getOrNull() as? UnknownEventContent
+                val content = timelineEvent.content?.getOrNull() as? MessageEventContent
                     ?: return@mapNotNull null
                 parseCallEvent(
-                    content.eventType,
-                    content.raw,
+                    content,
                     timelineEvent.roomId.full,
                     timelineEvent.sender.full,
                     ourPartyId = c.deviceId
@@ -181,14 +183,13 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     override suspend fun sendCallEvent(roomId: String, command: CallSignalingCommand) {
         val c = requireClient()
-        // m.call.* goes as UnknownEventContent, which the persistent (Realm) outbox
-        // cannot serialize: its repository resolves the serializer by exact kClass
-        // and hard-fails with "Required value was null." Signaling is ephemeral and
-        // needs no outbox retry, so it is sent straight through the API.
-        c.api.room.sendMessageEvent(
-            RoomId(roomId),
-            buildCallContent(command, partyId = c.deviceId)
-        ).getOrThrow()
+        // In encrypted rooms Element DROPS plaintext call signaling, so m.call.*
+        // must go through the megolm pipeline (room.sendMessage). The typed
+        // m.call.* serializer mappings (see CallEventContents) make the Realm
+        // outbox able to persist them.
+        c.room.sendMessage(RoomId(roomId)) {
+            content(buildCallContent(command, partyId = c.deviceId))
+        }
     }
 
     override suspend fun resolveDirectChatPeerId(roomId: String): String? {
@@ -357,6 +358,9 @@ class MatrixRepositoryImpl : MatrixRepository {
             val restored = MatrixClient.fromStore(
                 repositoriesModule = createTrixnityRepositoriesModule(),
                 mediaStore = InMemoryMediaStore(),
+                configuration = {
+                    modules = listOf(callEventContentSerializerMappingsModule)
+                },
             ).getOrThrow()
             if (restored != null) {
                 attachClient(restored, restored.baseUrl.toString().trimEnd('/'))
@@ -387,6 +391,9 @@ class MatrixRepositoryImpl : MatrixRepository {
                         )
                     )
                 },
+                configuration = {
+                    modules = listOf(callEventContentSerializerMappingsModule)
+                },
             ).getOrThrow()
             attachClient(restored, session.homeServer)
         } catch (e: Exception) {
@@ -409,6 +416,9 @@ class MatrixRepositoryImpl : MatrixRepository {
                 initialDeviceDisplayName = "MatrixTalk",
                 repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
                 mediaStoreFactory = { InMemoryMediaStore() },
+                configuration = {
+                    modules = listOf(callEventContentSerializerMappingsModule)
+                },
             )
             result.fold(
                 onSuccess = { c ->
@@ -448,6 +458,9 @@ class MatrixRepositoryImpl : MatrixRepository {
                             accessToken = accessToken
                         )
                     }
+                },
+                configuration = {
+                    modules = listOf(callEventContentSerializerMappingsModule)
                 },
             )
             result.fold(
@@ -1419,6 +1432,21 @@ class MatrixRepositoryImpl : MatrixRepository {
     private suspend fun TimelineEvent.toMessageOrNull(c: MatrixClient): Message? {
         val rawContent = content ?: return null
         val eventContent = rawContent.getOrNull() ?: return null
+        if (eventContent is CallInviteEventContent) {
+            val isMine = sender == c.userId
+            return Message(
+                eventId = eventId.full,
+                senderId = sender.full,
+                senderName = c.resolveSenderName(roomId, sender),
+                senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
+                body = if (isMine) "Исходящий звонок" else "Входящий звонок",
+                timestamp = originTimestamp,
+                messageType = MessageType.CALL,
+                isMine = isMine,
+                isEdited = false,
+                isDeleted = false
+            )
+        }
         if (eventContent is UnknownEventContent) {
             // Polls and call invites surface as dedicated message types;
             // other unknown events stay hidden.

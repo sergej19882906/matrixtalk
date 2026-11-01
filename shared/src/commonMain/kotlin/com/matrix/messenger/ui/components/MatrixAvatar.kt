@@ -8,6 +8,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -18,14 +22,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import com.matrix.messenger.ui.theme.AvatarColors
 import kotlin.math.abs
 
 /**
  * Shared Element-X style avatar: photo when a URL is available, otherwise a
  * letter fallback on a deterministic color from the Element avatar palette.
- * Default shape is a rounded square (Element X uses squircle-like room/user
- * avatars); pass [CircleShape] for the small in-chat sender avatars.
+ * A failed load (deleted media, server error) also falls back to the letter -
+ * an empty tile never looks intentional. Default shape is a rounded square
+ * (Element X uses squircle-like room/user avatars); pass [CircleShape] for the
+ * small in-chat sender avatars.
  */
 @Composable
 fun MatrixAvatar(
@@ -36,6 +43,7 @@ fun MatrixAvatar(
     shape: Shape = RoundedCornerShape(percent = 40)
 ) {
     val displayName = name?.takeIf { it.isNotBlank() } ?: "?"
+    var loadFailed by remember(avatarUrl) { mutableStateOf(false) }
     Box(
         modifier = modifier
             .size(size)
@@ -43,13 +51,16 @@ fun MatrixAvatar(
             .background(avatarColor(displayName)),
         contentAlignment = Alignment.Center
     ) {
-        if (avatarUrl != null) {
+        if (avatarUrl != null && !loadFailed) {
             AsyncImage(
                 // mxc:// avatars load through the authenticated media fetcher
                 model = com.matrix.messenger.media.MatrixMedia(avatarUrl, null),
                 contentDescription = "Аватар $displayName",
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                onState = { state ->
+                    loadFailed = state is AsyncImagePainter.State.Error
+                }
             )
         } else {
             Text(

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import net.folivo.trixnity.core.model.events.MessageEventContent
 import net.folivo.trixnity.core.model.events.UnknownEventContent
 
 /** Matrix VoIP v0 protocol: https://spec.matrix.org/v1.11/client-server-api/#voice-over-ip */
@@ -122,68 +123,81 @@ fun parseCallEvent(
     }
 }
 
-fun buildCallContent(command: CallSignalingCommand, partyId: String? = null): UnknownEventContent = when (command) {
-    is CallSignalingCommand.Invite -> UnknownEventContent(
-        eventType = "m.call.invite",
-        raw = buildJsonObject {
-            put("version", CALL_VERSION)
-            put("call_id", command.callId)
-            put("lifetime", CALL_LIFETIME_MS)
-            partyId?.let { put("party_id", it) }
-            command.invitee?.let { put("invitee", it) }
-            putJsonObject("offer") {
-                put("type", "offer")
-                put("sdp", command.offerSdp)
-            }
-        },
+fun buildCallContent(command: CallSignalingCommand, partyId: String? = null): MessageEventContent = when (command) {
+    is CallSignalingCommand.Invite -> CallInviteEventContent(
+        callId = command.callId,
+        offer = CallSessionDescription(type = "offer", sdp = command.offerSdp),
+        lifetime = CALL_LIFETIME_MS.toLong(),
+        partyId = partyId,
+        invitee = command.invitee,
     )
 
-    is CallSignalingCommand.Answer -> UnknownEventContent(
-        eventType = "m.call.answer",
-        raw = buildJsonObject {
-            put("version", CALL_VERSION)
-            put("call_id", command.callId)
-            partyId?.let { put("party_id", it) }
-            putJsonObject("answer") {
-                put("type", "answer")
-                put("sdp", command.answerSdp)
-            }
-        },
+    is CallSignalingCommand.Answer -> CallAnswerEventContent(
+        callId = command.callId,
+        answer = CallSessionDescription(type = "answer", sdp = command.answerSdp),
+        partyId = partyId,
     )
 
-    is CallSignalingCommand.Candidates -> UnknownEventContent(
-        eventType = "m.call.candidates",
-        raw = buildJsonObject {
-            put("version", CALL_VERSION)
-            put("call_id", command.callId)
-            partyId?.let { put("party_id", it) }
-            putJsonArray("candidates") {
-                command.candidates.forEach { candidate ->
-                    add(buildJsonObject {
-                        put("candidate", candidate.candidate)
-                        candidate.sdpMid?.let { put("sdpMid", it) }
-                        candidate.sdpMLineIndex?.let { put("sdpMLineIndex", it) }
-                    })
-                }
-            }
+    is CallSignalingCommand.Candidates -> CallCandidatesEventContent(
+        callId = command.callId,
+        candidates = command.candidates.map {
+            CallCandidatePayload(candidate = it.candidate, sdpMid = it.sdpMid, sdpMLineIndex = it.sdpMLineIndex)
         },
+        partyId = partyId,
     )
 
-    is CallSignalingCommand.Hangup -> UnknownEventContent(
-        eventType = "m.call.hangup",
-        raw = buildJsonObject {
-            put("version", CALL_VERSION)
-            put("call_id", command.callId)
-            partyId?.let { put("party_id", it) }
-        },
-    )
+    is CallSignalingCommand.Hangup -> CallHangupEventContent(callId = command.callId, partyId = partyId)
 
-    is CallSignalingCommand.Reject -> UnknownEventContent(
-        eventType = "m.call.reject",
-        raw = buildJsonObject {
-            put("version", CALL_VERSION)
-            put("call_id", command.callId)
-            partyId?.let { put("party_id", it) }
-        },
-    )
+    is CallSignalingCommand.Reject -> CallRejectEventContent(callId = command.callId, partyId = partyId)
+}
+
+/**
+ * Typed parse for events decoded through the serializer mappings (new events
+ * and all events after the call mappings registration).
+ */
+fun parseCallEvent(
+    content: MessageEventContent,
+    roomId: String,
+    fromUserId: String,
+    ourPartyId: String? = null,
+): CallSignalingEvent? {
+    if (content !is CallInviteEventContent &&
+        content !is CallAnswerEventContent &&
+        content !is CallCandidatesEventContent &&
+        content !is CallHangupEventContent &&
+        content !is CallRejectEventContent
+    ) return null
+    val callId = when (content) {
+        is CallInviteEventContent -> content.callId
+        is CallAnswerEventContent -> content.callId
+        is CallCandidatesEventContent -> content.callId
+        is CallHangupEventContent -> content.callId
+        is CallRejectEventContent -> content.callId
+        else -> return null
+    }
+    val isVideo = (content as? CallInviteEventContent)
+        ?.offer?.sdp?.lines()?.any { it.startsWith("m=video") } == true
+    return when (content) {
+        is CallInviteEventContent -> CallSignalingEvent.Incoming(
+            roomId = roomId,
+            callId = callId,
+            fromUserId = fromUserId,
+            offerSdp = content.offer.sdp,
+            isVideo = isVideo,
+        )
+
+        is CallAnswerEventContent -> CallSignalingEvent.Answer(roomId, callId, content.answer.sdp)
+
+        is CallCandidatesEventContent -> CallSignalingEvent.Candidates(
+            roomId = roomId,
+            callId = callId,
+            candidates = content.candidates.map {
+                CallCandidate(candidate = it.candidate, sdpMid = it.sdpMid, sdpMLineIndex = it.sdpMLineIndex)
+            },
+        )
+
+        is CallHangupEventContent -> CallSignalingEvent.Hangup(roomId, callId)
+        is CallRejectEventContent -> CallSignalingEvent.Reject(roomId, callId)
+        else -> null
+    }
 }

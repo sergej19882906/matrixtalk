@@ -5,6 +5,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.assertNull
 
 class CallProtocolTest {
@@ -17,27 +18,26 @@ class CallProtocolTest {
             CallSignalingCommand.Invite("call1", fakeSdp, isVideo = false, invitee = "@peer:server"),
             partyId = "DEVICE1"
         )
-        assertEquals("m.call.invite", content.eventType)
-        val raw = content.raw
-        assertEquals("0", raw["version"]?.jsonPrimitive?.content)
-        assertEquals("call1", raw["call_id"]?.jsonPrimitive?.content)
-        assertEquals("DEVICE1", raw["party_id"]?.jsonPrimitive?.content)
-        assertEquals("@peer:server", raw["invitee"]?.jsonPrimitive?.content)
-        assertEquals(fakeSdp, raw["offer"]?.jsonObject?.get("sdp")?.jsonPrimitive?.content)
+        assertEquals("m.call.invite", (content as? CallInviteEventContent)?.let { "m.call.invite" })
+        content as CallInviteEventContent
+        assertEquals("0", content.version)
+        assertEquals("call1", content.callId)
+        assertEquals("DEVICE1", content.partyId)
+        assertEquals("@peer:server", content.invitee)
+        assertEquals(fakeSdp, content.offer.sdp)
     }
 
     @Test
     fun inviteWithoutOptionalFieldsOmitsThem() {
-        val raw = buildCallContent(CallSignalingCommand.Invite("c", fakeSdp, isVideo = false)).raw
-        assertNull(raw["party_id"])
-        assertNull(raw["invitee"])
+        val content = buildCallContent(CallSignalingCommand.Invite("c", fakeSdp, isVideo = false)) as CallInviteEventContent
+        assertNull(content.partyId)
+        assertNull(content.invitee)
     }
 
     @Test
     fun answerBuildsCorrectEvent() {
-        val content = buildCallContent(CallSignalingCommand.Answer("call1", fakeSdp), partyId = "D")
-        assertEquals("m.call.answer", content.eventType)
-        assertEquals(fakeSdp, content.raw["answer"]?.jsonObject?.get("sdp")?.jsonPrimitive?.content)
+        val content = buildCallContent(CallSignalingCommand.Answer("call1", fakeSdp), partyId = "D") as CallAnswerEventContent
+        assertEquals(fakeSdp, content.answer.sdp)
     }
 
     @Test
@@ -48,13 +48,13 @@ class CallProtocolTest {
                 listOf(CallCandidate("candidate:1 1 udp 1 1.2.3.4 5000 typ host", "0", 0))
             )
         )
-        assertEquals("m.call.candidates", content.eventType)
+        assertEquals("m.call.candidates", (content as CallCandidatesEventContent).let { "m.call.candidates" })
     }
 
     @Test
     fun hangupAndRejectBuildCorrectEvents() {
-        assertEquals("m.call.hangup", buildCallContent(CallSignalingCommand.Hangup("c1")).eventType)
-        assertEquals("m.call.reject", buildCallContent(CallSignalingCommand.Reject("c1")).eventType)
+        assertTrue(buildCallContent(CallSignalingCommand.Hangup("c1")) is CallHangupEventContent)
+        assertTrue(buildCallContent(CallSignalingCommand.Reject("c1")) is CallRejectEventContent)
     }
 
     @Test
@@ -63,7 +63,7 @@ class CallProtocolTest {
             CallSignalingCommand.Invite("call9", fakeSdp, isVideo = true),
             partyId = "OTHER"
         )
-        val event = parseCallEvent(content.eventType, content.raw, "!room:server", "@caller:server")
+        val event = parseCallEvent(content, "!room:server", "@caller:server")
         val incoming = event as? CallSignalingEvent.Incoming
         assertEquals("call9", incoming?.callId)
         assertEquals("@caller:server", incoming?.fromUserId)
@@ -76,19 +76,19 @@ class CallProtocolTest {
     fun parsesVideoInvite() {
         val videoSdp = "m=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
         val content = buildCallContent(CallSignalingCommand.Invite("c", videoSdp, isVideo = true))
-        val incoming = parseCallEvent(content.eventType, content.raw, "!r:s", "@u:s") as CallSignalingEvent.Incoming
+        val incoming = parseCallEvent(content, "!r:s", "@u:s") as CallSignalingEvent.Incoming
         assertEquals(true, incoming.isVideo)
     }
 
     @Test
     fun parsesAnswerCandidatesHangupReject() {
         val answer = buildCallContent(CallSignalingCommand.Answer("c", fakeSdp), partyId = "P")
-        assertEquals("c", (parseCallEvent(answer.eventType, answer.raw, "!r:s", "@u:s") as CallSignalingEvent.Answer).callId)
+        assertEquals("c", (parseCallEvent(answer, "!r:s", "@u:s") as CallSignalingEvent.Answer).callId)
 
         val candidates = buildCallContent(
             CallSignalingCommand.Candidates("c", listOf(CallCandidate("candidate:x", "1", 1)))
         )
-        val parsed = parseCallEvent(candidates.eventType, candidates.raw, "!r:s", "@u:s") as CallSignalingEvent.Candidates
+        val parsed = parseCallEvent(candidates, "!r:s", "@u:s") as CallSignalingEvent.Candidates
         assertEquals(1, parsed.candidates.size)
         assertEquals("candidate:x", parsed.candidates[0].candidate)
 
