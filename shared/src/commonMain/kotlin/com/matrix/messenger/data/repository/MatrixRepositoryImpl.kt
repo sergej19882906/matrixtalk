@@ -1133,7 +1133,11 @@ class MatrixRepositoryImpl : MatrixRepository {
     private fun handleVerificationState(state: ActiveVerificationState): Flow<VerificationUiState> =
         when (state) {
             is ActiveVerificationState.TheirRequest -> {
-                repositoryScope.launch { runCatching { state.ready() } }
+                repositoryScope.launch {
+                    runCatching { state.ready() }
+                        .onFailure { e -> logError("Verification", "sending ready failed", e) }
+                        .onSuccess { logError("Verification", "ready sent", null) }
+                }
                 flowOf(VerificationUiState.Waiting)
             }
             is ActiveVerificationState.Ready -> {
@@ -1141,8 +1145,12 @@ class MatrixRepositoryImpl : MatrixRepository {
                     runCatching {
                         if (state.methods.any { it is VerificationMethod.Sas }) {
                             state.start(VerificationMethod.Sas)
+                        } else {
+                            error("Element ready methods do not include SAS: ${state.methods}")
                         }
                     }
+                        .onSuccess { logError("Verification", "SAS start sent", null) }
+                        .onFailure { e -> logError("Verification", "sending SAS start failed", e) }
                 }
                 flowOf(VerificationUiState.Waiting)
             }
@@ -1163,7 +1171,11 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     private fun handleSasState(sas: ActiveSasVerificationState): VerificationUiState = when (sas) {
         is ActiveSasVerificationState.TheirSasStart -> {
-            repositoryScope.launch { runCatching { sas.accept() } }
+            repositoryScope.launch {
+                runCatching { sas.accept() }
+                    .onFailure { e -> logError("Verification", "sending accept failed", e) }
+                    .onSuccess { logError("Verification", "accept sent", null) }
+            }
             VerificationUiState.Waiting
         }
         is ActiveSasVerificationState.ComparisonByUser -> {
