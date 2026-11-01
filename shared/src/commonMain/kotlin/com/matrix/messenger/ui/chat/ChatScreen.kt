@@ -420,15 +420,10 @@ fun ChatScreen(
                                             viewModel.sendReaction(item.message.eventId, emoji)
                                         },
                                         onAcceptVerification = {
-                                            val device = item.message.verificationDeviceId
-                                            if (device != null) {
-                                                viewModel.acceptVerificationRequest(
-                                                    roomId = roomId,
-                                                    eventId = item.message.eventId,
-                                                    deviceId = device,
-                                                    peerUserId = item.message.senderId
-                                                )
-                                            }
+                                            viewModel.acceptVerificationRequest(
+                                                roomId = roomId,
+                                                eventId = item.message.eventId
+                                            )
                                         },
                                         onEdit = {
                                             editText = item.message.body

@@ -191,15 +191,13 @@ interface MatrixRepository {
     suspend fun startDeviceVerification(deviceId: String)
 
     /**
-     * Responds to an in-room key verification request: cancels it politely
-     * (in-room m.key.verification.cancel) and starts our own to-device
-     * verification with the requesting device, which Element then prompts.
+     * Responds to an in-room key verification request: hands the request to
+     * trixnity's ActiveUserVerification, which runs the whole SAS flow in the
+     * room (ready -> start/accept -> key -> mac) natively.
      */
     suspend fun respondToVerificationRequest(
         roomId: String,
-        requestEventId: String,
-        deviceId: String,
-        peerUserId: String
+        requestEventId: String
     )
 
     /** Confirms or rejects the currently shown emoji/decimal comparison. */

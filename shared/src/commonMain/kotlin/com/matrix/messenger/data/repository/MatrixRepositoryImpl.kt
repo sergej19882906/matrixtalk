@@ -66,6 +66,7 @@ import net.folivo.trixnity.client.key.DeviceTrustLevel
 import net.folivo.trixnity.crypto.olm.StoredInboundMegolmSession
 import net.folivo.trixnity.olm.*
 import net.folivo.trixnity.client.key.KeyService
+import net.folivo.trixnity.client.verification.ActiveUserVerification
 import net.folivo.trixnity.client.store.AccountStore
 import net.folivo.trixnity.client.store.KeyStore
 import net.folivo.trixnity.client.store.OlmCryptoStore
@@ -1060,23 +1061,32 @@ class MatrixRepositoryImpl : MatrixRepository {
     private var lastActiveVerification: net.folivo.trixnity.client.verification.ActiveDeviceVerification? = null
     private var currentComparison: ActiveSasVerificationState.ComparisonByUser? = null
     private val verificationRefresh = MutableStateFlow(0)
+    private var activeUserVerification: ActiveUserVerification? = null
+    private val userVerificationState = MutableStateFlow<VerificationUiState>(VerificationUiState.Idle)
 
     override val verificationState: Flow<VerificationUiState> =
-        combine(_clientState, verificationRefresh) { c, _ -> c }
-            .flatMapLatest { c ->
-                val service = c?.di?.get<VerificationService>()
-                    ?: return@flatMapLatest flowOf(VerificationUiState.Idle)
-                service.activeDeviceVerification.flatMapLatest { active ->
-                    if (active == null) {
-                        lastActiveVerification = null
-                        currentComparison = null
-                        flowOf(VerificationUiState.Idle)
-                    } else {
-                        lastActiveVerification = active
-                        active.state.flatMapLatest { state -> handleVerificationState(state) }
+        userVerificationState.flatMapLatest { userState ->
+            if (userState != VerificationUiState.Idle) {
+                // an in-room verification started from the chat drives the UI
+                flowOf(userState)
+            } else {
+                combine(_clientState, verificationRefresh) { c, _ -> c }
+                    .flatMapLatest { c ->
+                        val service = c?.di?.get<VerificationService>()
+                            ?: return@flatMapLatest flowOf(VerificationUiState.Idle)
+                        service.activeDeviceVerification.flatMapLatest { active ->
+                            if (active == null) {
+                                lastActiveVerification = null
+                                currentComparison = null
+                                flowOf(VerificationUiState.Idle)
+                            } else {
+                                lastActiveVerification = active
+                                active.state.flatMapLatest { state -> handleVerificationState(state) }
+                            }
+                        }
                     }
-                }
             }
+        }
 
     override suspend fun startDeviceVerification(deviceId: String) {
         val c = requireClient()
@@ -1089,44 +1099,22 @@ class MatrixRepositoryImpl : MatrixRepository {
         verificationRefresh.value++
     }
 
-    override suspend fun respondToVerificationRequest(
-        roomId: String,
-        requestEventId: String,
-        deviceId: String,
-        peerUserId: String
-    ) {
+    override suspend fun respondToVerificationRequest(roomId: String, requestEventId: String) {
         val c = requireClient()
         val service = c.di.get<VerificationService>()
-        // The peer's device keys may never have been fetched (unencrypted rooms do
-        // not trigger device-key tracking) - without them every olm-encrypted
-        // to-device step fails with KeyNotFound(Curve25519).
-        val keyStore = c.di.get<KeyStore>()
-        val peer = UserId(peerUserId)
-        keyStore.updateOutdatedKeys { it + peer }
-        val peerDevices = withTimeoutOrNull(5_000) {
-            c.di.get<KeyService>().getDeviceKeys(peer).first { it != null }
-        }.orEmpty().map { it.deviceId }
-        if (peerDevices.isEmpty()) {
-            logError("Chat", "Peer device keys for $peerUserId did not arrive in 5s", null)
-            error("Не удалось получить ключи устройств пользователя $peerUserId")
-        }
-        logError(
-            "Chat",
-            "Peer $peerUserId known devices: ${peerDevices.joinToString()} (request device: $deviceId)",
-            null
-        )
         // Same stale-verification guard as startDeviceVerification.
         runCatching { service.activeDeviceVerification.value?.cancel() }
-        // NOTE: we deliberately do NOT cancel Element's in-room request here - the
-        // cancel event makes Element show a scary "verification rejected" message.
-        // Our to-device request is independent and Element handles it natively.
-        // Target the requesting device when it still exists, otherwise every known
-        // device of the peer (the in-room request may reference a deleted session).
-        val targets = if (deviceId in peerDevices) setOf(deviceId) else peerDevices.toSet()
-        service.createDeviceVerificationRequest(peer, targets)
-            .getOrThrow()
-        verificationRefresh.value++
-        logError("Chat", "Responded to in-room verification request: cancelled in-room, started to-device with $targets", null)
+        val auv = service.getActiveUserVerification(RoomId(roomId), EventId(requestEventId))
+            ?: error("Запрос верификации не найден или устарел - попросите собеседника отправить новый")
+        activeUserVerification?.cancel("superseded by a new verification")
+        activeUserVerification = auv
+        userVerificationState.value = VerificationUiState.Waiting
+        // The AU state machine runs the whole in-room flow; our mapping auto-sends
+        // ready, starts SAS and routes Compare/Done/Cancel into the shared state.
+        repositoryScope.launch {
+            auv.state.flatMapLatest { state -> handleVerificationState(state) }
+                .collect { userVerificationState.value = it }
+        }
     }
 
     override suspend fun confirmVerification(matches: Boolean) {
@@ -1136,6 +1124,8 @@ class MatrixRepositoryImpl : MatrixRepository {
     }
 
     override suspend fun cancelVerification() {
+        activeUserVerification?.cancel("cancelled by user")
+        userVerificationState.value = VerificationUiState.Idle
         lastActiveVerification?.cancel("cancelled by user")
         currentComparison = null
     }

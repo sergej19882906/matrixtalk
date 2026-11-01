@@ -56,12 +56,12 @@ class ChatViewModel(
     val verificationState: StateFlow<VerificationUiState> = matrixRepository.verificationState
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerificationUiState.Idle)
 
-    fun acceptVerificationRequest(roomId: String, eventId: String, deviceId: String, peerUserId: String) {
+    fun acceptVerificationRequest(roomId: String, eventId: String) {
         viewModelScope.launch {
             try {
-                matrixRepository.respondToVerificationRequest(roomId, eventId, deviceId, peerUserId)
+                matrixRepository.respondToVerificationRequest(roomId, eventId)
             } catch (e: Exception) {
-                com.matrix.messenger.platform.logError("Chat", "Verification accept failed ($roomId, $deviceId)", e)
+                com.matrix.messenger.platform.logError("Chat", "Verification accept failed ($roomId)", e)
                 _events.send(UiEvent.ShowSnackbar("Не удалось начать верификацию: ${e.message}"))
             }
         }
