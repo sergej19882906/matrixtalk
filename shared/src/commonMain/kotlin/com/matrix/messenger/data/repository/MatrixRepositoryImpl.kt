@@ -1117,21 +1117,9 @@ class MatrixRepositoryImpl : MatrixRepository {
         )
         // Same stale-verification guard as startDeviceVerification.
         runCatching { service.activeDeviceVerification.value?.cancel() }
-        // Element keeps its in-room request active; a new to-device request would be
-        // silently auto-cancelled as a duplicate. Cancel the in-room one politely first.
-        runCatching {
-            c.api.room.sendMessageEvent(
-                roomId = RoomId(roomId),
-                eventContent = VerificationCancelEventContent(
-                    code = VerificationCancelEventContent.Code.User,
-                    reason = "Продолжаем верификацию через приглашение на устройстве",
-                    relatesTo = RelatesTo.Reference(EventId(requestEventId)),
-                    transactionId = null
-                )
-            )
-        }.onFailure { e ->
-            logError("Chat", "Failed to cancel in-room verification request", e)
-        }
+        // NOTE: we deliberately do NOT cancel Element's in-room request here - the
+        // cancel event makes Element show a scary "verification rejected" message.
+        // Our to-device request is independent and Element handles it natively.
         // Target the requesting device when it still exists, otherwise every known
         // device of the peer (the in-room request may reference a deleted session).
         val targets = if (deviceId in peerDevices) setOf(deviceId) else peerDevices.toSet()
