@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,13 +17,17 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.GppMaybe
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -43,6 +48,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.VerificationUiState
+import com.matrix.messenger.platform.readFileBytes
+import com.matrix.messenger.platform.rememberFilePicker
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
@@ -73,6 +80,15 @@ fun DevicesScreen(
     var renameTarget by remember { mutableStateOf<DeviceInfo?>(null) }
     var renameText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<DeviceInfo?>(null) }
+    var keyPassphrase by remember { mutableStateOf("") }
+    val pickKeyFile = rememberFilePicker { file ->
+        runCatching {
+            val bytes = readFileBytes(file.path)
+            viewModel.importKeys(bytes, keyPassphrase)
+        }.onFailure {
+            viewModel.onImportFailed(it)
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -108,6 +124,19 @@ fun DevicesScreen(
                         version = uiState.keyBackupVersion,
                         isBootstrapping = uiState.isBootstrapping,
                         onBootstrap = viewModel::bootstrapKeyBackup
+                    )
+                }
+                item(key = "session") {
+                    SessionTrustRow(verified = uiState.sessionVerified)
+                }
+                item(key = "keys") {
+                    KeyExportSection(
+                        isExporting = uiState.isExportingKeys,
+                        isImporting = uiState.isImportingKeys,
+                        passphrase = keyPassphrase,
+                        onPassphraseChange = { keyPassphrase = it },
+                        onExport = { viewModel.exportKeys(keyPassphrase) },
+                        onImport = { pickKeyFile() }
                     )
                 }
                 uiState.error?.let { error ->
@@ -308,6 +337,94 @@ fun DevicesScreen(
         }
         VerificationUiState.Idle -> Unit
     }
+}
+
+/** "This session" cross-signing trust indicator. */
+@Composable
+private fun SessionTrustRow(verified: Boolean?) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = if (verified == true) Icons.Default.VerifiedUser else Icons.Default.GppMaybe,
+            contentDescription = null,
+            tint = when (verified) {
+                true -> MaterialTheme.colorScheme.primary
+                false -> com.matrix.messenger.ui.theme.ElementAmber
+                null -> MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column {
+            Text(
+                text = "Эта сессия",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = when (verified) {
+                    true -> "Верифицирована (кросс-подписана)"
+                    false -> "Не верифицирована — подтвердите её из Element или ключом восстановления"
+                    null -> "Статус доверия неизвестен"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+    HorizontalDivider()
+}
+
+/** Key export/import (Element-compatible m.megolm_backup.v1.export files). */
+@Composable
+private fun KeyExportSection(
+    isExporting: Boolean,
+    isImporting: Boolean,
+    passphrase: String,
+    onPassphraseChange: (String) -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Text(
+            text = "Экспорт и импорт ключей",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            text = "Файл с ключами расшифровки истории (формат Element). Храните в надёжном месте.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = passphrase,
+            onValueChange = onPassphraseChange,
+            label = { Text("Парольная фраза") },
+            singleLine = true,
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row {
+            Button(onClick = onExport, enabled = !isExporting && passphrase.isNotBlank()) {
+                if (isExporting) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("Экспортировать")
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            OutlinedButton(onClick = onImport, enabled = !isImporting && passphrase.isNotBlank()) {
+                if (isImporting) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("Импортировать")
+                }
+            }
+        }
+    }
+    HorizontalDivider()
 }
 
 @Composable

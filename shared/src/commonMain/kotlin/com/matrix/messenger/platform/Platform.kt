@@ -22,6 +22,9 @@ expect fun openUrl(url: String)
 /** Opens a downloaded attachment with the OS default application for its type. */
 expect fun openLocalFile(path: String)
 
+/** Saves [bytes] as [fileName] via the platform save dialog / share sheet. */
+expect fun exportFile(fileName: String, bytes: ByteArray)
+
 expect fun readFileBytes(path: String): ByteArray
 
 expect fun writeFileBytes(path: String, bytes: ByteArray)

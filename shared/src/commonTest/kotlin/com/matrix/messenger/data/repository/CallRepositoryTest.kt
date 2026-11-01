@@ -7,6 +7,7 @@ import com.matrix.messenger.data.call.CallSignalingCommand
 import com.matrix.messenger.data.call.CallSignalingEvent
 import com.matrix.messenger.data.model.CallState
 import com.matrix.messenger.data.model.ChatRoom
+import com.matrix.messenger.data.model.RoomTrust
 import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.VerificationUiState
@@ -68,7 +69,18 @@ class CallRepositoryTest {
         override suspend fun replyToMessage(roomId: String, eventId: String, text: String, threadRootId: String?) = Unit
         override suspend fun sendFileMessage(roomId: String, filePath: String, mimeType: String, caption: String?) = Unit
         override suspend fun getRoomInfo(roomId: String): ChatRoom? = null
-        override suspend fun createRoom(name: String?, topic: String?, isDirect: Boolean, userIds: List<String>): String = "!room:test"
+        override suspend fun createRoom(
+            name: String?,
+            topic: String?,
+            isDirect: Boolean,
+            userIds: List<String>,
+            isEncrypted: Boolean
+        ): String = "!room:test"
+        override suspend fun exportRoomKeys(passphrase: String): ByteArray = ByteArray(0)
+        override suspend fun importRoomKeys(bytes: ByteArray, passphrase: String): Int = 0
+        override fun getRoomTrustFlow(roomId: String): Flow<RoomTrust> =
+            MutableStateFlow(RoomTrust(isEncrypted = false, verified = null))
+        override fun getOwnSessionVerifiedFlow(): Flow<Boolean?> = MutableStateFlow(null)
         override suspend fun joinRoom(aliasOrId: String): String = aliasOrId
         override suspend fun leaveRoom(roomId: String) = Unit
         override suspend fun markRoomAsRead(roomId: String) = Unit

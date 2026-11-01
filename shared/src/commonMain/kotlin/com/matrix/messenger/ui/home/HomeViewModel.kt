@@ -160,14 +160,15 @@ class HomeViewModel(
         }
     }
 
-    fun createGroupChat(name: String, userIds: List<String>) {
+    fun createGroupChat(name: String, userIds: List<String>, isEncrypted: Boolean) {
         viewModelScope.launch {
             try {
                 val roomId = matrixRepository.createRoom(
                     name = name.takeIf { it.isNotBlank() },
                     topic = null,
                     isDirect = false,
-                    userIds = userIds
+                    userIds = userIds,
+                    isEncrypted = isEncrypted
                 )
                 _events.send(UiEvent.NavigateToChat(roomId))
             } catch (e: Exception) {
@@ -183,11 +184,13 @@ class HomeViewModel(
                     .firstOrNull { room ->
                         room.isDirect && matrixRepository.resolveDirectChatPeerId(room.roomId) == userId
                     }
+                // Element-style: direct chats are always encrypted
                 val roomId = existingRoom?.roomId ?: matrixRepository.createRoom(
                     name = null,
                     topic = null,
                     isDirect = true,
-                    userIds = listOf(userId)
+                    userIds = listOf(userId),
+                    isEncrypted = true
                 )
                 _events.send(UiEvent.NavigateToChat(roomId))
             } catch (e: Exception) {

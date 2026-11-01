@@ -6,6 +6,7 @@ import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.IceServer
+import com.matrix.messenger.data.model.RoomTrust
 import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
@@ -105,11 +106,24 @@ interface MatrixRepository {
 
     suspend fun getRoomInfo(roomId: String): ChatRoom?
 
+    /** Room encryption + member-trust summary for the shield indicator. */
+    fun getRoomTrustFlow(roomId: String): Flow<RoomTrust>
+
+    /** Whether THIS device session is verified (cross-signed); null = unknown. */
+    fun getOwnSessionVerifiedFlow(): Flow<Boolean?>
+
+    /** Exports all known megolm room keys as an Element-compatible encrypted file. */
+    suspend fun exportRoomKeys(passphrase: String): ByteArray
+
+    /** Imports an Element-format key export; returns the number of imported sessions. */
+    suspend fun importRoomKeys(bytes: ByteArray, passphrase: String): Int
+
     suspend fun createRoom(
         name: String?,
         topic: String?,
         isDirect: Boolean,
-        userIds: List<String>
+        userIds: List<String>,
+        isEncrypted: Boolean = false
     ): String
 
     suspend fun joinRoom(aliasOrId: String): String

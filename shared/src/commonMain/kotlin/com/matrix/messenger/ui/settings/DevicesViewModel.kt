@@ -23,7 +23,12 @@ data class DevicesUiState(
     val error: String? = null,
     /** Recovery key to show once after a successful bootstrap. */
     val recoveryKey: String? = null,
-    val isBootstrapping: Boolean = false
+    val isBootstrapping: Boolean = false,
+    /** Whether THIS session is verified (cross-signed); null = unknown. */
+    val sessionVerified: Boolean? = null,
+    /** Key export/import progress flags. */
+    val isExportingKeys: Boolean = false,
+    val isImportingKeys: Boolean = false
 )
 
 class DevicesViewModel(
@@ -54,6 +59,11 @@ class DevicesViewModel(
         viewModelScope.launch {
             matrixRepository.getKeyBackupVersionFlow().collect { version ->
                 _uiState.value = _uiState.value.copy(keyBackupVersion = version)
+            }
+        }
+        viewModelScope.launch {
+            matrixRepository.getOwnSessionVerifiedFlow().collect { verified ->
+                _uiState.value = _uiState.value.copy(sessionVerified = verified)
             }
         }
     }
@@ -111,6 +121,49 @@ class DevicesViewModel(
 
     fun dismissRecoveryKey() {
         _uiState.value = _uiState.value.copy(recoveryKey = null)
+    }
+
+    fun exportKeys(passphrase: String) {
+        if (_uiState.value.isExportingKeys) return
+        _uiState.value = _uiState.value.copy(isExportingKeys = true)
+        viewModelScope.launch {
+            try {
+                val bytes = matrixRepository.exportRoomKeys(passphrase)
+                val stamp = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+                com.matrix.messenger.platform.exportFile("matrixtalk-keys-$stamp.txt", bytes)
+                _events.send(UiEvent.ShowSnackbar("Ключи экспортированы. Храните файл в надёжном месте."))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка экспорта: ${e.message}"))
+            } finally {
+                _uiState.value = _uiState.value.copy(isExportingKeys = false)
+            }
+        }
+    }
+
+    fun importKeys(bytes: ByteArray, passphrase: String) {
+        if (_uiState.value.isImportingKeys) return
+        _uiState.value = _uiState.value.copy(isImportingKeys = true)
+        viewModelScope.launch {
+            try {
+                val count = matrixRepository.importRoomKeys(bytes, passphrase)
+                _events.send(UiEvent.ShowSnackbar("Импортировано сессий: $count"))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка импорта: ${e.message}"))
+            } finally {
+                _uiState.value = _uiState.value.copy(isImportingKeys = false)
+            }
+        }
+    }
+
+    fun onImportFailed(error: Throwable) {
+        com.matrix.messenger.platform.logError("Devices", "Key import failed", error)
+        viewModelScope.launch {
+            _events.send(UiEvent.ShowSnackbar("Не удалось прочитать файл: ${error.message}"))
+        }
     }
 
     fun verify(deviceId: String) {

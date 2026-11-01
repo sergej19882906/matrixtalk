@@ -58,6 +58,31 @@ actual fun openLocalFile(path: String) {
 
 var appContext: Context? = null
 
+actual fun exportFile(fileName: String, bytes: ByteArray) {
+    val context = appContext ?: return
+    runCatching {
+        val dir = java.io.File(context.cacheDir, "exports").apply { mkdirs() }
+        val file = java.io.File(dir, fileName)
+        file.writeBytes(bytes)
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            context.packageName + ".fileprovider",
+            file
+        )
+        val sendIntent = Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = android.content.Intent.createChooser(sendIntent, "Экспорт ключей").apply {
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(chooser)
+    }.onFailure {
+        logError("Platform", "exportFile failed ($fileName)", it)
+    }
+}
+
 actual fun readFileBytes(path: String): ByteArray {
     val context = appContext ?: error("Application context not initialized")
     return if (path.startsWith("content://")) {

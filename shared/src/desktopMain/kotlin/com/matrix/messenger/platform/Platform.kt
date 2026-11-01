@@ -82,6 +82,17 @@ actual fun openLocalFile(path: String) {
     }
 }
 
+actual fun exportFile(fileName: String, bytes: ByteArray) {
+    val chooser = JFileChooser().apply {
+        dialogTitle = "Сохранить файл"
+        selectedFile = File(fileName)
+    }
+    if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+        val file = chooser.selectedFile
+        File(file.absolutePath.let { if (it.contains('.')) it else "$it.txt" }).writeBytes(bytes)
+    }
+}
+
 actual fun readFileBytes(path: String): ByteArray = File(path).readBytes()
 
 actual fun writeFileBytes(path: String, bytes: ByteArray) {

@@ -3,6 +3,7 @@ package com.matrix.messenger.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.matrix.messenger.data.model.Message
+import com.matrix.messenger.data.model.RoomTrust
 import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.UiState
 import com.matrix.messenger.data.repository.MatrixRepository
@@ -18,6 +19,7 @@ data class ChatUiState(
     val roomId: String = "",
     val roomName: String? = null,
     val roomAvatarUrl: String? = null,
+    val roomTrust: RoomTrust? = null,
     val messages: List<Message> = emptyList(),
     val messageInput: String = "",
     val isLoading: Boolean = true,
@@ -71,6 +73,12 @@ class ChatViewModel(
                 roomName = roomInfo?.name,
                 roomAvatarUrl = roomInfo?.avatarUrl
             )
+        }
+
+        viewModelScope.launch {
+            matrixRepository.getRoomTrustFlow(roomId).collect { trust ->
+                _uiState.value = _uiState.value.copy(roomTrust = trust)
+            }
         }
 
         viewModelScope.launch {

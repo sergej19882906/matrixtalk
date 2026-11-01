@@ -1,10 +1,14 @@
 package com.matrix.messenger.data.repository
 
 import com.matrix.messenger.data.call.CallSignalingCommand
+import com.matrix.messenger.data.crypto.ExportedSession
+import com.matrix.messenger.data.crypto.decodeRoomKeysExport
+import com.matrix.messenger.data.crypto.encodeRoomKeysExport
 import com.matrix.messenger.data.call.CallSignalingEvent
 import com.matrix.messenger.data.call.buildCallContent
 import com.matrix.messenger.data.call.parseCallEvent
 import com.matrix.messenger.data.model.ChatRoom
+import com.matrix.messenger.data.model.RoomTrust
 import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.IceServer
@@ -58,7 +62,13 @@ import net.folivo.trixnity.client.MatrixClient
 import net.folivo.trixnity.client.flattenValues
 import net.folivo.trixnity.client.fromStore
 import net.folivo.trixnity.client.key.KeyBackupService
+import net.folivo.trixnity.client.key.DeviceTrustLevel
+import net.folivo.trixnity.crypto.olm.StoredInboundMegolmSession
+import net.folivo.trixnity.olm.*
 import net.folivo.trixnity.client.key.KeyService
+import net.folivo.trixnity.client.store.AccountStore
+import net.folivo.trixnity.client.store.OlmCryptoStore
+import net.folivo.trixnity.client.key.UserTrustLevel
 import org.koin.core.qualifier.named
 import net.folivo.trixnity.client.loginWith
 import net.folivo.trixnity.client.loginWithPassword
@@ -81,6 +91,7 @@ import net.folivo.trixnity.client.store.originTimestamp
 import net.folivo.trixnity.client.store.roomId
 import net.folivo.trixnity.client.store.sender
 import net.folivo.trixnity.client.user
+import net.folivo.trixnity.client.user.UserService
 import net.folivo.trixnity.client.verification.ActiveSasVerificationMethod
 import net.folivo.trixnity.client.verification.ActiveSasVerificationState
 import net.folivo.trixnity.client.verification.ActiveVerificationState
@@ -93,6 +104,8 @@ import net.folivo.trixnity.clientserverapi.model.uia.AuthenticationRequest
 import net.folivo.trixnity.clientserverapi.model.uia.AuthenticationType
 import net.folivo.trixnity.core.model.EventId
 import net.folivo.trixnity.core.model.RoomAliasId
+import net.folivo.trixnity.core.model.keys.Key
+import net.folivo.trixnity.core.model.keys.KeyAlgorithm
 import net.folivo.trixnity.core.model.RoomId
 import net.folivo.trixnity.core.model.UserId
 import net.folivo.trixnity.core.model.events.RedactedEventContent
@@ -100,7 +113,9 @@ import net.folivo.trixnity.core.model.events.RoomEventContent
 import net.folivo.trixnity.core.model.events.UnknownEventContent
 import net.folivo.trixnity.core.model.events.m.ReactionEventContent
 import net.folivo.trixnity.core.model.events.m.RelatesTo
+import net.folivo.trixnity.core.model.events.InitialStateEvent
 import net.folivo.trixnity.core.model.events.m.room.AudioInfo
+import net.folivo.trixnity.core.model.events.m.room.EncryptionEventContent
 import net.folivo.trixnity.core.model.events.m.room.FileInfo
 import net.folivo.trixnity.core.model.events.m.room.ImageInfo
 import net.folivo.trixnity.core.model.events.m.room.Membership
@@ -696,12 +711,24 @@ class MatrixRepositoryImpl : MatrixRepository {
         return room.toChatRoom(c).copy(topic = topic)
     }
 
-    override suspend fun createRoom(name: String?, topic: String?, isDirect: Boolean, userIds: List<String>): String {
+    override suspend fun createRoom(
+        name: String?,
+        topic: String?,
+        isDirect: Boolean,
+        userIds: List<String>,
+        isEncrypted: Boolean
+    ): String {
+        // Encryption is applied at creation time via initial_state (m.room.encryption,
+        // Megolm) — same as Element's "encryption enabled" room creation.
+        val initialState = if (isEncrypted) {
+            listOf(InitialStateEvent(content = EncryptionEventContent(), stateKey = ""))
+        } else null
         return requireClient().api.room.createRoom(
             name = name,
             topic = topic,
             invite = userIds.map { UserId(it) }.toSet(),
-            isDirect = isDirect
+            isDirect = isDirect,
+            initialState = initialState
         ).getOrThrow().full
     }
 
@@ -740,6 +767,140 @@ class MatrixRepositoryImpl : MatrixRepository {
                 }
             }
         }
+    }
+
+    override fun getRoomTrustFlow(roomId: String): Flow<RoomTrust> = _clientState.flatMapLatest { c ->
+        if (c == null) {
+            flowOf(RoomTrust(isEncrypted = false, verified = null))
+        } else {
+            val rId = RoomId(roomId)
+            val keyService = c.di.get<KeyService>()
+            val userService = c.di.get<UserService>()
+            c.room.getById(rId).flatMapLatest { room ->
+                if (room == null || !room.encrypted) {
+                    flowOf(RoomTrust(isEncrypted = false, verified = null))
+                } else {
+                    // Fetch the full member list (store keeps updating it via sync).
+                    c.user.loadMembers(rId, wait = false)
+                    c.user.getAll(rId).flatMapLatest { members ->
+                        val userIds = members.keys.toList()
+                        if (userIds.isEmpty() || userIds.size > TRUST_MAX_MEMBERS) {
+                            flowOf(RoomTrust(isEncrypted = true, verified = null))
+                        } else {
+                            combine(userIds.map { userId -> keyService.getTrustLevel(userId) }) { levels ->
+                                RoomTrust(
+                                    isEncrypted = true,
+                                    // Element-style strictness: every member's identity must
+                                    // be cross-signed AND verified; anything else = warning.
+                                    verified = levels.all { it is UserTrustLevel.CrossSigned && it.verified }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override fun getOwnSessionVerifiedFlow(): Flow<Boolean?> = _clientState.flatMapLatest { c ->
+        if (c == null) {
+            flowOf(null)
+        } else {
+            c.di.get<KeyService>().getTrustLevel(c.userId, c.deviceId).map { level ->
+                when (level) {
+                    is DeviceTrustLevel.CrossSigned -> level.verified
+                    is DeviceTrustLevel.Valid -> level.verified
+                    else -> null
+                }
+            }
+        }
+    }
+
+    override suspend fun exportRoomKeys(passphrase: String): ByteArray {
+        val c = requireClient()
+        val pickleKey = checkNotNull(c.di.get<AccountStore>().getAccount()?.olmPickleKey) {
+            "Ключи шифрования недоступны в этой сессии"
+        }
+        val olmCryptoStore = c.di.get<OlmCryptoStore>()
+        val backupService = c.di.get<KeyBackupService>(named<KeyBackupService>())
+
+        // All known sessions: server key backup + local sessions not backed up yet.
+        val sessionIds = mutableSetOf<Pair<RoomId, String>>()
+        val backupVersion = backupService.version.value
+        if (backupVersion != null) {
+            runCatching {
+                c.api.keys.getRoomKeys(backupVersion.version).getOrThrow()
+            }.getOrNull()?.rooms?.forEach { (roomId, roomBackup) ->
+                roomBackup.sessions.keys.forEach { sessionId -> sessionIds += roomId to sessionId }
+            }
+        }
+        val notBackedUp: Set<Pair<RoomId, String>> =
+            olmCryptoStore.notBackedUpInboundMegolmSessions.value.keys.map { it.roomId to it.sessionId }.toSet()
+        sessionIds.addAll(notBackedUp)
+        // Pull sessions from the backup into the local store (decrypts on demand).
+        sessionIds.forEach { (roomId, sessionId) ->
+            runCatching { backupService.loadMegolmSession(roomId, sessionId) }
+        }
+
+        val exported = sessionIds.mapNotNull { (roomId, sessionId) ->
+            val stored = olmCryptoStore.getInboundMegolmSession(sessionId, roomId).firstOrNull()
+                ?: return@mapNotNull null
+            val exportedSessionKey = freeAfter(OlmInboundGroupSession.unpickle(pickleKey, stored.pickled)) { session ->
+                runCatching { session.export(stored.firstKnownIndex) }
+                    .getOrElse { session.export(0) }
+            }
+            ExportedSession(
+                roomId = roomId.full,
+                sessionId = sessionId,
+                sessionKey = exportedSessionKey,
+                senderKey = stored.senderKey.value,
+                senderClaimedKeys = mapOf(KeyAlgorithm.Ed25519.name to stored.senderSigningKey.value),
+                forwardingCurve25519KeyChain = stored.forwardingCurve25519KeyChain.map { it.value }
+            )
+        }
+        return encodeRoomKeysExport(exported, passphrase)
+    }
+
+    override suspend fun importRoomKeys(bytes: ByteArray, passphrase: String): Int {
+        val c = requireClient()
+        val pickleKey = checkNotNull(c.di.get<AccountStore>().getAccount()?.olmPickleKey) {
+            "Ключи шифрования недоступны в этой сессии"
+        }
+        val olmCryptoStore = c.di.get<OlmCryptoStore>()
+        val sessions = decodeRoomKeysExport(bytes, passphrase)
+        var imported = 0
+        sessions.forEach { session ->
+            freeAfter(OlmInboundGroupSession.import(session.sessionKey)) { importedSession ->
+                val firstKnownIndex = importedSession.firstKnownIndex
+                val pickled = importedSession.pickle(pickleKey)
+                olmCryptoStore.updateInboundMegolmSession(
+                    sessionId = session.sessionId,
+                    roomId = RoomId(session.roomId)
+                ) { old ->
+                    if (old != null && old.firstKnownIndex <= firstKnownIndex) {
+                        old
+                    } else {
+                        StoredInboundMegolmSession(
+                            senderKey = Key.Curve25519Key(null, session.senderKey),
+                            sessionId = session.sessionId,
+                            roomId = RoomId(session.roomId),
+                            firstKnownIndex = firstKnownIndex,
+                            isTrusted = false, // imported keys are only channel-trusted
+                            hasBeenBackedUp = false,
+                            senderSigningKey = Key.Ed25519Key(
+                                null,
+                                session.senderClaimedKeys[KeyAlgorithm.Ed25519.name] ?: ""
+                            ),
+                            forwardingCurve25519KeyChain =
+                            session.forwardingCurve25519KeyChain.map { Key.Curve25519Key(null, it) },
+                            pickled = pickled
+                        )
+                    }
+                }
+            }
+            imported++
+        }
+        return imported
     }
 
     override suspend fun setPinnedMessage(roomId: String, eventId: String, pinned: Boolean) {
@@ -1167,7 +1328,8 @@ class MatrixRepositoryImpl : MatrixRepository {
             isDirect = isDirect,
             membersCount = (name?.heroes?.size ?: 0) + (name?.otherUsersCount ?: 0) + 1,
             isFavorite = FAVORITE_TAG in tags,
-            isLowPriority = LOW_PRIORITY_TAG in tags
+            isLowPriority = LOW_PRIORITY_TAG in tags,
+            isEncrypted = encrypted
         )
     }
 
@@ -1371,6 +1533,8 @@ class MatrixRepositoryImpl : MatrixRepository {
         const val SEARCH_SNIPPET_MAX = 200
         const val ROOM_TAGS_CACHE_MS = 120_000L
         const val FAVORITE_TAG = "m.favourite"
+        /** Above this member count the trust shield shows "unknown" (cost guard). */
+        const val TRUST_MAX_MEMBERS = 50
         const val LOW_PRIORITY_TAG = "m.lowpriority"
     }
 }

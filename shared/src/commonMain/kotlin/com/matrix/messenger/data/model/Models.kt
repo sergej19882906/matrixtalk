@@ -20,7 +20,17 @@ data class ChatRoom(
     val isDirect: Boolean,
     val membersCount: Int,
     val isFavorite: Boolean = false,
-    val isLowPriority: Boolean = false
+    val isLowPriority: Boolean = false,
+    val isEncrypted: Boolean = false
+)
+
+/**
+ * Trust summary of a chat room for the shield indicator.
+ * [verified] = null when unknown (members not loaded yet or room too large).
+ */
+data class RoomTrust(
+    val isEncrypted: Boolean,
+    val verified: Boolean?
 )
 
 data class LastMessage(

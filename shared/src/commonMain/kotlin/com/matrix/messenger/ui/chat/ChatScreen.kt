@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.GppMaybe
 import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PresentToAll
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -85,6 +87,7 @@ import com.matrix.messenger.platform.listScreenSources
 import com.matrix.messenger.platform.rememberCallPermissionRequester
 import com.matrix.messenger.platform.rememberFilePicker
 import com.matrix.messenger.ui.components.DateSeparator
+import com.matrix.messenger.ui.theme.ElementAmber
 import com.matrix.messenger.ui.components.MatrixAvatar
 import com.matrix.messenger.ui.components.TimeFormat
 import com.matrix.messenger.ui.components.TimelineItem
@@ -209,6 +212,28 @@ fun ChatScreen(
                             size = 36.dp,
                             shape = CircleShape
                         )
+                        val trust = uiState.roomTrust
+                        if (trust?.isEncrypted == true) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = if (trust.verified == true) {
+                                    Icons.Filled.VerifiedUser
+                                } else {
+                                    Icons.Filled.GppMaybe
+                                },
+                                contentDescription = when (trust.verified) {
+                                    true -> "Все участники верифицированы"
+                                    false -> "Есть неверифицированные участники"
+                                    null -> "Шифрование включено"
+                                },
+                                tint = if (trust.verified == true) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    ElementAmber
+                                },
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(

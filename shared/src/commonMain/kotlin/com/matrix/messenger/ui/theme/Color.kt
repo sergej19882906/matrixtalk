@@ -49,6 +49,9 @@ val ElementLightErrorContainer = Color(0xFFFCE4E6)
 val MatrixDarkGray = Color(0xFF15191E)
 val MatrixLightGray = Color(0xFFEDF0F3)
 
+/** Warning amber for the "unverified devices" trust shield (Element X global.warning). */
+val ElementAmber = Color(0xFFFF812D)
+
 // Deterministic letter-avatar colors (Element's avatar palette)
 val AvatarColors = listOf(
     Color(0xFF368BD6), // blue

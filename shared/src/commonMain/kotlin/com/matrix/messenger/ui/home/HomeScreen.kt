@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Workspaces
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -107,6 +108,7 @@ fun HomeScreen(
     var showCreateChatDialog by remember { mutableStateOf(false) }
     var createChatName by remember { mutableStateOf("") }
     var createChatUsers by remember { mutableStateOf("") }
+    var createChatEncrypted by remember { mutableStateOf(true) }
     var profileDialogVisible by remember { mutableStateOf(false) }
     var avatarMenuExpanded by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
@@ -434,6 +436,22 @@ fun HomeScreen(
                         placeholder = { Text("@user1:server, @user2:server") },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            createChatEncrypted = !createChatEncrypted
+                        }
+                    ) {
+                        Checkbox(
+                            checked = createChatEncrypted,
+                            onCheckedChange = { createChatEncrypted = it }
+                        )
+                        Text(
+                            text = "Включить сквозное шифрование",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -447,9 +465,10 @@ fun HomeScreen(
                         }
                     } else {
                         showCreateChatDialog = false
-                        viewModel.createGroupChat(createChatName, ids)
+                        viewModel.createGroupChat(createChatName, ids, createChatEncrypted)
                         createChatName = ""
                         createChatUsers = ""
+                        createChatEncrypted = true
                     }
                 }) { Text("Создать") }
             },
