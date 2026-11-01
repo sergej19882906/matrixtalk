@@ -61,6 +61,7 @@ class ChatViewModel(
             try {
                 matrixRepository.respondToVerificationRequest(roomId, eventId, deviceId, peerUserId)
             } catch (e: Exception) {
+                com.matrix.messenger.platform.logError("Chat", "Verification accept failed ($roomId, $deviceId)", e)
                 _events.send(UiEvent.ShowSnackbar("Не удалось начать верификацию: ${e.message}"))
             }
         }
