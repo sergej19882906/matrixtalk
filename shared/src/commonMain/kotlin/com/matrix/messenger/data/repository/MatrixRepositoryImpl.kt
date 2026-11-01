@@ -2,7 +2,6 @@ package com.matrix.messenger.data.repository
 
 import com.matrix.messenger.data.call.CallInviteEventContent
 import com.matrix.messenger.data.call.CallSignalingCommand
-import com.matrix.messenger.data.call.callEventContentSerializerMappingsModule
 import com.matrix.messenger.data.crypto.ExportedSession
 import com.matrix.messenger.data.crypto.decodeRoomKeysExport
 import com.matrix.messenger.data.crypto.encodeRoomKeysExport
@@ -358,9 +357,6 @@ class MatrixRepositoryImpl : MatrixRepository {
             val restored = MatrixClient.fromStore(
                 repositoriesModule = createTrixnityRepositoriesModule(),
                 mediaStore = InMemoryMediaStore(),
-                configuration = {
-                    modules = listOf(callEventContentSerializerMappingsModule)
-                },
             ).getOrThrow()
             if (restored != null) {
                 attachClient(restored, restored.baseUrl.toString().trimEnd('/'))
@@ -391,9 +387,6 @@ class MatrixRepositoryImpl : MatrixRepository {
                         )
                     )
                 },
-                configuration = {
-                    modules = listOf(callEventContentSerializerMappingsModule)
-                },
             ).getOrThrow()
             attachClient(restored, session.homeServer)
         } catch (e: Exception) {
@@ -416,9 +409,6 @@ class MatrixRepositoryImpl : MatrixRepository {
                 initialDeviceDisplayName = "MatrixTalk",
                 repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
                 mediaStoreFactory = { InMemoryMediaStore() },
-                configuration = {
-                    modules = listOf(callEventContentSerializerMappingsModule)
-                },
             )
             result.fold(
                 onSuccess = { c ->
@@ -458,9 +448,6 @@ class MatrixRepositoryImpl : MatrixRepository {
                             accessToken = accessToken
                         )
                     }
-                },
-                configuration = {
-                    modules = listOf(callEventContentSerializerMappingsModule)
                 },
             )
             result.fold(

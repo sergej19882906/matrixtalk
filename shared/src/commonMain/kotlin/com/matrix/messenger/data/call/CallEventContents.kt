@@ -101,7 +101,7 @@ data class CallRejectEventContent(
 private inline fun <reified T : MessageEventContent> callMapping(type: String): MessageEventContentSerializerMapping =
     MessageEventContentSerializerMapping(type, T::class, T::class.serializer())
 
-private val callMessageMappings: Set<MessageEventContentSerializerMapping> = setOf(
+internal val callMessageMappings: Set<MessageEventContentSerializerMapping> = setOf(
     callMapping<CallInviteEventContent>("m.call.invite"),
     callMapping<CallAnswerEventContent>("m.call.answer"),
     callMapping<CallCandidatesEventContent>("m.call.candidates"),
@@ -109,7 +109,7 @@ private val callMessageMappings: Set<MessageEventContentSerializerMapping> = set
     callMapping<CallRejectEventContent>("m.call.reject"),
 )
 
-private val callEventContentSerializerMappings = object : EventContentSerializerMappings {
+val callEventContentSerializerMappings = object : EventContentSerializerMappings {
     override val message = callMessageMappings
     override val state = emptySet<StateEventContentSerializerMapping>()
     override val ephemeral = emptySet<EventContentSerializerMapping<EphemeralEventContent>>()

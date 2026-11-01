@@ -1,6 +1,13 @@
 package com.matrix.messenger.platform
 
 import java.awt.Desktop
+import com.matrix.messenger.data.call.CallSignalingCommand
+import com.matrix.messenger.data.call.CallInviteEventContent
+import com.matrix.messenger.data.call.callEventContentSerializerMappings
+import com.matrix.messenger.data.call.callEventContentSerializerMappingsModule
+import net.folivo.trixnity.core.serialization.events.DefaultEventContentSerializerMappings
+import net.folivo.trixnity.core.serialization.events.EventContentSerializerMappings
+import net.folivo.trixnity.core.serialization.events.EventContentSerializerMapping
 import java.awt.FileDialog
 import java.io.File
 import javax.swing.filechooser.FileNameExtensionFilter
@@ -115,9 +122,21 @@ actual fun createTrixnityRepositoriesModule(): org.koin.core.module.Module {
         System.getProperty("user.home") ?: error("user.home is not set"),
         ".matrixtalk/realm"
     ).apply { mkdirs() }
+    // The typed m.call.* contents (see CallEventContents) must be present in the
+    // client's EventContentSerializerMappings: the repositories module is loaded
+    // before any other client module, so overriding the mapping here is safe
+    // (unlike MatrixClientConfiguration.modules, whose late registration breaks
+    // fromStore's Koin registry).
+    val callMappings = com.matrix.messenger.data.call.callEventContentSerializerMappingsModule
     return try {
-        net.folivo.trixnity.client.store.repository.realm.createRealmRepositoriesModule {
+        val realmModule = net.folivo.trixnity.client.store.repository.realm.createRealmRepositoriesModule {
             directory(dir.absolutePath)
+        }
+        org.koin.dsl.module {
+            includes(realmModule)
+            single<EventContentSerializerMappings> {
+                DefaultEventContentSerializerMappings + callEventContentSerializerMappings
+            }
         }
     } catch (t: Throwable) {
         // e.g. missing native Realm library on this platform: stay functional without persistence

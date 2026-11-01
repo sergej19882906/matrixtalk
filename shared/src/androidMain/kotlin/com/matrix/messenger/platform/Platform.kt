@@ -1,10 +1,17 @@
 package com.matrix.messenger.platform
 
 import android.content.Context
+import com.matrix.messenger.data.call.callEventContentSerializerMappings
+import com.matrix.messenger.data.call.callEventContentSerializerMappingsModule
+import net.folivo.trixnity.core.serialization.events.EventContentSerializerMappings
+import net.folivo.trixnity.core.serialization.events.EventContentSerializerMapping
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.matrix.messenger.data.call.callEventContentSerializerMappings
+import com.matrix.messenger.data.call.callEventContentSerializerMappingsModule
 import com.matrix.messenger.service.enqueueMessageNotifications
+import net.folivo.trixnity.core.serialization.events.DefaultEventContentSerializerMappings
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -112,9 +119,16 @@ actual fun createTrixnityRepositoriesModule(): org.koin.core.module.Module {
         appContext?.filesDir ?: error("Application context not initialized"),
         "realm"
     ).apply { mkdirs() }
+    val callMappings = com.matrix.messenger.data.call.callEventContentSerializerMappingsModule
     return try {
-        net.folivo.trixnity.client.store.repository.realm.createRealmRepositoriesModule {
+        val realmModule = net.folivo.trixnity.client.store.repository.realm.createRealmRepositoriesModule {
             directory(dir.absolutePath)
+        }
+        org.koin.dsl.module {
+            includes(realmModule)
+            single<EventContentSerializerMappings> {
+                DefaultEventContentSerializerMappings + callEventContentSerializerMappings
+            }
         }
     } catch (t: Throwable) {
         // e.g. missing native Realm library on this platform: stay functional without persistence
