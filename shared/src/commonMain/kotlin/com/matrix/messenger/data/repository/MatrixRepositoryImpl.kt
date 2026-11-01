@@ -1103,9 +1103,18 @@ class MatrixRepositoryImpl : MatrixRepository {
         val keyStore = c.di.get<KeyStore>()
         val peer = UserId(peerUserId)
         keyStore.updateOutdatedKeys { it + peer }
-        withTimeoutOrNull(5_000) {
+        val peerDevices = withTimeoutOrNull(5_000) {
             c.di.get<KeyService>().getDeviceKeys(peer).first { it != null }
-        } ?: logError("Chat", "Peer device keys for $peerUserId did not arrive in 5s", null)
+        }.orEmpty().map { it.deviceId }
+        if (peerDevices.isEmpty()) {
+            logError("Chat", "Peer device keys for $peerUserId did not arrive in 5s", null)
+            error("Не удалось получить ключи устройств пользователя $peerUserId")
+        }
+        logError(
+            "Chat",
+            "Peer $peerUserId known devices: ${peerDevices.joinToString()} (request device: $deviceId)",
+            null
+        )
         // Same stale-verification guard as startDeviceVerification.
         runCatching { service.activeDeviceVerification.value?.cancel() }
         // Element keeps its in-room request active; a new to-device request would be
@@ -1123,10 +1132,13 @@ class MatrixRepositoryImpl : MatrixRepository {
         }.onFailure { e ->
             logError("Chat", "Failed to cancel in-room verification request", e)
         }
-        service.createDeviceVerificationRequest(c.userId, setOf(deviceId))
+        // Target the requesting device when it still exists, otherwise every known
+        // device of the peer (the in-room request may reference a deleted session).
+        val targets = if (deviceId in peerDevices) setOf(deviceId) else peerDevices.toSet()
+        service.createDeviceVerificationRequest(peer, targets)
             .getOrThrow()
         verificationRefresh.value++
-        logError("Chat", "Responded to in-room verification request: cancelled in-room, started to-device with $deviceId", null)
+        logError("Chat", "Responded to in-room verification request: cancelled in-room, started to-device with $targets", null)
     }
 
     override suspend fun confirmVerification(matches: Boolean) {
