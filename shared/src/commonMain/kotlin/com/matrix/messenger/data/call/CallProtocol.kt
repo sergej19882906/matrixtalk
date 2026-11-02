@@ -60,17 +60,19 @@ sealed interface CallSignalingEvent {
 }
 
 sealed interface CallSignalingCommand {
+    val callId: String
+
     data class Invite(
-        val callId: String,
+        override val callId: String,
         val offerSdp: String,
         val isVideo: Boolean,
         val invitee: String? = null,
     ) : CallSignalingCommand
 
-    data class Answer(val callId: String, val answerSdp: String) : CallSignalingCommand
-    data class Candidates(val callId: String, val candidates: List<CallCandidate>) : CallSignalingCommand
-    data class Hangup(val callId: String) : CallSignalingCommand
-    data class Reject(val callId: String) : CallSignalingCommand
+    data class Answer(override val callId: String, val answerSdp: String) : CallSignalingCommand
+    data class Candidates(override val callId: String, val candidates: List<CallCandidate>) : CallSignalingCommand
+    data class Hangup(override val callId: String) : CallSignalingCommand
+    data class Reject(override val callId: String) : CallSignalingCommand
 }
 
 /**
