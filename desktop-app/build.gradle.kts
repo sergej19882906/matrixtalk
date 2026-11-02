@@ -41,7 +41,8 @@ tasks.register<JavaExec>("loginSmokeTest") {
 tasks.withType<JavaExec>().configureEach {
     jvmArgs(
         "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.verification=trace",
-        "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.key=debug"
+        "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.key=debug",
+        "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.room=debug"
     )
 }
 
@@ -49,7 +50,8 @@ tasks.withType<JavaExec>().configureEach {
 compose.desktop.application {
     jvmArgs.addAll(listOf(
         "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.verification=trace",
-        "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.key=debug"
+        "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.key=debug",
+        "-Dorg.slf4j.simpleLogger.log.net.folivo.trixnity.client.room=debug"
     ))
 }
 

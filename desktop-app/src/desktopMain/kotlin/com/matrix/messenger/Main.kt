@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import org.jetbrains.compose.resources.painterResource
 import androidx.compose.ui.window.rememberWindowState
 import androidx.navigation.compose.rememberNavController
 import com.matrix.messenger.data.repository.MatrixRepository
@@ -58,6 +59,7 @@ fun main() {
     Window(
         onCloseRequest = ::exitApplication,
         title = "MatrixTalk",
+        icon = painterResource("matrix-icon-512.png"),
         state = rememberWindowState(width = 1080.dp, height = 720.dp)
     ) {
         if (isReady) {
