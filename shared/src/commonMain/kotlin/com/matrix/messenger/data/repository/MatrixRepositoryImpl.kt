@@ -177,13 +177,16 @@ class MatrixRepositoryImpl : MatrixRepository {
                     timelineEvent.roomId.full,
                     timelineEvent.sender.full,
                     ourPartyId = c.deviceId
-                )
+                )?.also { signalEvent ->
+                    logError("Call", "signaling received: ${signalEvent::class.simpleName} room=${timelineEvent.roomId.full} from=${timelineEvent.sender.full}", null)
+                }
             }
         }
     }
 
     override suspend fun sendCallEvent(roomId: String, command: CallSignalingCommand) {
         val c = requireClient()
+        logError("Call", "signaling send: ${command::class.simpleName} call=${command.callId} room=$roomId", null)
         // In encrypted rooms Element DROPS plaintext call signaling, so m.call.*
         // must go through the megolm pipeline (room.sendMessage). The typed
         // m.call.* serializer mappings (see CallEventContents) make the Realm
