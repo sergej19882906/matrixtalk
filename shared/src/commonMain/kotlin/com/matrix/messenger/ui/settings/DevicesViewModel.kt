@@ -26,9 +26,13 @@ data class DevicesUiState(
     val isBootstrapping: Boolean = false,
     /** Whether THIS session is verified (cross-signed); null = unknown. */
     val sessionVerified: Boolean? = null,
+    /** Self-verification capability: recovery key / passphrase available. */
+    val canVerifyWithRecoveryKey: Boolean = false,
+    val canVerifyWithPassphrase: Boolean = false,
     /** Key export/import progress flags. */
     val isExportingKeys: Boolean = false,
-    val isImportingKeys: Boolean = false
+    val isImportingKeys: Boolean = false,
+    val isVerifyingSelf: Boolean = false
 )
 
 class DevicesViewModel(
@@ -65,6 +69,31 @@ class DevicesViewModel(
             matrixRepository.getOwnSessionVerifiedFlow().collect { verified ->
                 _uiState.value = _uiState.value.copy(sessionVerified = verified)
             }
+        }
+        viewModelScope.launch {
+            matrixRepository.selfVerification.collect { info ->
+                _uiState.value = _uiState.value.copy(
+                    sessionVerified = info.verified,
+                    canVerifyWithRecoveryKey = info.canVerifyWithRecoveryKey,
+                    canVerifyWithPassphrase = info.canVerifyWithPassphrase
+                )
+            }
+        }
+    }
+
+    fun verifySelf(secret: String) {
+        if (_uiState.value.isVerifyingSelf) return
+        _uiState.value = _uiState.value.copy(isVerifyingSelf = true)
+        viewModelScope.launch {
+            matrixRepository.verifySelfWithSecret(secret)
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(isVerifyingSelf = false)
+                    _events.send(UiEvent.ShowSnackbar("Сессия верифицирована"))
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(isVerifyingSelf = false)
+                    _events.send(UiEvent.ShowSnackbar("Ошибка верификации: ${e.message}"))
+                }
         }
     }
 

@@ -81,6 +81,7 @@ fun DevicesScreen(
     var renameText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<DeviceInfo?>(null) }
     var keyPassphrase by remember { mutableStateOf("") }
+    var selfVerifySecret by remember { mutableStateOf("") }
     val pickKeyFile = rememberFilePicker { file ->
         runCatching {
             val bytes = readFileBytes(file.path)
@@ -127,7 +128,14 @@ fun DevicesScreen(
                     )
                 }
                 item(key = "session") {
-                    SessionTrustRow(verified = uiState.sessionVerified)
+                    SessionTrustRow(
+                        verified = uiState.sessionVerified,
+                        canVerifyWithRecoveryKey = uiState.canVerifyWithRecoveryKey,
+                        selfVerifySecret = selfVerifySecret,
+                        onSelfVerifySecretChange = { selfVerifySecret = it },
+                        isVerifyingSelf = uiState.isVerifyingSelf,
+                        onVerifySelf = { viewModel.verifySelf(selfVerifySecret) }
+                    )
                 }
                 item(key = "keys") {
                     KeyExportSection(
@@ -342,7 +350,14 @@ fun DevicesScreen(
 
 /** "This session" cross-signing trust indicator. */
 @Composable
-private fun SessionTrustRow(verified: Boolean?) {
+private fun SessionTrustRow(
+    verified: Boolean?,
+    canVerifyWithRecoveryKey: Boolean,
+    selfVerifySecret: String,
+    onSelfVerifySecretChange: (String) -> Unit,
+    isVerifyingSelf: Boolean,
+    onVerifySelf: () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -366,12 +381,33 @@ private fun SessionTrustRow(verified: Boolean?) {
             Text(
                 text = when (verified) {
                     true -> "Верифицирована (кросс-подписана)"
-                    false -> "Не верифицирована — подтвердите её из Element или ключом восстановления"
+                    false -> "Не верифицирована — подтвердите её ключом восстановления"
                     null -> "Статус доверия неизвестен"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+    if (verified == false && canVerifyWithRecoveryKey) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = selfVerifySecret,
+                onValueChange = onSelfVerifySecretChange,
+                label = { Text("Ключ восстановления") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = onVerifySelf,
+                enabled = selfVerifySecret.isNotBlank() && !isVerifyingSelf
+            ) {
+                Text("Подтвердить")
+            }
         }
     }
     HorizontalDivider()

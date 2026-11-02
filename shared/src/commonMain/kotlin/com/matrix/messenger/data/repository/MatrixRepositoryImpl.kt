@@ -11,6 +11,7 @@ import com.matrix.messenger.data.call.buildCallContent
 import com.matrix.messenger.data.call.parseCallEvent
 import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.RoomTrust
+import com.matrix.messenger.data.model.SelfVerificationInfo
 import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.IceServer
@@ -70,6 +71,7 @@ import net.folivo.trixnity.crypto.olm.StoredInboundMegolmSession
 import net.folivo.trixnity.olm.*
 import net.folivo.trixnity.client.key.KeyService
 import net.folivo.trixnity.client.verification.ActiveUserVerification
+import net.folivo.trixnity.client.verification.SelfVerificationMethod
 import net.folivo.trixnity.client.store.AccountStore
 import net.folivo.trixnity.client.store.KeyStore
 import net.folivo.trixnity.client.store.OlmCryptoStore
@@ -850,6 +852,45 @@ class MatrixRepositoryImpl : MatrixRepository {
                 }
             }
         }
+    }
+
+    override val selfVerification: Flow<SelfVerificationInfo> = _clientState.flatMapLatest { c ->
+        if (c == null) {
+            flowOf(SelfVerificationInfo(verified = null))
+        } else {
+            val service = c.di.get<VerificationService>()
+            service.getSelfVerificationMethods().map { methods ->
+                when (methods) {
+                    is VerificationService.SelfVerificationMethods.AlreadyCrossSigned ->
+                        SelfVerificationInfo(verified = true)
+                    is VerificationService.SelfVerificationMethods.CrossSigningEnabled -> SelfVerificationInfo(
+                        verified = false,
+                        canVerifyWithRecoveryKey = methods.methods.any { it is SelfVerificationMethod.AesHmacSha2RecoveryKey },
+                        canVerifyWithPassphrase = methods.methods.any { it is SelfVerificationMethod.AesHmacSha2RecoveryKeyWithPbkdf2Passphrase },
+                    )
+                    is VerificationService.SelfVerificationMethods.NoCrossSigningEnabled ->
+                        SelfVerificationInfo(verified = false)
+                    is VerificationService.SelfVerificationMethods.PreconditionsNotMet ->
+                        SelfVerificationInfo(verified = null)
+                }
+            }
+        }
+    }
+
+    override suspend fun verifySelfWithSecret(secret: String): Result<Unit> {
+        val service = requireClient().di.get<VerificationService>()
+        val methods = service.getSelfVerificationMethods().first()
+        if (methods !is VerificationService.SelfVerificationMethods.CrossSigningEnabled) {
+            return Result.failure(IllegalStateException("Кросс-подпись не настроена"))
+        }
+        val recoveryKeyMethod = methods.methods
+            .filterIsInstance<SelfVerificationMethod.AesHmacSha2RecoveryKey>().firstOrNull()
+        val passphraseMethod = methods.methods
+            .filterIsInstance<SelfVerificationMethod.AesHmacSha2RecoveryKeyWithPbkdf2Passphrase>().firstOrNull()
+        val result = recoveryKeyMethod?.verify(secret)
+            ?: passphraseMethod?.verify(secret)
+            ?: return Result.failure(IllegalStateException("Метод верификации недоступен"))
+        return result
     }
 
     override suspend fun exportRoomKeys(passphrase: String): ByteArray {

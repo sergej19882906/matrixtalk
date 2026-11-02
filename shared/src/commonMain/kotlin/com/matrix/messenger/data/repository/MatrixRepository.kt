@@ -7,6 +7,7 @@ import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.RoomTrust
+import com.matrix.messenger.data.model.SelfVerificationInfo
 import com.matrix.messenger.data.model.LoginResult
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.model.Message
@@ -111,6 +112,12 @@ interface MatrixRepository {
 
     /** Whether THIS device session is verified (cross-signed); null = unknown. */
     fun getOwnSessionVerifiedFlow(): Flow<Boolean?>
+
+    /** Self-verification state: is THIS session verified and how it can be fixed. */
+    val selfVerification: Flow<SelfVerificationInfo>
+
+    /** Verifies THIS session with the account recovery key (or passphrase). */
+    suspend fun verifySelfWithSecret(secret: String): Result<Unit>
 
     /** Exports all known megolm room keys as an Element-compatible encrypted file. */
     suspend fun exportRoomKeys(passphrase: String): ByteArray

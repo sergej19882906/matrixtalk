@@ -28,6 +28,16 @@ data class ChatRoom(
  * Trust summary of a chat room for the shield indicator.
  * [verified] = null when unknown (members not loaded yet or room too large).
  */
+/**
+ * Self-verification state of THIS session (cross-signing trust).
+ */
+data class SelfVerificationInfo(
+    /** true = session cross-signed and verified; false = needs verification; null = unknown. */
+    val verified: Boolean?,
+    val canVerifyWithRecoveryKey: Boolean = false,
+    val canVerifyWithPassphrase: Boolean = false,
+)
+
 data class RoomTrust(
     val isEncrypted: Boolean,
     val verified: Boolean?
