@@ -8,6 +8,7 @@ import com.matrix.messenger.data.call.CallSignalingEvent
 import com.matrix.messenger.data.model.CallState
 import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.RoomTrust
+import com.matrix.messenger.data.model.SelfVerificationInfo
 import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.VerificationUiState
@@ -82,6 +83,9 @@ class CallRepositoryTest {
         override fun getRoomTrustFlow(roomId: String): Flow<RoomTrust> =
             MutableStateFlow(RoomTrust(isEncrypted = false, verified = null))
         override fun getOwnSessionVerifiedFlow(): Flow<Boolean?> = MutableStateFlow(null)
+        override val selfVerification: Flow<SelfVerificationInfo> =
+            MutableStateFlow(SelfVerificationInfo(verified = null))
+        override suspend fun verifySelfWithSecret(secret: String): Result<Unit> = Result.success(Unit)
         override suspend fun joinRoom(aliasOrId: String): String = aliasOrId
         override suspend fun leaveRoom(roomId: String) = Unit
         override suspend fun markRoomAsRead(roomId: String) = Unit
