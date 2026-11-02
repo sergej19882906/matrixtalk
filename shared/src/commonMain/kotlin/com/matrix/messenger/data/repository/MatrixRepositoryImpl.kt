@@ -1290,13 +1290,13 @@ class MatrixRepositoryImpl : MatrixRepository {
                 val outbox = c.room.getOutbox().first()
                 outbox.forEach { entryFlow ->
                     val message = runCatching { entryFlow.first() }.getOrNull() ?: return@forEach
-                    if (message?.content is RoomMessageEventContent.FileBased) {
+                    if (message?.sentAt == null) {
                         runCatching {
                             c.room.cancelSendMessage(message.roomId, message.transactionId)
                         }.onSuccess {
                             logError(
                                 "Chat",
-                                "Purged unsendable outbox file message ${message.transactionId}",
+                                "Purged stale outbox message ${message.transactionId}",
                                 null
                             )
                         }
