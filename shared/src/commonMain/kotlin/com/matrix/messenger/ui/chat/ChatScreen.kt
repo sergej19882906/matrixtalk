@@ -419,9 +419,6 @@ fun ChatScreen(
                                         onReaction = { emoji ->
                                             viewModel.sendReaction(item.message.eventId, emoji)
                                         },
-                                        onAcceptVerification = {
-                                            viewModel.acceptVerificationRequest(item.message.senderId)
-                                        },
                                         onEdit = {
                                             editText = item.message.body
                                             editingMessage = item.message
@@ -698,7 +695,6 @@ private fun MessageItem(
     groupedWithNext: Boolean,
     isPinned: Boolean,
     onReaction: (String) -> Unit,
-    onAcceptVerification: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onOpenAttachment: () -> Unit,
@@ -806,24 +802,18 @@ private fun MessageItem(
                                                 )
                                             }
                                             if (!message.isMine) {
-                                                if (message.verificationDeviceId != null) {
-                                                    Text(
-                                                        text = "Устройство ${message.verificationDeviceId}",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                                Spacer(modifier = Modifier.height(6.dp))
-                                                Button(onClick = onAcceptVerification) {
-                                                    Text("Верифицировать")
-                                                }
-                                            } else {
                                                 Text(
-                                                    text = "Запрос отправлен",
+                                                    text = "Устройство ${message.verificationDeviceId ?: "неизвестно"}",
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "Element отменяет запросы верификации из чата — верифицируйте эту сессию через Настройки → Сессии в Element",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
                                     }
 
