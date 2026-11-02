@@ -2,6 +2,7 @@ package com.matrix.messenger.data.repository
 
 import com.matrix.messenger.data.call.CallInviteEventContent
 import com.matrix.messenger.data.call.CallSignalingCommand
+import com.matrix.messenger.data.call.callEventContentSerializerMappingsModule
 import com.matrix.messenger.data.crypto.ExportedSession
 import com.matrix.messenger.data.crypto.decodeRoomKeysExport
 import com.matrix.messenger.data.crypto.encodeRoomKeysExport
@@ -60,6 +61,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import net.folivo.trixnity.client.MatrixClient
+import net.folivo.trixnity.client.createDefaultTrixnityModules
 import net.folivo.trixnity.client.flattenValues
 import net.folivo.trixnity.client.fromStore
 import net.folivo.trixnity.client.key.KeyBackupService
@@ -357,6 +359,13 @@ class MatrixRepositoryImpl : MatrixRepository {
             val restored = MatrixClient.fromStore(
                 repositoriesModule = createTrixnityRepositoriesModule(),
                 mediaStore = InMemoryMediaStore(),
+                configuration = {
+                    modulesFactory = {
+                        createDefaultTrixnityModules() + listOf(
+                            callEventContentSerializerMappingsModule
+                        )
+                    }
+                },
             ).getOrThrow()
             if (restored != null) {
                 attachClient(restored, restored.baseUrl.toString().trimEnd('/'))
@@ -387,6 +396,13 @@ class MatrixRepositoryImpl : MatrixRepository {
                         )
                     )
                 },
+                configuration = {
+                    modulesFactory = {
+                        createDefaultTrixnityModules() + listOf(
+                            callEventContentSerializerMappingsModule
+                        )
+                    }
+                },
             ).getOrThrow()
             attachClient(restored, session.homeServer)
         } catch (e: Exception) {
@@ -409,6 +425,13 @@ class MatrixRepositoryImpl : MatrixRepository {
                 initialDeviceDisplayName = "MatrixTalk",
                 repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
                 mediaStoreFactory = { InMemoryMediaStore() },
+                configuration = {
+                    modulesFactory = {
+                        createDefaultTrixnityModules() + listOf(
+                            callEventContentSerializerMappingsModule
+                        )
+                    }
+                },
             )
             result.fold(
                 onSuccess = { c ->
@@ -446,6 +469,13 @@ class MatrixRepositoryImpl : MatrixRepository {
                             userId = whoAmI.userId,
                             deviceId = whoAmI.deviceId ?: "unknown",
                             accessToken = accessToken
+                        )
+                    }
+                },
+                configuration = {
+                    modulesFactory = {
+                        createDefaultTrixnityModules() + listOf(
+                            callEventContentSerializerMappingsModule
                         )
                     }
                 },
