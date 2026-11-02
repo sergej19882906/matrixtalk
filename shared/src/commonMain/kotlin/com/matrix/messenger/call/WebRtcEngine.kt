@@ -28,6 +28,11 @@ interface WebRtcEngine {
     /** EGL context for video rendering (org.webrtc.EglBase.Context on Android), null otherwise. */
     val eglContext: Any?
 
+    /** Preferred camera device id/name for the next call; null = system default. */
+    var preferredVideoDevice: String?
+    /** Preferred microphone descriptor/id for the next call; null = system default. */
+    var preferredAudioInputDevice: String?
+
     fun initialize()
 
     /** Creates a PeerConnection with local media and emits [WebRtcEvent.Offer]. */

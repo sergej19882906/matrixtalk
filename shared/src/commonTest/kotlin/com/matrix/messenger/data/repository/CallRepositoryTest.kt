@@ -116,6 +116,8 @@ class CallRepositoryTest {
         override val events: Flow<WebRtcEvent> = eventsFlow
         override val remoteVideoTrack: Flow<Any?> = MutableStateFlow(null)
         override val localVideoTrack: Flow<Any?> = MutableStateFlow(null)
+override var preferredVideoDevice: String? = null
+    override var preferredAudioInputDevice: String? = null
         override val eglContext: Any? = null
 
         override fun initialize() = Unit

@@ -21,8 +21,13 @@ import androidx.compose.material.icons.filled.PhonelinkLock
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,11 +37,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.matrix.messenger.platform.MediaDeviceInfo
 import com.matrix.messenger.platform.appVersionName
 import com.matrix.messenger.platform.rememberFilePicker
 import com.matrix.messenger.ui.components.MatrixAvatar
@@ -160,6 +169,35 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
+            // Звук и видео
+            SettingsSectionHeader("Звук и видео")
+            if (uiState.audioInputDevices.isNotEmpty()) {
+                MediaDeviceSelector(
+                    label = "Микрофон",
+                    devices = uiState.audioInputDevices,
+                    selectedId = uiState.selectedAudioInput,
+                    onSelect = viewModel::selectAudioInputDevice
+                )
+            }
+            if (uiState.videoDevices.isNotEmpty()) {
+                MediaDeviceSelector(
+                    label = "Камера",
+                    devices = uiState.videoDevices,
+                    selectedId = uiState.selectedVideoDevice,
+                    onSelect = viewModel::selectVideoDevice
+                )
+            }
+            if (uiState.audioInputDevices.isEmpty() && uiState.videoDevices.isEmpty()) {
+                Text(
+                    text = "Устройства не найдены",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
             // Устройства и безопасность
             SettingsSectionHeader("Безопасность")
             Row(
@@ -231,6 +269,55 @@ fun SettingsScreen(
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
             Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MediaDeviceSelector(
+    label: String,
+    devices: List<MediaDeviceInfo>,
+    selectedId: String?,
+    onSelect: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = devices.firstOrNull { it.id == selectedId }
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(bottom = 2.dp)
+        )
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it }
+        ) {
+            OutlinedTextField(
+                value = selected?.name ?: "По умолчанию",
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                label = { Text("Устройство") },
+                trailingIcon = {
+                    Icon(
+                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = null
+                    )
+                },
+                modifier = Modifier.menuAnchor().fillMaxWidth()
+            )
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                devices.forEach { device ->
+                    DropdownMenuItem(
+                        text = { Text(device.name) },
+                        onClick = {
+                            onSelect(device.id)
+                            expanded = false
+                        }
+                    )
+                }
+            }
         }
     }
 }

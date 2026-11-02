@@ -5,6 +5,7 @@ import com.matrix.messenger.call.WebRtcEvent
 import com.matrix.messenger.call.createWebRtcEngine
 import com.matrix.messenger.data.call.CallSignalingCommand
 import com.matrix.messenger.data.call.CallSignalingEvent
+import com.matrix.messenger.data.repository.SessionStore
 import com.matrix.messenger.data.model.CallSession
 import com.matrix.messenger.data.model.CallState
 import kotlinx.coroutines.CoroutineScope
@@ -154,6 +155,7 @@ class CallRepository(
         )
         _currentCall.value = currentCall
         _callState.value = CallState.Outgoing(peerUserId, peerName)
+        applyMediaPreferences()
         engine.startCall(callId, isVideo, screenShareSourceId)
     }
 
@@ -164,7 +166,14 @@ class CallRepository(
         val offerSdp = call.offerSdp ?: return
         engine.initialize()
         prepareIceServers()
+        applyMediaPreferences()
         engine.acceptCall(call.callId, offerSdp, call.isVideo)
+    }
+
+    /** Applies persisted microphone/camera preferences to the engine before a call. */
+    private suspend fun applyMediaPreferences() {
+        engine.preferredVideoDevice = SessionStore.readVideoDevice()
+        engine.preferredAudioInputDevice = SessionStore.readAudioInputDevice()
     }
 
     private suspend fun prepareIceServers() {

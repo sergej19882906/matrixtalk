@@ -57,6 +57,9 @@ private class DesktopWebRtcEngine : WebRtcEngine {
 
     override val eglContext: Any? = null
 
+    override var preferredVideoDevice: String? = null
+    override var preferredAudioInputDevice: String? = null
+
     private var audioDeviceModule: AudioDeviceModule? = null
     private var factory: PeerConnectionFactory? = null
     private var peerConnection: RTCPeerConnection? = null
@@ -79,6 +82,13 @@ private class DesktopWebRtcEngine : WebRtcEngine {
         try {
             val adm = AudioDeviceModule()
             audioDeviceModule = adm
+            // Apply the persisted microphone selection (descriptor lookup).
+            preferredAudioInputDevice?.let { descriptor ->
+                runCatching {
+                    MediaDevices.getAudioCaptureDevices().firstOrNull { it.descriptor == descriptor }
+                        ?.let { adm.setRecordingDevice(it) }
+                }
+            }
             factory = PeerConnectionFactory(adm)
         } catch (t: Throwable) {
             _events.tryEmit(WebRtcEvent.Error("Не удалось инициализировать аудио: ${t.message ?: t::class.simpleName}"))
@@ -294,7 +304,11 @@ private class DesktopWebRtcEngine : WebRtcEngine {
     private fun addLocalVideo() {
         val factory = factory ?: return
         val pc = peerConnection ?: return
-        val device = MediaDevices.getVideoCaptureDevices().firstOrNull() ?: return
+        val devices = MediaDevices.getVideoCaptureDevices()
+        val device = devices.firstOrNull { it.descriptor == preferredVideoDevice }
+            ?: devices.firstOrNull { it.name == preferredVideoDevice }
+            ?: devices.firstOrNull()
+            ?: return
         val capabilities = MediaDevices.getVideoCaptureCapabilities(device)
         val capability = capabilities.firstOrNull { it.width >= 640 && it.width <= 1280 }
             ?: capabilities.firstOrNull() ?: return

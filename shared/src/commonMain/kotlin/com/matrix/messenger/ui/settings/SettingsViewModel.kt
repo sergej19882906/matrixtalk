@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.data.repository.SessionStore
+import com.matrix.messenger.platform.MediaDeviceInfo
+import com.matrix.messenger.platform.listAudioInputDevices
+import com.matrix.messenger.platform.listVideoInputDevices
 import com.matrix.messenger.platform.setMessageNotificationsEnabled
 import com.matrix.messenger.ui.theme.ThemeManager
 import com.matrix.messenger.ui.theme.ThemeMode
@@ -18,7 +21,11 @@ data class SettingsUiState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val notificationsEnabled: Boolean = true,
     val displayNameInput: String = "",
-    val isSavingName: Boolean = false
+    val isSavingName: Boolean = false,
+    val audioInputDevices: List<MediaDeviceInfo> = emptyList(),
+    val videoDevices: List<MediaDeviceInfo> = emptyList(),
+    val selectedAudioInput: String? = null,
+    val selectedVideoDevice: String? = null
 )
 
 class SettingsViewModel(
@@ -46,6 +53,30 @@ class SettingsViewModel(
             val enabled = SessionStore.readNotificationsEnabled() ?: true
             _uiState.value = _uiState.value.copy(notificationsEnabled = enabled)
         }
+        viewModelScope.launch {
+            // Media devices (desktop: real enumeration; Android: cameras only)
+            val audio = listAudioInputDevices()
+            val video = listVideoInputDevices()
+            val savedAudio = SessionStore.readAudioInputDevice()
+            val savedVideo = SessionStore.readVideoDevice()
+            _uiState.value = _uiState.value.copy(
+                audioInputDevices = audio,
+                videoDevices = video,
+                // keep the saved selection only if the device is still present
+                selectedAudioInput = savedAudio?.takeIf { saved -> audio.any { it.id == saved } },
+                selectedVideoDevice = savedVideo?.takeIf { saved -> video.any { it.id == saved } }
+            )
+        }
+    }
+
+    fun selectAudioInputDevice(deviceId: String) {
+        _uiState.value = _uiState.value.copy(selectedAudioInput = deviceId)
+        viewModelScope.launch { SessionStore.saveAudioInputDevice(deviceId) }
+    }
+
+    fun selectVideoDevice(deviceId: String) {
+        _uiState.value = _uiState.value.copy(selectedVideoDevice = deviceId)
+        viewModelScope.launch { SessionStore.saveVideoDevice(deviceId) }
     }
 
     fun setThemeMode(mode: ThemeMode) {

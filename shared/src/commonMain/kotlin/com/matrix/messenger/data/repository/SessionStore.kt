@@ -32,7 +32,9 @@ object SessionStore {
         val deviceId: String? = null,
         val accessToken: String? = null,
         val themeMode: String? = null,
-        val notificationsEnabled: Boolean? = null
+        val notificationsEnabled: Boolean? = null,
+        val videoDevice: String? = null,
+        val audioInputDevice: String? = null
     )
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -99,5 +101,17 @@ object SessionStore {
 
     suspend fun saveNotificationsEnabled(enabled: Boolean) = mutex.withLock {
         save(load().copy(notificationsEnabled = enabled))
+    }
+
+    suspend fun readVideoDevice(): String? = mutex.withLock { load().videoDevice }
+
+    suspend fun saveVideoDevice(device: String) = mutex.withLock {
+        save(load().copy(videoDevice = device))
+    }
+
+    suspend fun readAudioInputDevice(): String? = mutex.withLock { load().audioInputDevice }
+
+    suspend fun saveAudioInputDevice(device: String) = mutex.withLock {
+        save(load().copy(audioInputDevice = device))
     }
 }
