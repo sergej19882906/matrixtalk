@@ -21,7 +21,8 @@ sed -i "/^homeserver:/,/^[^ ]/ s|address: .*|address: ${HOMESERVER_ADDRESS}|" "$
 sed -i "/^homeserver:/,/^[^ ]/ s|domain: .*|domain: ${HOMESERVER_DOMAIN}|" "$CONFIG"
 sed -i "/^appservice:/,/^[^ ]/ s|hostname: .*|hostname: 0.0.0.0|" "$CONFIG"
 
-DB_URI="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/mautrix?sslmode=disable"
+DB_NAME="${BRIDGE_DB_NAME:-mautrix}"
+DB_URI="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${DB_NAME}?sslmode=disable"
 sed -i "/^database:/,/^[^ ]/ s|uri: .*|uri: ${DB_URI}|" "$CONFIG"
 
 sed -i "s|\"example\.org\": user|\"${HOMESERVER_DOMAIN}\": user|" "$CONFIG"

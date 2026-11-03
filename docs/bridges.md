@@ -154,7 +154,11 @@ docker exec -it matrixtalk-synapse register_new_matrix_user \
 
 ---
 
-## Шаг 5. Мосты Telegram / WhatsApp / Signal (опционально)
+## Шаг 5. Мосты (опционально)
+
+Доступны 8 мостов: **Telegram, WhatsApp, Signal, Meta (Facebook/Instagram),
+Google Messages, Discord, IRC (heisenbridge), GitHub/GitLab/webhooks (hookshot)**.
+Все используют один и тот же профиль `bridges` — включаются вместе.
 
 ### 5.1. Запуск мостов
 
@@ -167,7 +171,34 @@ docker compose -f docker-compose.bridges.yml --profile bridges up -d
 2. Настраивают адрес homeserver, домен, базу данных и права
 3. Создают `registration.yaml`
 4. Сервис `init-bridges-db` создаёт базы данных `mautrix_telegram`,
-   `mautrix_whatsapp`, `mautrix_signal` в PostgreSQL
+   `mautrix_whatsapp`, `mautrix_signal`, `mautrix_meta`, `mautrix_gmessages`,
+   `mautrix_discord` в PostgreSQL (heisenbridge и hookshot хранят состояние
+   в файлах на томе)
+
+#### Отдельные мосты
+
+Запустить конкретный мост:
+
+```bash
+docker compose -f docker-compose.bridges.yml --profile bridges up -d mautrix-meta-bridge
+```
+
+Имена сервисов: `mautrix-telegram-bridge`, `mautrix-whatsapp-bridge`,
+`mautrix-signal-bridge`, `mautrix-meta-bridge`, `mautrix-gmessages-bridge`,
+`mautrix-discord-bridge`, `heisenbridge`, `hookshot`.
+
+#### Особенности авторизации
+
+| Мост | Как привязать аккаунт |
+|------|----------------------|
+| Telegram | ссылка авторизации в bridge-комнате (нужны `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` в `.env`) |
+| WhatsApp | QR-код в bridge-комнате |
+| Signal | привязка как linked-устройство |
+| Meta | вход в аккаунт Facebook/Instagram по ссылке из bridge-комнаты |
+| Google Messages | QR-код (телефон Android с Google Messages) |
+| Discord | команда `login <token>` в bridge-комнате |
+| IRC (heisenbridge) | напишите боту `@heisenbridge:<домен>` — подключение к IRC-сетям по командам |
+| GitHub/GitLab (hookshot) | см. вики проекта; требует отдельного файла конфигурации на томе `server-data/hookshot` |
 
 ### 5.2. Перезапуск Synapse для подключения мостов
 
