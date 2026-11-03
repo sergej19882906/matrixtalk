@@ -852,12 +852,18 @@ internal fun MessageItem(
             }
             Column {
                 if (!message.isMine && isGroupStart) {
-                    Text(
-                        text = message.senderName?.substringBefore(":") ?: "Unknown",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = senderAccentColor(message.senderName, message.isMine)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = message.senderName?.substringBefore(":") ?: "Unknown",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = senderAccentColor(message.senderName, message.isMine)
+                        )
+                        if (message.isBot) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            BotBadge()
+                        }
+                    }
                 }
                 Box {
                     // Element X: text-like messages live in a bubble, media is borderless.
@@ -1743,4 +1749,18 @@ private fun senderAccentColor(senderName: String?, isMine: Boolean): Color {
     val key = (senderName ?: "?").trim().lowercase()
     val hash = key.fold(0) { acc, ch -> (acc * 31 + ch.code) and Int.MAX_VALUE }
     return SenderAccents[hash % SenderAccents.size]
+}
+
+/** Small "БОТ" chip next to bot names (Element X style). */
+@Composable
+fun BotBadge() {
+    Text(
+        text = "БОТ",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .padding(horizontal = 5.dp, vertical = 1.dp)
+    )
 }

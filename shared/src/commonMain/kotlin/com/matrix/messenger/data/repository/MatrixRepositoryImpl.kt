@@ -986,7 +986,8 @@ class MatrixRepositoryImpl : MatrixRepository {
                                 avatarUrl = member?.avatarUrl,
                                 powerLevel = pls?.content?.users?.get(userId) ?: pls?.content?.usersDefault ?: 0,
                                 isSelf = userId == c.userId,
-                                membership = member?.membership?.value ?: "join"
+                                membership = member?.membership?.value ?: "join",
+                                isBot = com.matrix.messenger.data.model.isBotUser(userId.full, user?.name)
                             )
                         }.filter { memberInfo: RoomMemberInfo -> memberInfo.name != null }
                     }
@@ -2065,11 +2066,13 @@ class MatrixRepositoryImpl : MatrixRepository {
         if (eventRoomMap.size > EVENT_ROOM_MAP_MAX) {
             eventRoomMap.entries.take(EVENT_ROOM_MAP_MAX / 2).forEach { eventRoomMap.remove(it.key) }
         }
+        val senderName = c.resolveSenderName(roomId, sender)
         return Message(
             eventId = eventId.full,
             senderId = sender.full,
-            senderName = c.resolveSenderName(roomId, sender),
+            senderName = senderName,
             senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
+            isBot = com.matrix.messenger.data.model.isBotUser(sender.full, senderName),
             body = body,
             timestamp = originTimestamp,
             messageType = if (isDeleted) MessageType.TEXT else eventContent.toMessageType(),

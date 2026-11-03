@@ -32,8 +32,8 @@ android {
         applicationId = "com.matrix.messenger"
         minSdk = 24
         targetSdk = 36
-        versionCode = 47
-        versionName = "1.27.0"
+        versionCode = 48
+        versionName = "1.28.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true

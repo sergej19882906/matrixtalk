@@ -491,12 +491,18 @@ private fun MemberRow(member: RoomMemberInfo, canModerate: Boolean, onClick: () 
         MatrixAvatar(name = member.name ?: member.userId, avatarUrl = member.avatarUrl, size = 36.dp)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = member.name ?: member.userId,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = member.name ?: member.userId,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (member.isBot) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    com.matrix.messenger.ui.chat.BotBadge()
+                }
+            }
             Text(
                 text = if (member.isSelf) "Вы · ${member.userId}" else member.userId,
                 style = MaterialTheme.typography.bodySmall,

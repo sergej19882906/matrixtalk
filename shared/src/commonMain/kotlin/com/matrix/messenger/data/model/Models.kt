@@ -116,8 +116,16 @@ data class RoomMemberInfo(
     val powerLevel: Long,
     val isSelf: Boolean,
     /** Raw m.room.member membership value: join / ban / leave / invite. */
-    val membership: String = "join"
+    val membership: String = "join",
+    /** Member is a bot (Element-style heuristic). */
+    val isBot: Boolean = false
 )
+
+/** Element-style bot detection: bridge bots and appservice users carry "bot" in id/name. */
+fun isBotUser(userId: String, displayName: String?): Boolean {
+    val localpart = userId.substringBefore(':').removePrefix("@").lowercase()
+    return localpart.contains("bot") || displayName?.lowercase()?.contains("bot") == true
+}
 
 data class LastMessage(
     val senderId: String,
@@ -161,6 +169,8 @@ data class Message(
     val myReactions: Set<String> = emptySet(),
     /** Parsed geo point for m.location messages. */
     val location: GeoLocation? = null,
+    /** Sender is a bot (Element-style heuristic: id/name contains "bot"). */
+    val isBot: Boolean = false,
     val mediaUrl: String? = null,
     val encryptedFile: EncryptedFile? = null,
     val replyTo: ReplyInfo? = null,
