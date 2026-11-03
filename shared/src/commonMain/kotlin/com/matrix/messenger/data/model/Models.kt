@@ -23,7 +23,9 @@ data class ChatRoom(
     val isLowPriority: Boolean = false,
     val isEncrypted: Boolean = false,
     /** Room manually marked unread via account data (m.marked_unread). */
-    val isMarkedUnread: Boolean = false
+    val isMarkedUnread: Boolean = false,
+    /** Bridged network name (m.bridge account data): "Telegram", "Discord", … */
+    val bridge: String? = null
 )
 
 /**

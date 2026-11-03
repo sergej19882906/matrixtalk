@@ -1,6 +1,7 @@
 package com.matrix.messenger.data.repository
 
 import com.matrix.messenger.data.call.CallInviteEventContent
+import com.matrix.messenger.data.bridge.displayName
 import com.matrix.messenger.data.call.CallSignalingCommand
 import com.matrix.messenger.data.call.callEventContentSerializerMappingsModule
 import com.matrix.messenger.data.crypto.ExportedSession
@@ -389,7 +390,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 configuration = {
                     modulesFactory = {
                         createDefaultTrixnityModules() + listOf(
-                            callEventContentSerializerMappingsModule
+                            com.matrix.messenger.data.bridge.customEventContentSerializerMappingsModule
                         )
                     }
                 },
@@ -434,7 +435,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 configuration = {
                     modulesFactory = {
                         createDefaultTrixnityModules() + listOf(
-                            callEventContentSerializerMappingsModule
+                            com.matrix.messenger.data.bridge.customEventContentSerializerMappingsModule
                         )
                     }
                 },
@@ -463,7 +464,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 configuration = {
                     modulesFactory = {
                         createDefaultTrixnityModules() + listOf(
-                            callEventContentSerializerMappingsModule
+                            com.matrix.messenger.data.bridge.customEventContentSerializerMappingsModule
                         )
                     }
                 },
@@ -510,7 +511,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 configuration = {
                     modulesFactory = {
                         createDefaultTrixnityModules() + listOf(
-                            callEventContentSerializerMappingsModule
+                            com.matrix.messenger.data.bridge.customEventContentSerializerMappingsModule
                         )
                     }
                 },
@@ -1837,7 +1838,12 @@ class MatrixRepositoryImpl : MatrixRepository {
             isFavorite = FAVORITE_TAG in tags,
             isLowPriority = LOW_PRIORITY_TAG in tags,
             isEncrypted = encrypted,
-            isMarkedUnread = markedUnread
+            isMarkedUnread = markedUnread,
+            bridge = runCatching {
+                c.room.getAccountData(
+                    roomId, com.matrix.messenger.data.bridge.BridgeEventContent::class
+                ).firstOrNull()?.displayName
+            }.getOrNull()
         )
     }
 

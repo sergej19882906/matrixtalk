@@ -736,6 +736,23 @@ private fun RoomItem(
                         modifier = Modifier.weight(1f)
                     )
 
+                    if (room.bridge != null) {
+                        Icon(
+                            Icons.Default.Link,
+                            contentDescription = "Мост: ${room.bridge}",
+                            modifier = Modifier.size(13.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = room.bridge,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+
                     Spacer(modifier = Modifier.width(8.dp))
 
                     room.lastMessage?.timestamp?.let { ts ->

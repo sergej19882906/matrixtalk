@@ -100,6 +100,7 @@ class CallRepositoryTest {
         override suspend fun sendSticker(roomId: String, filePath: String, mimeType: String) = Unit
         override suspend fun getKeyBackupStatus(): KeyBackupStatus? = null
         override suspend fun sendLocation(roomId: String, latitude: Double, longitude: Double, accuracyMeters: Double?) = Unit
+        // ChatRoom.bridge is read inside toChatRoom via the registered m.bridge mapping
         override suspend fun replyToMessage(roomId: String, eventId: String, text: String, threadRootId: String?) = Unit
         override suspend fun sendFileMessage(roomId: String, filePath: String, mimeType: String, caption: String?) = Unit
         override suspend fun getRoomInfo(roomId: String): ChatRoom? = null

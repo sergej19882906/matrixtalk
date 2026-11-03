@@ -20,6 +20,16 @@ jobs:
             context: docker/mautrix-whatsapp
           - image: mautrix-signal
             context: docker/mautrix-signal
+          - image: mautrix-meta
+            context: docker/mautrix-meta
+          - image: mautrix-gmessages
+            context: docker/mautrix-gmessages
+          - image: mautrix-discord
+            context: docker/mautrix-discord
+          - image: heisenbridge
+            context: docker/heisenbridge
+          - image: hookshot
+            context: docker/hookshot
     permissions:
       contents: read
       packages: write

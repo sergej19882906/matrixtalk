@@ -17,6 +17,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -25,19 +26,24 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.matrix.messenger.data.repository.MatrixRepository
+import org.koin.compose.koinInject
 
 private data class BridgeInfo(
     val name: String,
     val protocol: String,
     val category: String,
     val description: String,
-    val setup: String
+    val setup: String,
+    /** Our GHCR image slug (matrixtalk-<image>), null when none is published. */
+    val image: String? = null
 )
 
 private const val CATEGORY_MESSENGERS = "Мессенджеры"
@@ -51,42 +57,48 @@ private val bridges = listOf(
         "mautrix-telegram",
         CATEGORY_MESSENGERS,
         "Личные чаты, группы и каналы Telegram через Matrix.",
-        "Запустите mautrix-telegram на homeserver и откройте ссылку авторизации в его bridge-комнате."
+        "Запустите mautrix-telegram на homeserver и откройте ссылку авторизации в его bridge-комнате.",
+        image = "mautrix-telegram"
     ),
     BridgeInfo(
         "WhatsApp",
         "mautrix-whatsapp",
         CATEGORY_MESSENGERS,
         "Синхронизация WhatsApp с комнатами Matrix.",
-        "Запустите mautrix-whatsapp, затем отсканируйте QR-код в bridge-комнате."
+        "Запустите mautrix-whatsapp, затем отсканируйте QR-код в bridge-комнате.",
+        image = "mautrix-whatsapp"
     ),
     BridgeInfo(
         "Signal",
         "mautrix-signal",
         CATEGORY_MESSENGERS,
         "Подключение Signal как linked-устройства.",
-        "Запустите mautrix-signal и завершите привязку устройства по инструкции bridge-сервиса."
+        "Запустите mautrix-signal и завершите привязку устройства по инструкции bridge-сервиса.",
+        image = "mautrix-signal"
     ),
     BridgeInfo(
         "Meta (Facebook, Instagram)",
         "mautrix-meta",
         CATEGORY_MESSENGERS,
         "Facebook Messenger и Instagram Direct в Matrix.",
-        "Запустите mautrix-meta и авторизуйтесь в аккаунт Meta через bridge-комнату."
+        "Запустите mautrix-meta и авторизуйтесь в аккаунт Meta через bridge-комнату.",
+        image = "mautrix-meta"
     ),
     BridgeInfo(
         "Google Messages",
         "mautrix-gmessages",
         CATEGORY_MESSENGERS,
         "SMS/RCS с Android-устройства как второе устройство.",
-        "Запустите mautrix-gmessages и свяжите телефон по QR-коду из bridge-комнаты."
+        "Запустите mautrix-gmessages и свяжите телефон по QR-коду из bridge-комнаты.",
+        image = "mautrix-gmessages"
     ),
     BridgeInfo(
         "Discord",
-        "matrix-appservice-discord",
+        "mautrix-discord",
         CATEGORY_MESSENGERS,
         "Каналы и серверы Discord: двусторонние сообщения.",
-        "Запустите matrix-appservice-discord, добавьте бота на сервер Discord и привяжите каналы в комнатах."
+        "Запустите mautrix-discord, добавьте бота на сервер Discord и привяжите каналы в комнатах.",
+        image = "mautrix-discord"
     ),
     BridgeInfo(
         "Slack",
@@ -101,7 +113,8 @@ private val bridges = listOf(
         "heisenbridge",
         CATEGORY_NETWORKS,
         "IRC-каналы и приваты: каждый канал становится комнатой.",
-        "Запустите heisenbridge, затем напишите его боту команду для подключения к IRC-сети."
+        "Запустите heisenbridge, затем напишите его боту команду для подключения к IRC-сети.",
+        image = "heisenbridge"
     ),
     BridgeInfo(
         "XMPP",
@@ -123,7 +136,8 @@ private val bridges = listOf(
         "matrix-hookshot",
         CATEGORY_INTEGRATIONS,
         "Уведомления о коммитах, issues, PR и webhooks в комнатах.",
-        "Запустите matrix-hookshot, подключите репозитории через его команды в комнате (help — !hookshot)."
+        "Запустите matrix-hookshot, подключите репозитории через его команды в комнате (help — !hookshot).",
+        image = "hookshot"
     ),
     BridgeInfo(
         "RSS / Atom",
@@ -140,6 +154,17 @@ fun BridgesScreen(onNavigateBack: () -> Unit) {
     var selectedBridge by remember { mutableStateOf<BridgeInfo?>(null) }
 
     val categories = bridges.groupBy { it.category }
+
+    // Rooms bridged right now, grouped by network name.
+    val matrixRepository: MatrixRepository = koinInject()
+    val bridgedRooms by matrixRepository.getRoomsFlow().collectAsState(initial = emptyList())
+    val runningBridges = remember(bridgedRooms) {
+        bridgedRooms
+            .filter { it.bridge != null }
+            .groupBy { it.bridge!! }
+            .map { (network, rooms) -> network to rooms.size }
+            .sortedBy { it.first.lowercase() }
+    }
 
     Scaffold(
         topBar = {
@@ -160,8 +185,35 @@ fun BridgesScreen(onNavigateBack: () -> Unit) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item {
+            item(key = "running_header") {
                 Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Запущенные мосты",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                if (runningBridges.isEmpty()) {
+                    Text(
+                        "Мостов в вашем аккаунте не найдено. Настройте их ниже — комнаты появятся здесь автоматически.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    runningBridges.forEach { (network, count) ->
+                        val known = bridges.firstOrNull {
+                            it.name.contains(network, ignoreCase = true) ||
+                                it.protocol.contains(network, ignoreCase = true)
+                        }
+                        Text(
+                            text = "• $network — $count комн.${if (known != null) "  ✓ настроен" else ""}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     "Подключение внешних мессенджеров",
                     style = MaterialTheme.typography.titleMedium
@@ -183,7 +235,11 @@ fun BridgesScreen(onNavigateBack: () -> Unit) {
                     )
                 }
                 items(list, key = { "${it.protocol}_${it.name}" }) { bridge ->
-                    BridgeCard(bridge = bridge, onSetup = { selectedBridge = bridge })
+                    val isRunning = runningBridges.any { (network, _) ->
+                        bridge.name.contains(network, ignoreCase = true) ||
+                            bridge.protocol.contains(network, ignoreCase = true)
+                    }
+                    BridgeCard(bridge = bridge, isRunning = isRunning, onSetup = { selectedBridge = bridge })
                 }
             }
             item { Spacer(modifier = Modifier.height(8.dp)) }
@@ -194,7 +250,19 @@ fun BridgesScreen(onNavigateBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { selectedBridge = null },
             title = { Text("Настройка ${bridge.name}") },
-            text = { Text(bridge.setup) },
+            text = {
+                Column {
+                    Text(bridge.setup)
+                    if (bridge.image != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Готовый образ: ghcr.io/sergej19882906/matrixtalk-${bridge.image}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = { selectedBridge = null }) {
                     Text("Понятно")
@@ -205,7 +273,7 @@ fun BridgesScreen(onNavigateBack: () -> Unit) {
 }
 
 @Composable
-private fun BridgeCard(bridge: BridgeInfo, onSetup: () -> Unit) {
+private fun BridgeCard(bridge: BridgeInfo, isRunning: Boolean, onSetup: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = androidx.compose.material3.CardDefaults.cardColors(
@@ -222,7 +290,10 @@ private fun BridgeCard(bridge: BridgeInfo, onSetup: () -> Unit) {
                 tint = MaterialTheme.colorScheme.primary
             )
             Column(modifier = Modifier.weight(1f)) {
-                Text(bridge.name, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = if (isRunning) "${bridge.name}  ✓" else bridge.name,
+                    style = MaterialTheme.typography.titleMedium
+                )
                 Text(bridge.protocol, style = MaterialTheme.typography.labelMedium)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(bridge.description, style = MaterialTheme.typography.bodyMedium)
