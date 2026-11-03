@@ -77,7 +77,6 @@ class CallRepositoryTest {
             userIds: List<String>,
             isEncrypted: Boolean
         ): String = "!room:test"
-        override suspend fun startInRoomVerification(peerUserId: String) = Unit
         override suspend fun exportRoomKeys(passphrase: String): ByteArray = ByteArray(0)
         override suspend fun importRoomKeys(bytes: ByteArray, passphrase: String): Int = 0
         override fun getRoomTrustFlow(roomId: String): Flow<RoomTrust> =

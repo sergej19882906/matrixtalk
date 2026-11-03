@@ -197,12 +197,6 @@ interface MatrixRepository {
     /** Starts an emoji-SAS verification with another device of the account. */
     suspend fun startDeviceVerification(deviceId: String)
 
-    /**
-     * Starts an in-room user verification with [peerUserId] from OUR side.
-     * Being the initiator makes the SAS commitment check deterministic:
-     * the acceptor (Element) hashes the bytes we actually sent.
-     */
-    suspend fun startInRoomVerification(peerUserId: String)
 
     /** Confirms or rejects the currently shown emoji/decimal comparison. */
     suspend fun confirmVerification(matches: Boolean)

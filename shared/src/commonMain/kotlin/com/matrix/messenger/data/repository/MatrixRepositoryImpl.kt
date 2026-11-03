@@ -1173,24 +1173,6 @@ class MatrixRepositoryImpl : MatrixRepository {
         verificationRefresh.value++
     }
 
-    override suspend fun startInRoomVerification(peerUserId: String) {
-        val c = requireClient()
-        val service = c.di.get<VerificationService>()
-        // Same stale-verification guard as startDeviceVerification.
-        runCatching { service.activeDeviceVerification.value?.cancel() }
-        activeUserVerification?.cancel("superseded by a new verification")
-        val auv = service.createUserVerificationRequest(UserId(peerUserId)).getOrThrow()
-        activeUserVerification = auv
-        userVerificationState.value = VerificationUiState.Waiting
-        // The AU state machine runs the whole in-room flow; our mapping auto-sends
-        // ready (when Element accepts), starts SAS and routes Compare/Done/Cancel
-        // into the shared state.
-        repositoryScope.launch {
-            auv.state.flatMapLatest { state -> handleVerificationState(state) }
-                .collect { userVerificationState.value = it }
-        }
-    }
-
 
 
     override suspend fun confirmVerification(matches: Boolean) {
