@@ -64,6 +64,17 @@ data class RoomSettingsInfo(
     val canChangePowerLevels: Boolean = false
 )
 
+/** Outbound proxy for all Matrix traffic (settings → network). */
+enum class ProxyType { NONE, HTTP, SOCKS }
+
+data class ProxySettings(
+    val type: ProxyType,
+    val host: String,
+    val port: Int,
+    val username: String? = null,
+    val password: String? = null
+)
+
 /** Status of the server-side key backup (megolm). */
 data class KeyBackupStatus(
     val version: String,

@@ -390,10 +390,12 @@ class MatrixRepositoryImpl : MatrixRepository {
         // With the persistent store a session survives restarts: restore the client
         // from the local database (fast incremental sync) without any network call.
         try {
+            val proxy = runCatching { SessionStore.readProxySettings() }.getOrNull()
             val restored = MatrixClient.fromStore(
                 repositoriesModule = createTrixnityRepositoriesModule(),
                 mediaStore = InMemoryMediaStore(),
                 configuration = {
+                    httpClientFactory = createProxyHttpClientFactory(proxy)
                     modulesFactory = {
                         createDefaultTrixnityModules() + listOf(
                             com.matrix.messenger.data.bridge.customEventContentSerializerMappingsModule
@@ -425,6 +427,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
         try {
             _connectionState.value = ConnectionState.Connecting
+            val proxy = runCatching { SessionStore.readProxySettings() }.getOrNull()
             val restored = MatrixClient.loginWith(
                 baseUrl = Url(session.homeServer),
                 repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
@@ -439,6 +442,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                     )
                 },
                 configuration = {
+                    httpClientFactory = createProxyHttpClientFactory(proxy)
                     modulesFactory = {
                         createDefaultTrixnityModules() + listOf(
                             com.matrix.messenger.data.bridge.customEventContentSerializerMappingsModule
@@ -460,6 +464,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         val url = normalizeHomeServer(homeServer)
         return try {
             _connectionState.value = ConnectionState.Connecting
+            val proxy = runCatching { SessionStore.readProxySettings() }.getOrNull()
             val result = MatrixClient.loginWithPassword(
                 baseUrl = Url(url),
                 identifier = IdentifierType.User(username),
@@ -468,6 +473,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
                 mediaStoreFactory = { InMemoryMediaStore() },
                 configuration = {
+                    httpClientFactory = createProxyHttpClientFactory(proxy)
                     modulesFactory = {
                         createDefaultTrixnityModules() + listOf(
                             com.matrix.messenger.data.bridge.customEventContentSerializerMappingsModule
@@ -500,6 +506,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         val url = normalizeHomeServer(homeServer)
         return try {
             _connectionState.value = ConnectionState.Connecting
+            val proxy = runCatching { SessionStore.readProxySettings() }.getOrNull()
             val result = MatrixClient.loginWith(
                 baseUrl = Url(url),
                 repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
@@ -515,6 +522,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                     }
                 },
                 configuration = {
+                    httpClientFactory = createProxyHttpClientFactory(proxy)
                     modulesFactory = {
                         createDefaultTrixnityModules() + listOf(
                             com.matrix.messenger.data.bridge.customEventContentSerializerMappingsModule
@@ -2145,7 +2153,10 @@ class MatrixRepositoryImpl : MatrixRepository {
         val input = homeServer.trim().trimEnd('/')
         if (!input.startsWith("http://") && !input.startsWith("https://")) {
             val domain = input.removePrefix("@").substringBefore(":")
-            val discovered = runCatching { domain.serverDiscovery().getOrNull() }.getOrNull()
+            val discovered = runCatching {
+                val proxy = runCatching { SessionStore.readProxySettings() }.getOrNull()
+                domain.serverDiscovery(createProxyHttpClientFactory(proxy)).getOrNull()
+            }.getOrNull()
             if (discovered != null) return discovered.toString().trimEnd('/')
         }
         var url = input

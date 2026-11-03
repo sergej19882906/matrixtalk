@@ -2,6 +2,7 @@ package com.matrix.messenger.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.matrix.messenger.data.model.ProxySettings
 import com.matrix.messenger.data.model.MatrixUser
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.data.repository.SessionStore
@@ -29,8 +30,15 @@ data class SettingsUiState(
     /** Server-side key backup; null when no backup exists. */
     val keyBackupVersion: String? = null,
     /** Background push status (Android); null on desktop. */
-    val pushStatus: String? = null
+    val pushStatus: String? = null,
+    /** Outbound proxy (applied after an app restart). */
+    val proxy: ProxySettings? = null,
+    val proxyDirty: Boolean = false,
+    /** One-shot confirmation for the proxy save. */
+    val proxyMessage: String? = null
 )
+
+private const val PROXY_SAVED = "Прокси сохранён — применится после перезапуска приложения"
 
 class SettingsViewModel(
     private val matrixRepository: MatrixRepository
@@ -48,6 +56,11 @@ class SettingsViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 pushStatus = runCatching { com.matrix.messenger.platform.pushServiceStatusText() }.getOrNull()
+            )
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                proxy = runCatching { SessionStore.readProxySettings() }.getOrNull()
             )
         }
         viewModelScope.launch {
@@ -95,6 +108,24 @@ class SettingsViewModel(
 
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { ThemeManager.set(mode) }
+    }
+
+    fun updateProxy(proxy: ProxySettings?) {
+        _uiState.value = _uiState.value.copy(proxy = proxy, proxyDirty = true)
+    }
+
+    fun saveProxy() {
+        val current = _uiState.value.proxy
+        viewModelScope.launch {
+            runCatching { SessionStore.saveProxySettings(current) }
+            _uiState.value = _uiState.value.copy(proxyDirty = false, proxyMessage = PROXY_SAVED)
+        }
+    }
+
+    fun consumeProxyMessage() {
+        if (_uiState.value.proxyMessage != null) {
+            _uiState.value = _uiState.value.copy(proxyMessage = null)
+        }
     }
 
     fun setNotificationsEnabled(enabled: Boolean) {

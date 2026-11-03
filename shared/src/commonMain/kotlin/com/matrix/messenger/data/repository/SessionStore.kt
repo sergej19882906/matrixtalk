@@ -1,5 +1,6 @@
 package com.matrix.messenger.data.repository
 
+import com.matrix.messenger.data.model.ProxySettings
 import com.matrix.messenger.platform.readFileBytes
 import com.matrix.messenger.platform.sessionStorePath
 import com.matrix.messenger.platform.writeFileBytes
@@ -37,7 +38,12 @@ object SessionStore {
         val audioInputDevice: String? = null,
         val mutedRooms: List<String>? = null,
         val roomNotificationLevels: Map<String, String>? = null,
-        val recentReactions: List<String>? = null
+        val recentReactions: List<String>? = null,
+        val proxyType: String? = null,
+        val proxyHost: String? = null,
+        val proxyPort: Int? = null,
+        val proxyUsername: String? = null,
+        val proxyPassword: String? = null
     )
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -125,6 +131,28 @@ object SessionStore {
 
     suspend fun saveRoomNotificationLevels(levels: Map<String, String>) {
         save(load().copy(roomNotificationLevels = levels))
+    }
+
+    suspend fun readProxySettings(): ProxySettings? {
+        val prefs = mutex.withLock { load() }
+        val type = prefs.proxyType?.let { t ->
+            com.matrix.messenger.data.model.ProxyType.entries.firstOrNull { it.name == t }
+        } ?: return null
+        val host = prefs.proxyHost ?: return null
+        val port = prefs.proxyPort ?: return null
+        return ProxySettings(type, host, port, prefs.proxyUsername, prefs.proxyPassword)
+    }
+
+    suspend fun saveProxySettings(settings: ProxySettings?) {
+        save(
+            load().copy(
+                proxyType = settings?.type?.name,
+                proxyHost = settings?.host,
+                proxyPort = settings?.port,
+                proxyUsername = settings?.username,
+                proxyPassword = settings?.password
+            )
+        )
     }
 
     suspend fun readRecentReactions(): List<String> =

@@ -34,10 +34,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -65,7 +68,16 @@ fun SettingsScreen(
         viewModel.uploadAvatar(file.path, file.mimeType)
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(uiState.proxyMessage) {
+        uiState.proxyMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeProxyMessage()
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Настройки") },
@@ -262,6 +274,110 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+            // Сеть: прокси
+            SettingsSectionHeader("Прокси")
+            var proxyType by remember(uiState.proxy) {
+                mutableStateOf(uiState.proxy?.type ?: com.matrix.messenger.data.model.ProxyType.NONE)
+            }
+            var proxyHost by remember(uiState.proxy) {
+                mutableStateOf(uiState.proxy?.host.orEmpty())
+            }
+            var proxyPort by remember(uiState.proxy) {
+                mutableStateOf(uiState.proxy?.port?.toString().orEmpty())
+            }
+            var proxyUser by remember(uiState.proxy) {
+                mutableStateOf(uiState.proxy?.username.orEmpty())
+            }
+            var proxyPass by remember(uiState.proxy) {
+                mutableStateOf(uiState.proxy?.password.orEmpty())
+            }
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                listOf(
+                    com.matrix.messenger.data.model.ProxyType.NONE to "Нет",
+                    com.matrix.messenger.data.model.ProxyType.HTTP to "HTTP",
+                    com.matrix.messenger.data.model.ProxyType.SOCKS to "SOCKS5"
+                ).forEach { (type, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable { proxyType = type }
+                            .padding(end = 12.dp)
+                    ) {
+                        RadioButton(
+                            selected = proxyType == type,
+                            onClick = { proxyType = type }
+                        )
+                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+            if (proxyType != com.matrix.messenger.data.model.ProxyType.NONE) {
+                OutlinedTextField(
+                    value = proxyHost,
+                    onValueChange = { proxyHost = it },
+                    label = { Text("Хост") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = proxyPort,
+                    onValueChange = { proxyPort = it.filter { ch -> ch.isDigit() }.take(5) },
+                    label = { Text("Порт") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = proxyUser,
+                    onValueChange = { proxyUser = it },
+                    label = { Text("Логин (опционально)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = proxyPass,
+                    onValueChange = { proxyPass = it },
+                    label = { Text("Пароль (опционально)") },
+                    singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+            }
+            val proxyValid = proxyType == com.matrix.messenger.data.model.ProxyType.NONE ||
+                (proxyHost.isNotBlank() && proxyPort.toIntOrNull() in 1..65535)
+            Button(
+                onClick = {
+                    viewModel.updateProxy(
+                        if (proxyType == com.matrix.messenger.data.model.ProxyType.NONE) {
+                            null
+                        } else {
+                            com.matrix.messenger.data.model.ProxySettings(
+                                type = proxyType,
+                                host = proxyHost.trim(),
+                                port = proxyPort.toInt(),
+                                username = proxyUser.trim().ifBlank { null },
+                                password = proxyPass.ifBlank { null }
+                            )
+                        }
+                    )
+                    viewModel.saveProxy()
+                },
+                enabled = proxyValid,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            ) {
+                Text(if (uiState.proxyDirty) "Сохранить" else "Сохранить (без изменений)")
+            }
+            Text(
+                text = "Весь трафик Matrix (включая фоновую синхронизацию) пойдёт через прокси. Применяется после перезапуска приложения.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 

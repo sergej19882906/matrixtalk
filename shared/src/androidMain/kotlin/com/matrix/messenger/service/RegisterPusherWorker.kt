@@ -35,6 +35,7 @@ class RegisterPusherWorker(
             // notifications disabled: a pusher would only drain the battery
             return Result.success()
         }
+        val proxy = runCatching { SessionStore.readProxySettings() }.getOrNull()
         val client = try {
             MatrixClient.loginWith(
                 baseUrl = Url(session.homeServer),
@@ -48,6 +49,9 @@ class RegisterPusherWorker(
                             accessToken = session.accessToken
                         )
                     )
+                },
+                configuration = {
+                    httpClientFactory = com.matrix.messenger.data.repository.createProxyHttpClientFactory(proxy)
                 },
             ).getOrThrow()
         } catch (e: Exception) {

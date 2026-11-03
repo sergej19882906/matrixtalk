@@ -42,6 +42,7 @@ class MessageNotificationWorker(
         }
         val prefs = applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val session = SessionStore.read() ?: return Result.success()
+        val proxy = runCatching { SessionStore.readProxySettings() }.getOrNull()
         val client = try {
             MatrixClient.loginWith(
                 baseUrl = Url(session.homeServer),
@@ -55,6 +56,9 @@ class MessageNotificationWorker(
                             accessToken = session.accessToken
                         )
                     )
+                },
+                configuration = {
+                    httpClientFactory = com.matrix.messenger.data.repository.createProxyHttpClientFactory(proxy)
                 },
             ).getOrThrow()
         } catch (e: Exception) {
