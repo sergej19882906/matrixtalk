@@ -35,28 +35,102 @@ import androidx.compose.ui.unit.dp
 private data class BridgeInfo(
     val name: String,
     val protocol: String,
+    val category: String,
     val description: String,
     val setup: String
 )
 
+private const val CATEGORY_MESSENGERS = "Мессенджеры"
+private const val CATEGORY_NETWORKS = "Сети и протоколы"
+private const val CATEGORY_INTEGRATIONS = "Интеграции и автоматизация"
+
 private val bridges = listOf(
+    // -- Мессенджеры --
     BridgeInfo(
         "Telegram",
         "mautrix-telegram",
+        CATEGORY_MESSENGERS,
         "Личные чаты, группы и каналы Telegram через Matrix.",
         "Запустите mautrix-telegram на homeserver и откройте ссылку авторизации в его bridge-комнате."
     ),
     BridgeInfo(
         "WhatsApp",
         "mautrix-whatsapp",
+        CATEGORY_MESSENGERS,
         "Синхронизация WhatsApp с комнатами Matrix.",
         "Запустите mautrix-whatsapp, затем отсканируйте QR-код в bridge-комнате."
     ),
     BridgeInfo(
         "Signal",
         "mautrix-signal",
-        "Подключение Signal через отдельный bridge-сервис.",
+        CATEGORY_MESSENGERS,
+        "Подключение Signal как linked-устройства.",
         "Запустите mautrix-signal и завершите привязку устройства по инструкции bridge-сервиса."
+    ),
+    BridgeInfo(
+        "Meta (Facebook, Instagram)",
+        "mautrix-meta",
+        CATEGORY_MESSENGERS,
+        "Facebook Messenger и Instagram Direct в Matrix.",
+        "Запустите mautrix-meta и авторизуйтесь в аккаунт Meta через bridge-комнату."
+    ),
+    BridgeInfo(
+        "Google Messages",
+        "mautrix-gmessages",
+        CATEGORY_MESSENGERS,
+        "SMS/RCS с Android-устройства как второе устройство.",
+        "Запустите mautrix-gmessages и свяжите телефон по QR-коду из bridge-комнаты."
+    ),
+    BridgeInfo(
+        "Discord",
+        "matrix-appservice-discord",
+        CATEGORY_MESSENGERS,
+        "Каналы и серверы Discord: двусторонние сообщения.",
+        "Запустите matrix-appservice-discord, добавьте бота на сервер Discord и привяжите каналы в комнатах."
+    ),
+    BridgeInfo(
+        "Slack",
+        "mautrix-slack",
+        CATEGORY_MESSENGERS,
+        "Рабочие каналы и личные сообщения Slack.",
+        "Запустите mautrix-slack и пройдите OAuth-вход в bridge-комнате."
+    ),
+    // -- Сети и протоколы --
+    BridgeInfo(
+        "IRC",
+        "heisenbridge",
+        CATEGORY_NETWORKS,
+        "IRC-каналы и приваты: каждый канал становится комнатой.",
+        "Запустите heisenbridge, затем напишите его боту команду для подключения к IRC-сети."
+    ),
+    BridgeInfo(
+        "XMPP",
+        "biboumi / matrix-xmpp",
+        CATEGORY_NETWORKS,
+        "Jabber/XMPP-конференции и контакты.",
+        "Запустите biboumi (или matrix-xmpp-bridge) на homeserver и добавьте JID в bridge-комнату."
+    ),
+    BridgeInfo(
+        "Email",
+        "mautrix-email",
+        CATEGORY_NETWORKS,
+        "Переписка по email как чаты Matrix.",
+        "Запустите mautrix-email и укажите почтовый аккаунт в bridge-комнате."
+    ),
+    // -- Интеграции --
+    BridgeInfo(
+        "GitHub / GitLab / Jira",
+        "matrix-hookshot",
+        CATEGORY_INTEGRATIONS,
+        "Уведомления о коммитах, issues, PR и webhooks в комнатах.",
+        "Запустите matrix-hookshot, подключите репозитории через его команды в комнате (help — !hookshot)."
+    ),
+    BridgeInfo(
+        "RSS / Atom",
+        "mautrix-rss",
+        CATEGORY_INTEGRATIONS,
+        "Новости из фидов приходят сообщениями в комнату.",
+        "Запустите mautrix-rss и добавьте URL фида командой боту в комнате."
     )
 )
 
@@ -64,6 +138,8 @@ private val bridges = listOf(
 @Composable
 fun BridgesScreen(onNavigateBack: () -> Unit) {
     var selectedBridge by remember { mutableStateOf<BridgeInfo?>(null) }
+
+    val categories = bridges.groupBy { it.category }
 
     Scaffold(
         topBar = {
@@ -97,35 +173,20 @@ fun BridgesScreen(onNavigateBack: () -> Unit) {
                 )
                 Spacer(modifier = Modifier.height(4.dp))
             }
-            items(bridges) { bridge ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = androidx.compose.material3.CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            categories.forEach { (category, list) ->
+                item(key = "category_$category") {
+                    Text(
+                        category,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 8.dp)
                     )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Link,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(bridge.name, style = MaterialTheme.typography.titleMedium)
-                            Text(bridge.protocol, style = MaterialTheme.typography.labelMedium)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(bridge.description, style = MaterialTheme.typography.bodyMedium)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(onClick = { selectedBridge = bridge }) {
-                                Text("Настроить")
-                            }
-                        }
-                    }
+                }
+                items(list, key = { "${it.protocol}_${it.name}" }) { bridge ->
+                    BridgeCard(bridge = bridge, onSetup = { selectedBridge = bridge })
                 }
             }
+            item { Spacer(modifier = Modifier.height(8.dp)) }
         }
     }
 
@@ -140,5 +201,36 @@ fun BridgesScreen(onNavigateBack: () -> Unit) {
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun BridgeCard(bridge: BridgeInfo, onSetup: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                Icons.Default.Link,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(bridge.name, style = MaterialTheme.typography.titleMedium)
+                Text(bridge.protocol, style = MaterialTheme.typography.labelMedium)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(bridge.description, style = MaterialTheme.typography.bodyMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = onSetup) {
+                    Text("Настроить")
+                }
+            }
+        }
     }
 }

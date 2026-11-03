@@ -1,5 +1,17 @@
 # Matrix Talk — История версий
 
+## 1.22.1
+**Дата релиза:** 2026-11-03
+
+### 🌉 Мосты
+- 🆕 Справочник мостов расширен с 3 до 12: Meta (Facebook/Instagram), Google Messages, Discord, Slack, IRC (heisenbridge), XMPP (biboumi), Email (mautrix-email), GitHub/GitLab/Jira (hookshot), RSS/Atom
+- 🎨 Список сгруппирован по категориям: «Мессенджеры», «Сети и протоколы», «Интеграции и автоматизация»
+
+### Сборка
+- `versionCode`: 42, `versionName`: 1.22.1, Desktop `packageVersion`: 1.22.1
+
+---
+
 ## 1.22.0
 **Дата релиза:** 2026-11-03
 
