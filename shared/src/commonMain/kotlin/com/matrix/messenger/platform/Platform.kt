@@ -22,6 +22,9 @@ expect fun openUrl(url: String)
 /** Human-readable background-push status for settings; null on platforms without push. */
 expect suspend fun pushServiceStatusText(): String?
 
+/** Platform label for the device display name (Element session manager). */
+expect fun platformLabel(): String
+
 /** Opens a downloaded attachment with the OS default application for its type. */
 expect fun openLocalFile(path: String)
 

@@ -469,7 +469,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 baseUrl = Url(url),
                 identifier = IdentifierType.User(username),
                 password = password,
-                initialDeviceDisplayName = "MatrixTalk",
+                initialDeviceDisplayName = "MatrixTalk · ${com.matrix.messenger.platform.platformLabel()}",
                 repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
                 mediaStoreFactory = { InMemoryMediaStore() },
                 configuration = {
@@ -1818,6 +1818,18 @@ class MatrixRepositoryImpl : MatrixRepository {
             TokenInvalidationDetector.triggered.collect { invalid ->
                 if (invalid) {
                     forceLogout("Сессия истекла — сервер отклонил токен (M_UNKNOWN_TOKEN). Войдите заново.")
+                }
+            }
+        }
+        repositoryScope.launch {
+            // Element shows "Неизвестное устройство" for sessions without a display name.
+            runCatching {
+                val device = c.api.devices.getDevice(c.deviceId).getOrNull()
+                if (device?.displayName.isNullOrBlank()) {
+                    c.api.devices.updateDevice(
+                        c.deviceId,
+                        "MatrixTalk · ${com.matrix.messenger.platform.platformLabel()}"
+                    ).getOrThrow()
                 }
             }
         }

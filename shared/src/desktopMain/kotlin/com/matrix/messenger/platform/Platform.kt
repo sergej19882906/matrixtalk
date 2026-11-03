@@ -61,6 +61,9 @@ actual fun rememberFilePicker(
 
 actual suspend fun pushServiceStatusText(): String? = null
 
+actual fun platformLabel(): String =
+    "Desktop · ${System.getProperty("os.name")?.substringBefore(' ') ?: "Unknown OS"}"
+
 actual fun openUrl(url: String) {
     if (Desktop.isDesktopSupported()) {
         Desktop.getDesktop().browse(java.net.URI(url))

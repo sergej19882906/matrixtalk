@@ -42,6 +42,9 @@ actual suspend fun pushServiceStatusText(): String? {
     }
 }
 
+actual fun platformLabel(): String =
+    "Android · ${android.os.Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${android.os.Build.MODEL}".trim()
+
 actual fun openUrl(url: String) {
     // Requires Android Context — handled via PlatformContext in Android module
 }
