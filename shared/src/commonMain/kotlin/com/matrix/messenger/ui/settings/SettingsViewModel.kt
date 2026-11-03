@@ -27,7 +27,9 @@ data class SettingsUiState(
     val selectedAudioInput: String? = null,
     val selectedVideoDevice: String? = null,
     /** Server-side key backup; null when no backup exists. */
-    val keyBackupVersion: String? = null
+    val keyBackupVersion: String? = null,
+    /** Background push status (Android); null on desktop. */
+    val pushStatus: String? = null
 )
 
 class SettingsViewModel(
@@ -41,6 +43,11 @@ class SettingsViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 keyBackupVersion = runCatching { matrixRepository.getKeyBackupStatus() }.getOrNull()?.version
+            )
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                pushStatus = runCatching { com.matrix.messenger.platform.pushServiceStatusText() }.getOrNull()
             )
         }
         viewModelScope.launch {

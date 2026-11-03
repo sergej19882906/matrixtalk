@@ -59,6 +59,8 @@ actual fun rememberFilePicker(
     }
 }
 
+actual suspend fun pushServiceStatusText(): String? = null
+
 actual fun openUrl(url: String) {
     if (Desktop.isDesktopSupported()) {
         Desktop.getDesktop().browse(java.net.URI(url))

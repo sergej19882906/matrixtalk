@@ -287,7 +287,7 @@ fun SettingsScreen(
                 )
             }
             Text(
-                text = "Фоновая проверка новых сообщений каждые 15 минут (Android)",
+                text = uiState.pushStatus ?: "Фоновая проверка новых сообщений каждые 15 минут (Android)",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp)

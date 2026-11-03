@@ -118,6 +118,18 @@
             </intent-filter>
         </service>
 
+        <!-- UnifiedPush: distributor delivers push events here -->
+        <receiver
+            android:name=".push.MatrixtalkPushReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.MESSAGE" />
+                <action android:name="org.unifiedpush.android.connector.NEW_ENDPOINT" />
+                <action android:name="org.unifiedpush.android.connector.UNREGISTERED" />
+                <action android:name="org.unifiedpush.android.connector.REGISTRATION_FAILED" />
+            </intent-filter>
+        </receiver>
+
         <!-- 🆕 Boot receiver для восстановления синхронизации -->
         <receiver
             android:name=".receiver.BootReceiver"

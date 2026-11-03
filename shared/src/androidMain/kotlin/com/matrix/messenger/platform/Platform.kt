@@ -25,6 +25,23 @@ actual fun rememberFilePicker(
     return { launcher.launch(mimeType) }
 }
 
+actual suspend fun pushServiceStatusText(): String? {
+    val context = appContext ?: return null
+    val distributor = runCatching {
+        org.unifiedpush.android.connector.UnifiedPush.getAckDistributor(context)
+            ?: org.unifiedpush.android.connector.UnifiedPush.getSavedDistributor(context)
+    }.getOrNull()
+    val endpoint = com.matrix.messenger.service.RegisterPusherWorker.endpoint(context)
+    return when {
+        distributor != null && endpoint != null ->
+            "Мгновенный push через UnifiedPush ($distributor)"
+        distributor != null ->
+            "UnifiedPush: $distributor подключён, endpoint ожидается"
+        else ->
+            "Без push-дистрибьютора: проверка сообщений раз в 15 минут"
+    }
+}
+
 actual fun openUrl(url: String) {
     // Requires Android Context — handled via PlatformContext in Android module
 }

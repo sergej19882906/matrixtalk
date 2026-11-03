@@ -32,8 +32,8 @@ android {
         applicationId = "com.matrix.messenger"
         minSdk = 24
         targetSdk = 36
-        versionCode = 44
-        versionName = "1.24.0"
+        versionCode = 45
+        versionName = "1.25.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
@@ -75,6 +75,9 @@ dependencies {
     implementation(project(":shared"))
 
     implementation("androidx.core:core-ktx:1.15.0")
+
+    // UnifiedPush: instant push without Google services (ntfy / NextPush distributors)
+    implementation("com.github.UnifiedPush:android-connector:2.4.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
