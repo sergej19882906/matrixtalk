@@ -242,6 +242,30 @@ docker compose -f docker-compose.bridges.yml --profile bridges ps
 
 ---
 
+## Шаг 6. Push-сервер ntfy (мгновенные уведомления, опционально)
+
+MatrixTalk поддерживает мгновенный push через **UnifiedPush**: homeserver сам
+доставляет событие в момент отправки сообщения. Чтобы весь путь был на своём
+домене (без ntfy.sh), в стек входит сервер **ntfy**:
+
+```bash
+docker compose -f docker-compose.bridges.yml up -d ntfy
+```
+
+1. Порт по умолчанию: `2586` (переменная `NTFY_PORT`). Положите за обратный
+   прокси на поддомен `ntfy.<MATRIX_SERVER_NAME>` с HTTPS — и задайте
+   `NTFY_BASE_URL=https://ntfy.<домен>` в `.env` (используется сервером для
+   формирования ссылок).
+2. На телефоне установите приложение **ntfy** (F-Droid / Play) →
+   Настройки → Default server → `https://ntfy.<домен>`.
+3. Откройте MatrixTalk — он сам зарегистрируется как pusher. В настройках
+   приложения появится статус «Мгновенный push через UnifiedPush (ntfy)».
+
+Без этого шага (и без любого другого UnifiedPush-дистрибьютора) MatrixTalk
+работает в фолбэк-режиме: фоновая проверка сообщений раз в 15 минут.
+
+---
+
 ## ARM64 (Raspberry Pi и др.)
 
 Кастомные образы собираются для `linux/amd64` и `linux/arm64` в CI

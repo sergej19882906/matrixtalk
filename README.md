@@ -166,6 +166,8 @@ chmod +x gradlew
 ### Мгновенный push на Android
 Установите любой UnifiedPush-дистрибьютор — например [ntfy](https://ntfy.sh) (F-Droid/Play). При следующем запуске MatrixTalk зарегистрируется, и в настройках появится статус «Мгновенный push через UnifiedPush». Synapse ничего дополнительно не требует — он шлёт push прямо в эндпоинт дистрибьютора.
 
+Полностью self-hosted вариант: в Docker-стек входит сервер ntfy (`docker compose ... up -d ntfy`) — тогда и доставка push идёт через ваш домен. Инструкция — в [`docs/bridges.md`](docs/bridges.md), шаг 6.
+
 ## CI/CD
 
 GitHub Actions:

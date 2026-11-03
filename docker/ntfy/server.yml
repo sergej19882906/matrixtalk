@@ -1,0 +1,14 @@
+# ntfy server for Matrix Talk UnifiedPush delivery.
+# The base URL is set via the NTFY_BASE_URL environment variable (see
+# docker-compose.bridges.yml) and must match the public HTTPS address
+# (reverse proxy) of this server.
+cache_file: "/var/cache/ntfy/cache.db"
+attachment-cache-dir: "/var/cache/ntfy/attachments"
+listen-http: ":80"
+behind-proxy: true
+# UnifiedPush topics are unauthenticated by design: the topic name is a
+# random secret generated per device. Registration and web UI stay off.
+auth-default: "allow-all"
+enable-login: false
+enable-signup: false
+enable-metrics: false
