@@ -4,7 +4,7 @@
 
 | Платформа | Статус |
 |-----------|--------|
-| 🤖 Android | ✅ Готово (APK в [релизах](https://github.com/sergej19882906/matrixtalk/releases)) |
+| 🤖 Android | ✅ Готово (подписанный APK в [релизах](https://github.com/sergej19882906/matrixtalk/releases)) |
 | 🖥️ Windows / Linux / macOS | ✅ Готово (MSI / DEB / DMG / AppImage в [релизах](https://github.com/sergej19882906/matrixtalk/releases)) |
 | 🍎 iOS | 🚧 В планах |
 
@@ -12,59 +12,81 @@
 
 ### 💬 Мессенджер
 - ✅ Вход по логину/паролю и по Matrix access token, server discovery (.well-known)
-- ✅ Список чатов в стиле Element X: фильтр-чипы (Все / Личные / Группы / Избранные / Непрочитанные), FAB, непрочитанные, даты «Вчера / Понедельник / 12.10.25»
-- ✅ Избранное, приглашения (принять/отклонить), Spaces, каталог публичных комнат, контакты (поиск по user directory)
+- ✅ Список чатов в стиле Element X: фильтр-чипы (Все / Личные / Группы / Избранные / Непрочитанные), непрочитанные, «отметить как непрочитанную» (m.marked_unread, синхронно с Element), даты
+- ✅ **Фильтр по пространствам** — чипы Spaces фильтруют ленту, долгое нажатие открывает каталог пространства
+- ✅ Избранное, приглашения (принять/отклонить), каталог публичных комнат, контакты (поиск по user directory)
 - ✅ Отправка текстовых сообщений, изображений, видео, аудио и файлов; голосовые сообщения
+- ✅ **Геолокация** — отправка места (m.location): GPS на Android, ручной ввод на desktop; карточка с тайлом OpenStreetMap, клик открывает карту
+- ✅ **Стикеры** (m.sticker, совместимо с Element)
 - ✅ Опросы (MSC3381, совместимые с Element): создание, голосование, результаты
 - ✅ Ответы, упоминания с подсветкой, закреплённые сообщения, редактирование, удаление
-- ✅ Реакции (ряд быстрых реакций в меню сообщения, счётчики), rich-text HTML (спойлеры, код, ссылки)
-- ✅ Чат в стиле Element X: разделители дат, группировка сообщений одного отправителя, эмодзи-палитра в поле ввода
-- ✅ Вложения в чате: изображения инлайн, галерея комнаты, файлы по клику — включая E2E-шифрованные
-- ✅ Загрузка истории переписки («Загрузить ранее»), серверный поиск по сообщениям
+- ✅ **Ветки (threads)** — полноценный экран ветки: корень закреплён, ответы, композер в m.thread
+- ✅ **Slash-команды**: `/me`, `/join #alias`, `/leave`, `/invite`, `/kick`, `/ban`, `/unban`, `/help`
+- ✅ **Markdown-композер** — жирный/курсив/код/зачёркнутый/списки/цитаты/ссылки уходят как org.matrix.custom.html
+- ✅ **Реакции**: быстрые + палитра 48 эмодзи с поиском и «часто используемыми»; клик по своей реакции отзывает её
+- ✅ **Read receipts** — аватары дочитавших под своими сообщениями
+- ✅ **Presence** — статус «в сети» собеседника в шапке чата и точка на аватаре в списке (опрос раз в минуту)
+- ✅ Fullscreen-просмотрщик изображений: листание медиа комнаты, зум до 5×, скачивание
+- ✅ Загрузка истории («Загрузить ранее»), серверный поиск, переход к первому непрочитанному с разделителем
 - ✅ Индикатор набора текста (typing)
-- ✅ Прямые чаты (DM) и групповые комнаты: создание, вход по alias, выход
-- ✅ Профиль: display name и аватар
-- ✅ Персистентная сессия — автовход при перезапуске
-- ✅ Персистентный кэш (Realm): быстрый запуск без полной синхронизации
-- ✅ E2E-шифрование (через libolm), в т.ч. просмотр зашифрованных вложений
-- ✅ Медиа через аутентифицированный клиент (MSC3916) — работает на homeservers с отключённым legacy-эндпоинтом (matrix.org)
-- ✅ Уведомления о новых сообщениях на Android (фоновая синхронизация)
+- ✅ Персистентная сессия — автовход при перезапуске; персистентный кэш (Realm)
+- ✅ Медиа через аутентифицированный клиент (MSC3916) — работает на matrix.org
 - ✅ Material Design 3, тёмная/светлая/системная тема
 
 ### 🔐 Безопасность
+- ✅ E2E-шифрование (libolm), просмотр зашифрованных вложений
+- ✅ **E2EE-медиа на отправку** — фото/видео/файлы/голосовые/стикеры в зашифрованных комнатах уходят как EncryptedFile (AES-CTR-256 + SHA-256, совместимо с Element)
 - ✅ Управление устройствами: список сессий, переименование, удаление, «последняя активность»
-- ✅ Верификация устройств по эмодзи (SAS), совместимо с Element
-- ✅ Резервное копирование ключей (key backup) с ключом восстановления
+- ✅ Верификация устройств по эмодзи (SAS) и самоверификация сессии ключом восстановления — как в Element
+- ✅ Статус резервного копирования ключей (megolm backup) в настройках
 - ✅ Подтверждение паролем (UIA) для чувствительных операций
 
+### ⚙️ Настройки комнаты (Element X)
+- ✅ Редактирование названия/описания/аватара **по power levels** — без прав поля не редактируются
+- ✅ Список участников с поиском и бейджами прав (Админ ≥100, Модератор ≥50)
+- ✅ Карточка участника: **исключить, бан/разбан, сменить уровень прав**
+- ✅ Приглашение пользователей
+- ✅ **Уровни уведомлений per-room** — «Все сообщения» / «Только упоминания» / «Без звука» через серверные push-правила (как в Element Web)
+- ✅ Бейдж моста на комнатах-мостах (m.bridge, MSC2346)
+
+### 🔔 Уведомления
+- ✅ **Мгновенный push через UnifiedPush** (ntfy, NextPush и другие дистрибьюторы) — без Google-сервисов; устройство регистрируется на homeserver как HTTP-pusher
+- ✅ Фолбэк: фоновая проверка WorkManager раз в 15 минут — работает вообще без дистрибьютора
+- ✅ Уведомления о новых сообщениях и звонках, Boot-receiver для восстановления фона
+
 ### 📞 Аудио-видео звонки (VoIP)
-- ✅ Сигналинг Matrix (m.call.invite/answer/candidates/hangup/reject, VoIP v0 + party_id для совместимости с Element)
-- ✅ WebRTC-медиа на Android (stream-webrtc-android) и Desktop (webrtc-java): аудио + видео, TURN/STUN с хомсервера
-- ✅ Входящие/исходящие звонки из интерфейса, экран звонка с микрофоном/камерой/динамиком, foreground-сервис на Android
-- ✅ Демонстрация экрана на Desktop (выбор экрана/окна)
-- ✅ История звонков в чате («Входящий/Исходящий видеозвонок»)
-- 🚧 iOS — в планах
+- ✅ Сигналинг Matrix (m.call.*, VoIP v0 + party_id для совместимости с Element), работает в E2EE-комнатах
+- ✅ WebRTC-медиа на Android (stream-webrtc-android) и Desktop (webrtc-java): аудио + видео, TURN/STUN с homeserver
+- ✅ Входящие/исходящие звонки, экран звонка с микрофоном/камерой/динамиком, foreground-сервис на Android
+- ✅ Демонстрация экрана на Desktop, выбор камеры/микрофона в настройках
+- ✅ Звонки из комнат с выключенными уведомлениями автоматически отклоняются
 - ✅ Серверная часть: Coturn (TURN/STUN) включён в Docker-стек
 
-### 🔗 Мосты Telegram, WhatsApp и Signal
-- ✅ Экран настройки мостов в приложении
-- ✅ Серверная заготовка: Synapse + PostgreSQL + Coturn + mautrix-мосты
+### 🔗 Мосты (12 сетей)
+- ✅ Справочник мостов в приложении с инструкциями и готовыми Docker-образами
+- ✅ **Живое детектирование**: секция «Запущенные мосты» показывает, какие сети реально работают в аккаунте, комнаты-мосты помечаются в списке чатов
+- ✅ Серверная часть: Synapse + PostgreSQL + Coturn + 8 мостов в Docker
 - ✅ Полная инструкция по установке сервера в [`docs/bridges.md`](docs/bridges.md)
 
 ## Сервер
 
 `docker-compose.bridges.yml` — готовый стек для собственного Matrix-сервера.
-Кастомные Docker-образы с авто-конфигурацией из env-переменных публикуются в [ghcr.io](https://github.com/sergej19882906/matrixtalk/pkgs/container/).
+Кастомные Docker-образы с авто-конфигурацией из env-переменных публикуются в [ghcr.io](https://github.com/sergej19882906/matrixtalk/pkgs/container/) (`linux/amd64` + `linux/arm64`).
 
 | Сервис | Образ | Назначение |
 |--------|-------|------------|
 | **Synapse** | `ghcr.io/sergej19882906/matrixtalk-synapse` | Matrix homeserver |
-| **synapse-admin** | `awesometechnologies/synapse-admin` | Веб-интерфейс администрирования (порт 8080) |
+| **synapse-admin** | `awesometechnologies/synapse-admin` | Веб-админка (порт 8080) |
 | **PostgreSQL** | `postgres:16-alpine` | База данных |
-| **Coturn** | `coturn/coturn:latest` | TURN/STUN сервер для VoIP-звонков |
+| **Coturn** | `coturn/coturn:latest` | TURN/STUN для VoIP |
 | **mautrix-telegram** | `ghcr.io/sergej19882906/matrixtalk-mautrix-telegram` | Мост Telegram |
 | **mautrix-whatsapp** | `ghcr.io/sergej19882906/matrixtalk-mautrix-whatsapp` | Мост WhatsApp |
 | **mautrix-signal** | `ghcr.io/sergej19882906/matrixtalk-mautrix-signal` | Мост Signal |
+| **mautrix-meta** | `ghcr.io/sergej19882906/matrixtalk-mautrix-meta` | Мост Facebook/Instagram |
+| **mautrix-gmessages** | `ghcr.io/sergej19882906/matrixtalk-mautrix-gmessages` | Мост Google Messages (SMS/RCS) |
+| **mautrix-discord** | `ghcr.io/sergej19882906/matrixtalk-mautrix-discord` | Мост Discord |
+| **heisenbridge** | `ghcr.io/sergej19882906/matrixtalk-heisenbridge` | Мост IRC |
+| **hookshot** | `ghcr.io/sergej19882906/matrixtalk-hookshot` | GitHub/GitLab/Jira/webhooks |
 
 Пошаговая инструкция по установке и настройке — в [`docs/bridges.md`](docs/bridges.md).
 
@@ -87,10 +109,11 @@
 | **Архитектура** | MVVM + Clean Architecture, общий модуль `shared` |
 | **DI** | Koin 4 |
 | **Matrix SDK** | [Trixnity](https://github.com/trixnity/trixnity) 4.9.2 |
-| **E2E-шифрование** | libolm (trixnity-olm) |
+| **E2E-шифрование** | libolm (trixnity-olm) + шифрование медиа (AES-CTR-256) |
 | **Сеть** | Ktor client 3 |
 | **Изображения** | Coil 3 (KMP), медиа через аутентифицированный клиент (MSC3916) |
-| **Сессия/кэш** | JSON-файл сессии + Realm (trixnity-client-repository-realm); миграция с legacy DataStore |
+| **Push** | UnifiedPush (connector 2.4) + WorkManager-фолбэк |
+| **Сессия/кэш** | JSON-файл сессии + Realm (trixnity-client-repository-realm) |
 | **Сборка** | Gradle KMP: Android + Desktop(JVM); iOS в планах |
 
 ## Структура проекта
@@ -99,11 +122,11 @@
 ├── shared/                     # Общий KMP-модуль
 │   └── src/
 │       ├── commonMain/         # Всё общее: модели, репозитории, ViewModel'и, UI, DI
-│       ├── androidMain/        # Android-actuals (контекст, файлы, пути)
+│       ├── androidMain/        # Android-actuals (контекст, файлы, push-воркеры, GPS)
 │       └── desktopMain/        # Desktop-actuals (JVM)
-├── app/                        # Android-приложение (Activities, сервисы, ресурсы)
+├── app/                        # Android-приложение (Activities, сервисы, push-приёмник)
 ├── desktop-app/                # Desktop-приложение (Compose Window, точка входа JVM)
-├── docker/                     # Кастомные образы Synapse + mautrix-мостов
+├── docker/                     # Кастомные образы Synapse + 8 мостов
 ├── docs/                       # Инструкция по серверу, скриншоты
 └── server-data/                # Данные сервера (gitignored)
 </pre>
@@ -140,6 +163,9 @@ chmod +x gradlew
 
 Для подписанного release APK поместите keystore в корень проекта и укажите параметры в `local.properties` (см. раздел CI/CD ниже — в релизах APK уже подписан).
 
+### Мгновенный push на Android
+Установите любой UnifiedPush-дистрибьютор — например [ntfy](https://ntfy.sh) (F-Droid/Play). При следующем запуске MatrixTalk зарегистрируется, и в настройках появится статус «Мгновенный push через UnifiedPush». Synapse ничего дополнительно не требует — он шлёт push прямо в эндпоинт дистрибьютора.
+
 ## CI/CD
 
 GitHub Actions:
@@ -147,14 +173,17 @@ GitHub Actions:
 - **CI** (push/PR в `main`) — сборка Android APK, компиляция Desktop и юнит-тесты, валидация docker-compose.
 - **Release** (тег `v*`) — подписанный Android APK + инсталляторы MSI/DEB/DMG (со smoke-тестами упакованных сборок), публикация [GitHub Release](https://github.com/sergej19882906/matrixtalk/releases) с заметками из `RELEASE_NOTES.md`.
 - **Linux AppImage** (после публикации релиза) — AppImage прикрепляется к релизу.
-- **Docker** (push в `main`, теги) — сборка и пуш образов сервера в ghcr.io (`linux/amd64` + `linux/arm64`).
+- **Docker** (push в `main`, теги) — сборка и пуш образов сервера и мостов в ghcr.io (`linux/amd64` + `linux/arm64`).
 
-Подпись release APK в CI настраивается секретами репозитория: `KEYSTORE_BASE64`, `KEYSTORE_ALIAS`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD`.
+Секреты подписи (все опциональны — без них пакеты собираются неподписанными):
+- Android: `KEYSTORE_BASE64`, `KEYSTORE_ALIAS`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD`
+- Windows MSI (Authenticode): `WIN_PFX_BASE64`, `WIN_PFX_PASSWORD`
+- macOS DMG (codesign + нотаризация): `MAC_CERTIFICATE_BASE64`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_SPECIFIC_PASSWORD`
 
 Чтобы выпустить версию: обновите `versionCode`/`versionName` (`app/build.gradle.kts`) и `packageVersion` (`desktop-app/build.gradle.kts`), добавьте секцию в `RELEASE_NOTES.md`, затем:
 
 ```bash
-git tag v1.16.0 && git push origin v1.16.0
+git tag v1.25.0 && git push origin v1.25.0
 ```
 
 ## История версий
