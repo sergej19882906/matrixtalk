@@ -29,9 +29,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.GppMaybe
 import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material.icons.filled.Mic
@@ -79,6 +81,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.matrix.messenger.data.model.ReadReceipt
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
 import com.matrix.messenger.data.model.UiEvent
@@ -122,11 +125,13 @@ fun ChatScreen(
     onNavigateBack: () -> Unit,
     onStartCall: () -> Unit = {},
     onOpenRoomSettings: () -> Unit = {},
+    onOpenThread: (String) -> Unit = {},
     viewModel: ChatViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val verificationState by viewModel.verificationState.collectAsState()
     val recentReactions by viewModel.recentReactions.collectAsState()
+    val readReceipts by viewModel.readReceipts.collectAsState()
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     var editingMessage by remember { mutableStateOf<Message?>(null) }
@@ -155,6 +160,9 @@ fun ChatScreen(
         viewModel.sendFile(file.path, file.mimeType)
     }
 
+    val pickSticker = rememberFilePicker(listOf("image/*")) { file ->
+        viewModel.sendSticker(file.path, file.mimeType)
+    }
     val callRepository: CallRepository = koinInject()
     val matrixRepository: MatrixRepository = koinInject()
     val currentUser by matrixRepository.currentUser.collectAsState(initial = null)
@@ -293,6 +301,36 @@ fun ChatScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary
                                 )
+                            } else {
+                                val presence = uiState.peerPresence
+                                if (presence != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .background(
+                                                color = if (presence.presence == "online") {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                                shape = CircleShape
+                                            )
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = when {
+                                            presence.presence == "online" -> "в сети"
+                                            presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 1 -> "был(а) только что"
+                                            presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 60 ->
+                                                "был(а) \${presence.lastActiveAgoMinutes} мин назад"
+                                            presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 1440 ->
+                                                "был(а) \${presence.lastActiveAgoMinutes / 60} ч назад"
+                                            else -> "не в сети"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
@@ -402,7 +440,8 @@ fun ChatScreen(
                 onStopVoice = { send -> viewModel.stopVoiceRecording(send) },
                 onCreatePoll = { showPollDialog = true },
                 markdownEnabled = uiState.markdownEnabled,
-                onToggleMarkdown = { viewModel.toggleMarkdown() }
+                onToggleMarkdown = { viewModel.toggleMarkdown() },
+                onPickSticker = { pickSticker() }
             )
         }
     ) { paddingValues ->
@@ -470,12 +509,16 @@ fun ChatScreen(
                                             viewModel.toggleReaction(item.message, emoji)
                                         },
                                         recentReactions = recentReactions,
+                                        readers = readReceipts[item.message.eventId].orEmpty(),
                                         onEdit = {
                                             editText = item.message.body
                                             editingMessage = item.message
                                         },
                                         onDelete = { messageToDelete = item.message },
                                         onOpenAttachment = { viewModel.openAttachment(item.message) },
+                                        onOpenThread = {
+                                            onOpenThread(item.message.threadRootId ?: item.message.eventId)
+                                        },
                                         onOpenImage = { viewModel.openImageViewer(item.message) },
                                         onReply = { viewModel.replyToMessage(item.message) },
                                         onPlayAudio = { viewModel.playAudioMessage(item.message) },
@@ -738,7 +781,7 @@ fun ChatScreen(
 }
 
 @Composable
-private fun MessageItem(
+internal fun MessageItem(
     message: Message,
     ownShortId: String?,
     ownDisplayName: String?,
@@ -747,15 +790,17 @@ private fun MessageItem(
     groupedWithNext: Boolean,
     isPinned: Boolean,
     recentReactions: List<String> = emptyList(),
-    onReaction: (String) -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    onOpenAttachment: () -> Unit,
+    readers: List<ReadReceipt> = emptyList(),
+    onReaction: (String) -> Unit = {},
+    onEdit: () -> Unit = {},
+    onDelete: () -> Unit = {},
+    onOpenAttachment: () -> Unit = {},
     onOpenImage: () -> Unit = {},
-    onReply: () -> Unit,
-    onTogglePin: () -> Unit,
-    onPlayAudio: () -> Unit,
-    onVotePoll: (List<String>) -> Unit
+    onOpenThread: () -> Unit = {},
+    onReply: () -> Unit = {},
+    onTogglePin: () -> Unit = {},
+    onPlayAudio: () -> Unit = {},
+    onVotePoll: (List<String>) -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showReactionPicker by remember { mutableStateOf(false) }
@@ -889,6 +934,19 @@ private fun MessageItem(
                                         }
                                     }
 
+                                    message.messageType == MessageType.STICKER &&
+                                        (message.mediaUrl != null || message.encryptedFile != null) -> {
+                                        AsyncImage(
+                                            model = MatrixMedia(message.mediaUrl, message.encryptedFile),
+                                            contentDescription = message.body,
+                                            modifier = Modifier
+                                                .widthIn(max = 160.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .clickable { onOpenImage() },
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+
                                     message.messageType == MessageType.IMAGE &&
                                         (message.mediaUrl != null || message.encryptedFile != null) -> {
                                         AsyncImage(
@@ -978,6 +1036,36 @@ private fun MessageItem(
                                     )
                                 }
                             }
+                            if (message.isMine && readers.isNotEmpty()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                ) {
+                                    readers.take(3).forEach { reader ->
+                                        MatrixAvatar(
+                                            name = reader.name ?: reader.userId,
+                                            avatarUrl = reader.avatarUrl,
+                                            size = 18.dp,
+                                            shape = CircleShape
+                                        )
+                                        Spacer(Modifier.width(3.dp))
+                                    }
+                                    if (readers.size > 3) {
+                                        Text(
+                                            text = "+${readers.size - 3}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = "Прочитано",
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
                             if (message.reactions.isNotEmpty()) {
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1049,6 +1137,14 @@ private fun MessageItem(
                                 onClick = {
                                     menuExpanded = false
                                     onReply()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (message.threadRootId != null) "Открыть ветку" else "Ответить в ветке") },
+                                leadingIcon = { Icon(Icons.Default.Forum, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onOpenThread()
                                 }
                             )
                             DropdownMenuItem(
@@ -1223,7 +1319,8 @@ private fun MessageInputBar(
     onStopVoice: (send: Boolean) -> Unit,
     onCreatePoll: () -> Unit,
     markdownEnabled: Boolean = false,
-    onToggleMarkdown: () -> Unit = {}
+    onToggleMarkdown: () -> Unit = {},
+    onPickSticker: () -> Unit = {}
 ) {
     var emojiVisible by remember { mutableStateOf(false) }
     var attachMenuVisible by remember { mutableStateOf(false) }
@@ -1342,6 +1439,14 @@ private fun MessageInputBar(
                                 onClick = {
                                     attachMenuVisible = false
                                     onFileSelected()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Стикер") },
+                                leadingIcon = { Icon(Icons.Default.EmojiEmotions, contentDescription = null) },
+                                onClick = {
+                                    attachMenuVisible = false
+                                    onPickSticker()
                                 }
                             )
                             DropdownMenuItem(

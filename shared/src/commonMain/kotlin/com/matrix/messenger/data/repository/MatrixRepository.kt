@@ -7,6 +7,9 @@ import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.RoomMemberInfo
+import com.matrix.messenger.data.model.KeyBackupStatus
+import com.matrix.messenger.data.model.PresenceInfo
+import com.matrix.messenger.data.model.ReadReceipt
 import com.matrix.messenger.data.model.RoomNotificationLevel
 import com.matrix.messenger.data.model.RoomSettingsInfo
 import com.matrix.messenger.data.model.RoomTrust
@@ -133,6 +136,21 @@ interface MatrixRepository {
     /** Element style room notification levels (all / mentions only / mute). */
     suspend fun getRoomNotificationLevel(roomId: String): RoomNotificationLevel
     suspend fun setRoomNotificationLevel(roomId: String, level: RoomNotificationLevel)
+
+    /** Server-side key backup status; null when no backup exists. */
+    suspend fun getKeyBackupStatus(): KeyBackupStatus?
+
+    /** Presence snapshot of a user (online / offline / unavailable). */
+    suspend fun getPresence(userId: String): PresenceInfo?
+
+    /** Sets the current user's presence (online when entering a chat). */
+    suspend fun setOwnPresence(online: Boolean)
+
+    /** Sends an m.sticker image event (Element X style sticker). */
+    suspend fun sendSticker(roomId: String, filePath: String, mimeType: String)
+
+    /** Read receipts of other members: eventId -> readers (reactive). */
+    fun getReadReceiptsFlow(roomId: String): Flow<Map<String, List<ReadReceipt>>>
 
     /** Room encryption + member-trust summary for the shield indicator. */
     fun getRoomTrustFlow(roomId: String): Flow<RoomTrust>

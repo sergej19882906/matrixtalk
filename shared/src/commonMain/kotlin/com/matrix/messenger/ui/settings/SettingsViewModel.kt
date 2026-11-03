@@ -25,7 +25,9 @@ data class SettingsUiState(
     val audioInputDevices: List<MediaDeviceInfo> = emptyList(),
     val videoDevices: List<MediaDeviceInfo> = emptyList(),
     val selectedAudioInput: String? = null,
-    val selectedVideoDevice: String? = null
+    val selectedVideoDevice: String? = null,
+    /** Server-side key backup; null when no backup exists. */
+    val keyBackupVersion: String? = null
 )
 
 class SettingsViewModel(
@@ -36,6 +38,11 @@ class SettingsViewModel(
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                keyBackupVersion = runCatching { matrixRepository.getKeyBackupStatus() }.getOrNull()?.version
+            )
+        }
         viewModelScope.launch {
             matrixRepository.currentUser.collect { user ->
                 _uiState.value = _uiState.value.copy(

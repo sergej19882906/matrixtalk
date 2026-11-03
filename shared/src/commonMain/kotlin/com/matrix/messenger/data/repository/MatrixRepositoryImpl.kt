@@ -50,9 +50,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.serialization.json.JsonPrimitive
 import net.folivo.trixnity.core.model.events.m.MarkedUnreadEventContent
+import net.folivo.trixnity.core.model.events.m.Presence
 import net.folivo.trixnity.core.model.events.EventType
 import net.folivo.trixnity.core.model.events.StateEventContent
 import net.folivo.trixnity.core.model.push.PushAction
+import com.matrix.messenger.data.model.KeyBackupStatus
+import com.matrix.messenger.data.model.PresenceInfo
+import com.matrix.messenger.data.model.ReadReceipt
 import com.matrix.messenger.data.model.RoomNotificationLevel
 import kotlin.reflect.KClass
 import kotlinx.coroutines.flow.StateFlow
@@ -942,6 +946,92 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
     }
 
+    override suspend fun getKeyBackupStatus(): KeyBackupStatus? {
+        val c = requireClient()
+        return runCatching {
+            val version = c.di.get<net.folivo.trixnity.client.key.KeyBackupService>().version.value
+            version?.let { KeyBackupStatus(version = it.version, algorithm = it.algorithm::class.simpleName) }
+        }.getOrNull()
+    }
+
+    override suspend fun getPresence(userId: String): PresenceInfo? {
+        val content = requireClient().api.user.getPresence(UserId(userId)).getOrNull() ?: return null
+        return PresenceInfo(
+            presence = content.presence.value,
+            lastActiveAgoMinutes = content.lastActiveAgo?.let { it / 60000 },
+            statusMessage = content.statusMessage
+        )
+    }
+
+    override suspend fun setOwnPresence(online: Boolean) {
+        val c = requireClient()
+        runCatching {
+            c.api.user.setPresence(c.userId, if (online) Presence.ONLINE else Presence.OFFLINE)
+        }
+    }
+
+    override suspend fun sendSticker(roomId: String, filePath: String, mimeType: String) {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        val bytes = readFileBytes(filePath)
+        require(bytes.isNotEmpty()) { "Выбранный файл пуст" }
+        val contentType = runCatching { ContentType.parse(mimeType) }
+            .getOrElse { ContentType.Application.OctetStream }
+        val mxc = uploadBytes(c, bytes, contentType)
+        val stickerJson = kotlinx.serialization.json.buildJsonObject {
+            put("body", kotlinx.serialization.json.JsonPrimitive(filePath.substringAfterLast('/').substringAfterLast("\\")))
+            put("url", kotlinx.serialization.json.JsonPrimitive(mxc))
+            put("info", kotlinx.serialization.json.buildJsonObject {
+                put("mimetype", kotlinx.serialization.json.JsonPrimitive(mimeType))
+                put("size", kotlinx.serialization.json.JsonPrimitive(bytes.size.toLong()))
+            })
+        }
+        c.api.room.sendMessageEvent(rId, UnknownEventContent(stickerJson, "m.sticker")).getOrThrow()
+    }
+
+    override fun getReadReceiptsFlow(roomId: String): Flow<Map<String, List<ReadReceipt>>> = _clientState.flatMapLatest { c ->
+        if (c == null) {
+            flowOf(emptyMap())
+        } else {
+            val rId = RoomId(roomId)
+            c.user.loadMembers(rId, wait = false)
+            c.user.getAllReceipts(rId).flatMapLatest { byUser ->
+                val entries = byUser.filterKeys { it != c.userId }.map { (userId, receiptFlow) ->
+                    receiptFlow.map { userReceipts ->
+                        val eventId = userReceipts?.receipts
+                            ?.get(net.folivo.trixnity.core.model.events.m.ReceiptType.Read)
+                            ?.eventId?.full
+                        userId to eventId
+                    }
+                }
+                if (entries.isEmpty()) {
+                    flowOf(emptyMap())
+                } else {
+                    combine(entries) { pairs: Array<Pair<UserId, String?>> ->
+                        val byEvent = mutableMapOf<String, MutableList<UserId>>()
+                        pairs.forEach { (userId, eventId) ->
+                            if (eventId != null) byEvent.getOrPut(eventId) { mutableListOf() }.add(userId)
+                        }
+                        byEvent
+                    }.flatMapLatest { byEvent ->
+                        c.user.getAll(rId).flatMapLatest { members ->
+                            flowOf(byEvent.mapValues { (_, userIds) ->
+                                userIds.mapNotNull { userId ->
+                                    val member = members[userId]?.firstOrNull()
+                                    ReadReceipt(
+                                        userId = userId.full,
+                                        name = member?.name,
+                                        avatarUrl = member?.event?.content?.avatarUrl
+                                    )
+                                }
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     override suspend fun setRoomName(roomId: String, name: String) {
         requireClient().api.room.sendStateEvent(RoomId(roomId), NameEventContent(name = name))
     }
@@ -1802,6 +1892,26 @@ class MatrixRepositoryImpl : MatrixRepository {
                     isDeleted = false,
                     poll = poll
                 )
+            }
+            if (eventContent.eventType == "m.sticker") {
+                val url = (eventContent.raw["url"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                if (url != null) {
+                    return Message(
+                        eventId = eventId.full,
+                        senderId = sender.full,
+                        senderName = c.resolveSenderName(roomId, sender),
+                        senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
+                        body = (eventContent.raw["body"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "Стикер",
+                        timestamp = originTimestamp,
+                        messageType = MessageType.STICKER,
+                        isMine = sender == c.userId,
+                        isEdited = false,
+                        isDeleted = false,
+                        mediaUrl = url,
+                        encryptedFile = null
+                    )
+                }
+                return null
             }
             if (eventContent.eventType == "m.call.invite") {
                 val callEvent = com.matrix.messenger.data.call.parseCallEvent(

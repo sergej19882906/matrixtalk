@@ -62,6 +62,27 @@ data class RoomSettingsInfo(
     val canChangePowerLevels: Boolean = false
 )
 
+/** Status of the server-side key backup (megolm). */
+data class KeyBackupStatus(
+    val version: String,
+    val algorithm: String?
+)
+
+/** Presence snapshot of a user (Element X header style). */
+data class PresenceInfo(
+    val presence: String,
+    /** Minutes since the user was last active, null when unknown. */
+    val lastActiveAgoMinutes: Long?,
+    val statusMessage: String?
+)
+
+/** A read receipt resolved to a member for the chat timeline. */
+data class ReadReceipt(
+    val userId: String,
+    val name: String?,
+    val avatarUrl: String?
+)
+
 /** Room notification level, mirroring Element (all / mentions only / mute). */
 enum class RoomNotificationLevel {
     ALL_MESSAGES,
@@ -96,6 +117,7 @@ data class LastMessage(
 enum class MessageType {
     TEXT,
     IMAGE,
+    STICKER,
     VIDEO,
     AUDIO,
     FILE,

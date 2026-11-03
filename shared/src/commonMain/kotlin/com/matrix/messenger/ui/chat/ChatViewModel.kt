@@ -2,6 +2,8 @@ package com.matrix.messenger.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.matrix.messenger.data.model.PresenceInfo
+import com.matrix.messenger.data.model.ReadReceipt
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.RoomTrust
 import com.matrix.messenger.data.model.UiEvent
@@ -43,7 +45,9 @@ data class ChatUiState(
     /** Unread messages at the moment the room was opened (for jump-to-unread). */
     val initialUnreadCount: Int = 0,
     /** Event id of the image currently opened in the fullscreen viewer, null = closed. */
-    val imageViewerMessageId: String? = null
+    val imageViewerMessageId: String? = null,
+    /** Presence of the direct-chat peer, polled while the chat is open. */
+    val peerPresence: PresenceInfo? = null
 )
 
 class ChatViewModel(
@@ -63,6 +67,10 @@ class ChatViewModel(
     val verificationState: StateFlow<VerificationUiState> = matrixRepository.verificationState
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerificationUiState.Idle)
 
+    /** Read receipts of other members keyed by the message event id. */
+    private val _readReceipts = MutableStateFlow<Map<String, List<ReadReceipt>>>(emptyMap())
+    val readReceipts: StateFlow<Map<String, List<ReadReceipt>>> = _readReceipts.asStateFlow()
+
     fun confirmVerification(matches: Boolean) {
         viewModelScope.launch { matrixRepository.confirmVerification(matches) }
     }
@@ -73,8 +81,14 @@ class ChatViewModel(
 
     fun setRoomId(roomId: String) {
         if (_uiState.value.roomId != roomId) {
-            _uiState.value = _uiState.value.copy(roomId = roomId)
+            _uiState.value = _uiState.value.copy(roomId = roomId, peerPresence = null)
+            _readReceipts.value = emptyMap()
             observeMessages(roomId)
+            observePeerPresence(roomId)
+            if (!presencePublished) {
+                presencePublished = true
+                viewModelScope.launch { runCatching { matrixRepository.setOwnPresence(true) } }
+            }
         }
     }
 
@@ -103,6 +117,12 @@ class ChatViewModel(
         viewModelScope.launch {
             matrixRepository.getRoomTrustFlow(roomId).flowOn(Dispatchers.Default).collect { trust ->
                 _uiState.value = _uiState.value.copy(roomTrust = trust)
+            }
+        }
+
+        viewModelScope.launch {
+            matrixRepository.getReadReceiptsFlow(roomId).flowOn(Dispatchers.Default).collect { receipts ->
+                _readReceipts.value = receipts
             }
         }
 
@@ -194,6 +214,30 @@ class ChatViewModel(
                 matrixRepository.sendTypingNotification(_uiState.value.roomId, false)
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки: ${e.message}"))
+            }
+        }
+    }
+
+    private var presencePublished = false
+
+    private fun observePeerPresence(roomId: String) {
+        viewModelScope.launch {
+            val peer = runCatching { matrixRepository.resolveDirectChatPeerId(roomId) }.getOrNull()
+                ?: return@launch
+            while (_uiState.value.roomId == roomId) {
+                val presence = runCatching { matrixRepository.getPresence(peer) }.getOrNull()
+                _uiState.value = _uiState.value.copy(peerPresence = presence)
+                kotlinx.coroutines.delay(60_000)
+            }
+        }
+    }
+
+    fun sendSticker(filePath: String, mimeType: String) {
+        viewModelScope.launch {
+            try {
+                matrixRepository.sendSticker(_uiState.value.roomId, filePath, mimeType)
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка отправки стикера: ${e.message}"))
             }
         }
     }

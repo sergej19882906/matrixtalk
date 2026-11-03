@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MarkChatRead
@@ -125,13 +126,18 @@ fun HomeScreen(
         viewModel.uploadAvatar(file.path, file.mimeType)
     }
 
-    val filteredRooms = remember(uiState.rooms, selectedFilter) {
-        when (selectedFilter) {
+    val filteredRooms = remember(uiState.rooms, selectedFilter, uiState.selectedSpaceId, uiState.selectedSpaceRoomIds) {
+        val byFilter = when (selectedFilter) {
             RoomFilter.ALL -> uiState.rooms
             RoomFilter.DIRECT -> uiState.rooms.filter { it.isDirect }
             RoomFilter.GROUPS -> uiState.rooms.filter { !it.isDirect }
             RoomFilter.FAVORITES -> uiState.rooms.filter { it.isFavorite }
             RoomFilter.UNREAD -> uiState.rooms.filter { it.unreadCount > 0 }
+        }
+        if (uiState.selectedSpaceId != null) {
+            byFilter.filter { it.roomId in uiState.selectedSpaceRoomIds }
+        } else {
+            byFilter
         }
     }
 
@@ -267,7 +273,9 @@ fun HomeScreen(
                     if (uiState.spaces.isNotEmpty()) {
                         SpacesRow(
                             spaces = uiState.spaces,
-                            onSpaceClick = onOpenSpace
+                            selectedSpaceId = uiState.selectedSpaceId,
+                            onSpaceClick = { viewModel.selectSpace(it) },
+                            onSpaceLongClick = onOpenSpace
                         )
                     }
                     when {
@@ -512,24 +520,50 @@ private fun FilterChipsRow(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun SpacesRow(
     spaces: List<com.matrix.messenger.data.model.ChatRoom>,
-    onSpaceClick: (String) -> Unit
+    selectedSpaceId: String?,
+    onSpaceClick: (String) -> Unit,
+    onSpaceLongClick: (String) -> Unit = {}
 ) {
     LazyRow(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(horizontal = 16.dp)
     ) {
+        item(key = "space_all") {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = if (selectedSpaceId == null) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.clickable { onSpaceClick("") }
+            ) {
+                Text(
+                    text = "Все",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (selectedSpaceId == null) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+        }
         items(
             items = spaces,
             key = { "space_${it.roomId}" }
         ) { space ->
+            val isSelected = selectedSpaceId == space.roomId
             Surface(
                 shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.clickable { onSpaceClick(space.roomId) }
+                color = when {
+                    isSelected -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.primaryContainer
+                },
+                modifier = Modifier.combinedClickable(
+                    onClick = { onSpaceClick(space.roomId) },
+                    onLongClick = { onSpaceLongClick(space.roomId) }
+                )
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -545,7 +579,8 @@ private fun SpacesRow(
                     Text(
                         text = space.name ?: space.roomId,
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                        else MaterialTheme.colorScheme.onPrimaryContainer,
                         maxLines = 1
                     )
                 }

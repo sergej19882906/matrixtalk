@@ -14,6 +14,11 @@ sealed class Screen(val route: String) {
     object Devices : Screen("devices")
     object Search : Screen("search")
     object RoomsCatalog : Screen("rooms_catalog")
+    object Thread : Screen("chat/{roomId}/thread/{rootId}") {
+        fun createRoute(roomId: String, rootId: String): String {
+            return "chat/$roomId/thread/$rootId"
+        }
+    }
     object RoomSettings : Screen("room/{roomId}/settings") {
         fun createRoute(roomId: String): String {
             return "room/$roomId/settings"

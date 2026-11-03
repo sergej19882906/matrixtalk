@@ -35,7 +35,11 @@ data class HomeUiState(
     val contactSearchError: String? = null,
     val invites: List<ChatRoom> = emptyList(),
     val spaces: List<ChatRoom> = emptyList(),
-    val mutedRooms: Set<String> = emptySet()
+    val mutedRooms: Set<String> = emptySet(),
+    /** Currently selected space filter, null = all chats. */
+    val selectedSpaceId: String? = null,
+    /** Room ids belonging to the selected space (loaded on selection). */
+    val selectedSpaceRoomIds: Set<String> = emptySet()
 )
 
 class HomeViewModel(
@@ -278,6 +282,21 @@ class HomeViewModel(
         return sorted.filter {
             it.name?.contains(query, ignoreCase = true) == true ||
             it.topic?.contains(query, ignoreCase = true) == true
+        }
+    }
+
+    fun selectSpace(spaceId: String?) {
+        val current = _uiState.value
+        if (spaceId.isNullOrEmpty() || current.selectedSpaceId == spaceId) {
+            _uiState.value = current.copy(selectedSpaceId = null, selectedSpaceRoomIds = emptySet())
+            return
+        }
+        _uiState.value = current.copy(selectedSpaceId = spaceId, selectedSpaceRoomIds = emptySet())
+        viewModelScope.launch {
+            val children = runCatching { matrixRepository.getSpaceChildren(spaceId) }.getOrDefault(emptyList())
+            if (_uiState.value.selectedSpaceId == spaceId) {
+                _uiState.value = _uiState.value.copy(selectedSpaceRoomIds = children.map { it.roomId }.toSet())
+            }
         }
     }
 

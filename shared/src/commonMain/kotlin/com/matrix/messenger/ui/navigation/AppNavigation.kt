@@ -101,7 +101,24 @@ fun AppNavigation(
                         navController.navigate(Screen.Call.route)
                     }
                 },
-                onOpenRoomSettings = { navController.navigate(Screen.RoomSettings.createRoute(roomId)) }
+                onOpenRoomSettings = { navController.navigate(Screen.RoomSettings.createRoute(roomId)) },
+                onOpenThread = { rootId -> navController.navigate(Screen.Thread.createRoute(roomId, rootId)) }
+            )
+        }
+
+        composable(
+            route = Screen.Thread.route,
+            arguments = listOf(
+                navArgument("roomId") { type = NavType.StringType },
+                navArgument("rootId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: return@composable
+            val rootId = backStackEntry.arguments?.getString("rootId") ?: return@composable
+            com.matrix.messenger.ui.chat.ThreadScreen(
+                roomId = roomId,
+                rootId = rootId,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 

@@ -5,6 +5,9 @@ import com.matrix.messenger.call.WebRtcEvent
 import com.matrix.messenger.data.call.CallCandidate
 import com.matrix.messenger.data.call.CallSignalingCommand
 import com.matrix.messenger.data.call.CallSignalingEvent
+import com.matrix.messenger.data.model.KeyBackupStatus
+import com.matrix.messenger.data.model.PresenceInfo
+import com.matrix.messenger.data.model.ReadReceipt
 import com.matrix.messenger.data.model.RoomNotificationLevel
 import com.matrix.messenger.data.model.RoomSettingsInfo
 import com.matrix.messenger.data.model.RoomMemberInfo
@@ -90,6 +93,12 @@ class CallRepositoryTest {
         override suspend fun setRoomNotificationLevel(roomId: String, level: RoomNotificationLevel) = Unit
         override suspend fun unreact(roomId: String, eventId: String, reaction: String) = Unit
         override suspend fun setRoomMarkedUnread(roomId: String, unread: Boolean) = Unit
+        override fun getReadReceiptsFlow(roomId: String): Flow<Map<String, List<ReadReceipt>>> =
+            MutableStateFlow(emptyMap())
+        override suspend fun getPresence(userId: String): PresenceInfo? = null
+        override suspend fun setOwnPresence(online: Boolean) = Unit
+        override suspend fun sendSticker(roomId: String, filePath: String, mimeType: String) = Unit
+        override suspend fun getKeyBackupStatus(): KeyBackupStatus? = null
         override suspend fun replyToMessage(roomId: String, eventId: String, text: String, threadRootId: String?) = Unit
         override suspend fun sendFileMessage(roomId: String, filePath: String, mimeType: String, caption: String?) = Unit
         override suspend fun getRoomInfo(roomId: String): ChatRoom? = null

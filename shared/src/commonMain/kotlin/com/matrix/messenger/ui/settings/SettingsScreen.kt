@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
@@ -163,6 +164,45 @@ fun SettingsScreen(
                             ThemeMode.DARK -> "Тёмная"
                         },
                         style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+            // Шифрование и ключи
+            SettingsSectionHeader("Шифрование и ключи")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.Shield,
+                    contentDescription = null,
+                    tint = if (uiState.keyBackupVersion != null) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (uiState.keyBackupVersion != null) {
+                            "Резервное копирование ключей включено"
+                        } else {
+                            "Резервное копирование ключей не активно"
+                        },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = if (uiState.keyBackupVersion != null) {
+                            "Версия: \${uiState.keyBackupVersion}. История расшифровывается автоматически."
+                        } else {
+                            "Включите резервное копирование в Element, чтобы переносить историю."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
