@@ -147,7 +147,12 @@ fun AppNavigation(
         composable(Screen.Settings.route) {
             com.matrix.messenger.ui.settings.SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
-                onOpenDevices = { navController.navigate(Screen.Devices.route) }
+                onOpenDevices = { navController.navigate(Screen.Devices.route) },
+                onLogout = {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
             )
         }
 

@@ -122,6 +122,12 @@ class SettingsViewModel(
         }
     }
 
+    fun logout() {
+        viewModelScope.launch {
+            runCatching { matrixRepository.logout() }
+        }
+    }
+
     fun consumeProxyMessage() {
         if (_uiState.value.proxyMessage != null) {
             _uiState.value = _uiState.value.copy(proxyMessage = null)

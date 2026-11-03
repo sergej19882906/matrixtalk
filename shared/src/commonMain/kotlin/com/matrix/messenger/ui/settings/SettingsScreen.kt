@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Notifications
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhonelinkLock
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -61,6 +63,7 @@ import org.koin.compose.viewmodel.koinViewModel
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onOpenDevices: () -> Unit,
+    onLogout: () -> Unit = {},
     viewModel: SettingsViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -183,7 +186,60 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
             // Шифрование и ключи
-            SettingsSectionHeader("Шифрование и ключи")
+            SettingsSectionHeader("Уведомления")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.setNotificationsEnabled(!uiState.notificationsEnabled) }
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Уведомления о сообщениях",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = uiState.notificationsEnabled,
+                    onCheckedChange = viewModel::setNotificationsEnabled
+                )
+            }
+            Text(
+                text = uiState.pushStatus ?: "Фоновая проверка новых сообщений каждые 15 минут (Android)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+            // О приложении
+            SettingsSectionHeader("Безопасность и сессии")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenDevices)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.PhonelinkLock,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("Сессии и ключи", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = "Верификация, выход с устройств, экспорт и импорт ключей",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -209,7 +265,7 @@ fun SettingsScreen(
                     )
                     Text(
                         text = if (uiState.keyBackupVersion != null) {
-                            "Версия: \${uiState.keyBackupVersion}. История расшифровывается автоматически."
+                            "Версия: ${uiState.keyBackupVersion}. История расшифровывается автоматически."
                         } else {
                             "Включите резервное копирование в Element, чтобы переносить историю."
                         },
@@ -222,6 +278,9 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
             // Звук и видео
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+            // Сеть: прокси
             SettingsSectionHeader("Звук и видео")
             if (uiState.audioInputDevices.isNotEmpty()) {
                 MediaDeviceSelector(
@@ -251,33 +310,6 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
             // Устройства и безопасность
-            SettingsSectionHeader("Безопасность")
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onOpenDevices)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Default.PhonelinkLock,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text("Устройства", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        text = "Сессии аккаунта и ключи шифрования",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-            // Сеть: прокси
             SettingsSectionHeader("Прокси")
             var proxyType by remember(uiState.proxy) {
                 mutableStateOf(uiState.proxy?.type ?: com.matrix.messenger.data.model.ProxyType.NONE)
@@ -382,36 +414,6 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
             // Уведомления
-            SettingsSectionHeader("Уведомления")
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { viewModel.setNotificationsEnabled(!uiState.notificationsEnabled) }
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Уведомления о сообщениях",
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f)
-                )
-                Switch(
-                    checked = uiState.notificationsEnabled,
-                    onCheckedChange = viewModel::setNotificationsEnabled
-                )
-            }
-            Text(
-                text = uiState.pushStatus ?: "Фоновая проверка новых сообщений каждые 15 минут (Android)",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-            // О приложении
             SettingsSectionHeader("О приложении")
             Text(
                 text = "MatrixTalk ${appVersionName()}",
@@ -424,6 +426,22 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+            SettingsSectionHeader("Аккаунт")
+            Button(
+                onClick = onLogout,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.error
+                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            ) {
+                Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Выйти из аккаунта")
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
