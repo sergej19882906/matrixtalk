@@ -1,3 +1,6 @@
+# ARM64 override (Raspberry Pi и другие aarch64-хосты).
+# Все образы матрикс-стека собираются мультиарх (amd64 + arm64) в CI;
+# этот файл явно фиксирует платформу, если Docker выбрал не ту.
 services:
   synapse:
     platform: linux/arm64
@@ -14,6 +17,9 @@ services:
   synapse-admin:
     platform: linux/arm64
 
+  ntfy:
+    platform: linux/arm64
+
   telegram-bridge:
     platform: linux/arm64
 
@@ -21,4 +27,19 @@ services:
     platform: linux/arm64
 
   signal-bridge:
+    platform: linux/arm64
+
+  mautrix-meta-bridge:
+    platform: linux/arm64
+
+  mautrix-gmessages-bridge:
+    platform: linux/arm64
+
+  mautrix-discord-bridge:
+    platform: linux/arm64
+
+  heisenbridge:
+    platform: linux/arm64
+
+  hookshot:
     platform: linux/arm64
