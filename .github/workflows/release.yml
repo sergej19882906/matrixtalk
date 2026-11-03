@@ -202,16 +202,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            cp app/build/outputs/apk/release/app-release.apk "release-assets/MatrixTalk-${{ github.ref_name }}.apk"
-          else
-            cp app/build/outputs/apk/debug/app-debug.apk "release-assets/MatrixTalk-${{ github.ref_name }}-debug.apk"
-          fi
+          cp desktop-app/build/compose/binaries/main/${{ matrix.format }}/${{ matrix.glob }} release-assets/
 
       - uses: actions/upload-artifact@v4
         with:
-          name: android-apk
-          path: release-assets/*.apk
+          name: desktop-${{ matrix.format }}
+          path: release-assets/*
 
   publish:
     needs: [android-apk, desktop]
