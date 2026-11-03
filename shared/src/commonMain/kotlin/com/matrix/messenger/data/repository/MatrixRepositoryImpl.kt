@@ -48,6 +48,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
+import kotlinx.serialization.json.JsonPrimitive
+import net.folivo.trixnity.core.model.events.m.MarkedUnreadEventContent
+import net.folivo.trixnity.core.model.events.EventType
+import net.folivo.trixnity.core.model.events.StateEventContent
+import net.folivo.trixnity.core.model.push.PushAction
+import com.matrix.messenger.data.model.RoomNotificationLevel
+import kotlin.reflect.KClass
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -392,7 +399,14 @@ class MatrixRepositoryImpl : MatrixRepository {
             logError("MatrixRepository", "fromStore restore failed, falling back to token", t)
         }
         // No persisted store yet: fall back to the persisted session token.
-        _mutedRooms.value = runCatching { SessionStore.readMutedRooms().toSet() }.getOrDefault(emptySet())
+        _mutedRooms.value = runCatching {
+            val levels = SessionStore.readRoomNotificationLevels()
+            if (levels.isEmpty()) {
+                SessionStore.readMutedRooms().toSet()
+            } else {
+                levels.filterValues { it == RoomNotificationLevel.MUTE.name }.keys
+            }
+        }.getOrDefault(emptySet())
         val session = SessionStore.read()
         if (session == null) {
             _connectionState.value = ConnectionState.Disconnected("No active session")
@@ -602,9 +616,12 @@ class MatrixRepositoryImpl : MatrixRepository {
                                 val polls = aggregatePolls(events, c.userId)
                                 events.mapNotNull { it.toMessageOrNull(c) }
                                     .map { message ->
-                                        val counts = reactions[message.eventId]
-                                        val withReactions = if (counts.isNullOrEmpty()) message
-                                        else message.copy(reactions = counts)
+                                        val entry = reactions[message.eventId]
+                                        val withReactions = if (entry.isNullOrEmpty()) message
+                                        else message.copy(
+                                            reactions = entry.mapValues { it.value.first },
+                                            myReactions = entry.filterValues { it.second.contains(c.userId.full) }.keys
+                                        )
                                         val pollSummary = polls[message.eventId]
                                         if (pollSummary != null) {
                                             withReactions.copy(
@@ -643,7 +660,7 @@ class MatrixRepositoryImpl : MatrixRepository {
     private fun pageSizeFor(roomId: String) =
         pageSizes.getOrPut(roomId) { MutableStateFlow(MESSAGE_PAGE_SIZE) }
 
-    private fun aggregateReactions(events: List<TimelineEvent>): Map<String, Map<String, Int>> {
+    private fun aggregateReactions(events: List<TimelineEvent>): Map<String, Map<String, Pair<Int, Set<String>>>> {
         val aggregated = mutableMapOf<String, MutableMap<String, MutableSet<String>>>()
         events.forEach { timelineEvent ->
             val content = timelineEvent.content?.getOrNull() as? ReactionEventContent ?: return@forEach
@@ -654,7 +671,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 .add(timelineEvent.sender.full)
         }
         return aggregated.mapValues { (_, byKey) ->
-            byKey.mapValues { (_, senders) -> senders.size }
+            byKey.mapValues { (_, senders) -> senders.size to senders.toSet() }
         }
     }
 
@@ -798,6 +815,15 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
     }
 
+    override suspend fun setRoomMarkedUnread(roomId: String, unread: Boolean) {
+        val c = requireClient()
+        c.api.room.setAccountData(
+            MarkedUnreadEventContent(unread = unread),
+            roomId = RoomId(roomId),
+            userId = c.userId
+        ).getOrThrow()
+    }
+
     override suspend fun leaveRoom(roomId: String) {
         requireClient().api.room.leaveRoom(RoomId(roomId)).getOrThrow()
     }
@@ -837,7 +863,28 @@ class MatrixRepositoryImpl : MatrixRepository {
                     val nameFlow = c.room.getState<NameEventContent>(rId).map { it?.content?.name }
                     val topicFlow = c.room.getState<TopicEventContent>(rId).map { it?.content?.topic }
                     val avatarFlow = c.room.getState<AvatarEventContent>(rId).map { it?.content?.url }
-                    combine(nameFlow, topicFlow, avatarFlow) { name: String?, topic: String?, avatarMxc: String? ->
+                    val plsFlow = c.room.getState<PowerLevelsEventContent>(rId)
+                    combine(
+                        nameFlow,
+                        topicFlow,
+                        avatarFlow,
+                        plsFlow
+                    ) { name: String?, topic: String?, avatarMxc: String?, pls: ClientEvent.StateBaseEvent<PowerLevelsEventContent>? ->
+                        val content = pls?.content
+                        val myPl = content?.users?.get(c.userId) ?: content?.usersDefault ?: 0
+                        fun requiredFor(contentClass: KClass<out StateEventContent>, typeName: String): Long =
+                            content?.events?.get(EventType(contentClass, typeName))
+                                ?: content?.stateDefault ?: 50
+                        val requiredEdit = maxOf(
+                            requiredFor(NameEventContent::class, "m.room.name"),
+                            requiredFor(TopicEventContent::class, "m.room.topic"),
+                            requiredFor(AvatarEventContent::class, "m.room.avatar")
+                        )
+                        val requiredKick = content?.kick ?: 50
+                        val requiredBan = content?.ban ?: 50
+                        val requiredInvite = content?.invite ?: 0
+                        val plKey = EventType(PowerLevelsEventContent::class, "m.room.power_levels")
+                        val requiredPl = content?.events?.get(plKey) ?: content?.stateDefault ?: 50
                         RoomSettingsInfo(
                             roomId = roomId,
                             name = name ?: room.name?.explicitName ?: room.name?.heroes
@@ -847,7 +894,12 @@ class MatrixRepositoryImpl : MatrixRepository {
                             avatarUrl = avatarMxc,
                             isEncrypted = room.encrypted,
                             memberCount = (room.name?.heroes?.size ?: 0) + (room.name?.otherUsersCount ?: 0) + 1,
-                            canEdit = room.name?.heroes?.isNotEmpty() == true || true
+                            canEdit = myPl >= requiredEdit,
+                            myPowerLevel = myPl,
+                            canInvite = myPl >= requiredInvite,
+                            canKick = myPl >= requiredKick,
+                            canBan = myPl >= requiredBan,
+                            canChangePowerLevels = myPl >= requiredPl
                         )
                     }
                 }
@@ -873,7 +925,8 @@ class MatrixRepositoryImpl : MatrixRepository {
                                 name = user?.name,
                                 avatarUrl = member?.avatarUrl,
                                 powerLevel = pls?.content?.users?.get(userId) ?: pls?.content?.usersDefault ?: 0,
-                                isSelf = userId == c.userId
+                                isSelf = userId == c.userId,
+                                membership = member?.membership?.value ?: "join"
                             )
                         }.filter { memberInfo: RoomMemberInfo -> memberInfo.name != null }
                     }
@@ -911,6 +964,23 @@ class MatrixRepositoryImpl : MatrixRepository {
         requireClient().api.room.kickUser(RoomId(roomId), UserId(userId)).getOrThrow()
     }
 
+    override suspend fun banUser(roomId: String, userId: String, reason: String?) {
+        requireClient().api.room.banUser(RoomId(roomId), UserId(userId), reason).getOrThrow()
+    }
+
+    override suspend fun unbanUser(roomId: String, userId: String) {
+        requireClient().api.room.unbanUser(RoomId(roomId), UserId(userId)).getOrThrow()
+    }
+
+    override suspend fun setUserPowerLevel(roomId: String, userId: String, level: Long) {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        val current = c.room.getState<PowerLevelsEventContent>(rId).firstOrNull()?.content
+            ?: PowerLevelsEventContent()
+        val updated = current.copy(users = current.users + (UserId(userId) to level))
+        c.api.room.sendStateEvent(rId, updated)
+    }
+
     private val _mutedRooms = MutableStateFlow<Set<String>>(emptySet())
 
     override fun mutedRoomsFlow(): StateFlow<Set<String>> = _mutedRooms.asStateFlow()
@@ -934,6 +1004,74 @@ class MatrixRepositoryImpl : MatrixRepository {
         if (muted) mutedRooms.add(roomId) else mutedRooms.remove(roomId)
         SessionStore.saveMutedRooms(mutedRooms)
         _mutedRooms.value = mutedRooms.toSet()
+        setRoomNotificationLevel(roomId, if (muted) RoomNotificationLevel.MUTE else RoomNotificationLevel.ALL_MESSAGES)
+    }
+
+    override suspend fun getRoomNotificationLevel(roomId: String): RoomNotificationLevel {
+        // Server push rule wins; local cache is the offline fallback.
+        val serverLevel = runCatching {
+            val rule = requireClient().api.push.getPushRule(
+                scope = "global",
+                kind = PushRuleKind.ROOM,
+                ruleId = RoomId(roomId).full
+            ).getOrNull() ?: return RoomNotificationLevel.ALL_MESSAGES
+            when {
+                rule.actions.isEmpty() -> RoomNotificationLevel.MUTE
+                rule.actions.any { it is PushAction.Notify || it is PushAction.SetHighlightTweak } ->
+                    RoomNotificationLevel.ALL_MESSAGES
+                else -> RoomNotificationLevel.MENTIONS_ONLY
+            }
+        }.getOrNull()
+        if (serverLevel != null && serverLevel != RoomNotificationLevel.ALL_MESSAGES) {
+            persistNotificationLevel(roomId, serverLevel)
+            return serverLevel
+        }
+        if (serverLevel != null) {
+            persistNotificationLevel(roomId, serverLevel)
+            return serverLevel
+        }
+        return RoomNotificationLevel.fromStored(
+            SessionStore.readRoomNotificationLevels()[roomId]
+        )
+    }
+
+    private suspend fun persistNotificationLevel(roomId: String, level: RoomNotificationLevel) {
+        val levels = SessionStore.readRoomNotificationLevels().toMutableMap()
+        if (level == RoomNotificationLevel.ALL_MESSAGES) levels.remove(roomId) else levels[roomId] = level.name
+        SessionStore.saveRoomNotificationLevels(levels)
+    }
+
+    override suspend fun setRoomNotificationLevel(roomId: String, level: RoomNotificationLevel) {
+        val c = requireClient()
+        val ruleId = RoomId(roomId).full
+        when (level) {
+            RoomNotificationLevel.ALL_MESSAGES -> {
+                runCatching {
+                    c.api.push.deletePushRule(scope = "global", kind = PushRuleKind.ROOM, ruleId = ruleId)
+                }
+            }
+            RoomNotificationLevel.MENTIONS_ONLY -> {
+                c.api.push.setPushRule(
+                    scope = "global",
+                    kind = PushRuleKind.ROOM,
+                    ruleId = ruleId,
+                    pushRule = SetPushRule.Request(
+                        actions = setOf(PushAction.Unknown("dont_notify", JsonPrimitive("dont_notify")))
+                    )
+                ).getOrThrow()
+            }
+            RoomNotificationLevel.MUTE -> {
+                c.api.push.setPushRule(
+                    scope = "global",
+                    kind = PushRuleKind.ROOM,
+                    ruleId = ruleId,
+                    pushRule = SetPushRule.Request(actions = emptySet())
+                ).getOrThrow()
+            }
+        }
+        persistNotificationLevel(roomId, level)
+        _mutedRooms.value = SessionStore.readRoomNotificationLevels()
+            .filterValues { it == RoomNotificationLevel.MUTE.name }.keys
     }
 
     override fun getRoomTrustFlow(roomId: String): Flow<RoomTrust> = _clientState.flatMapLatest { c ->
@@ -1144,6 +1282,22 @@ class MatrixRepositoryImpl : MatrixRepository {
                 emit(emptyList())
             }
         }
+    }
+
+    override suspend fun unreact(roomId: String, eventId: String, reaction: String) {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        val target = EventId(eventId)
+        val events = c.room.getLastTimelineEvents(rId)
+            .toFlowList(pageSizeFor(roomId)).firstOrNull().orEmpty()
+            .mapNotNull { it.firstOrNull() }
+        val mine = events.lastOrNull { timelineEvent ->
+            val content = timelineEvent.content?.getOrNull() as? ReactionEventContent ?: return@lastOrNull false
+            val annotation = content.relatesTo as? RelatesTo.Annotation ?: return@lastOrNull false
+            annotation.eventId == target && annotation.key == reaction && timelineEvent.sender == c.userId
+        }
+        val reactionEventId = mine?.event?.id ?: return
+        c.api.room.redactEvent(rId, reactionEventId).getOrThrow()
     }
 
     override suspend fun sendReaction(eventId: String, reaction: String) {
@@ -1580,7 +1734,8 @@ class MatrixRepositoryImpl : MatrixRepository {
             membersCount = (name?.heroes?.size ?: 0) + (name?.otherUsersCount ?: 0) + 1,
             isFavorite = FAVORITE_TAG in tags,
             isLowPriority = LOW_PRIORITY_TAG in tags,
-            isEncrypted = encrypted
+            isEncrypted = encrypted,
+            isMarkedUnread = markedUnread
         )
     }
 

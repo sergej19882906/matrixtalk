@@ -80,6 +80,78 @@ class MarkdownToHtmlTest {
     }
 
     @Test
+    fun labeledLink() {
+        assertEquals(
+            "<a href=\"https://matrix.org\">Matrix</a>",
+            MarkdownToHtml.convert("[Matrix](https://matrix.org)")
+        )
+    }
+
+    @Test
+    fun labeledLinkWithFormatting() {
+        assertEquals(
+            "<a href=\"https://x.org\"><strong>жирная ссылка</strong></a>",
+            MarkdownToHtml.convert("[**жирная ссылка**](https://x.org)")
+        )
+    }
+
+    @Test
+    fun unorderedList() {
+        assertEquals(
+            "<ul><li>первый</li><li>второй</li></ul>",
+            MarkdownToHtml.convert("- первый\n- второй")
+        )
+    }
+
+    @Test
+    fun orderedList() {
+        assertEquals(
+            "<ol><li>раз</li><li>два</li></ol>",
+            MarkdownToHtml.convert("1. раз\n2. два")
+        )
+    }
+
+    @Test
+    fun blockquote() {
+        assertEquals(
+            "<blockquote>цитата<br />ещё строка</blockquote>",
+            MarkdownToHtml.convert("> цитата\n> ещё строка")
+        )
+    }
+
+    @Test
+    fun quoteFollowedByParagraph() {
+        assertEquals(
+            "<blockquote>цитата</blockquote><br />обычный текст",
+            MarkdownToHtml.convert("> цитата\nобычный текст")
+        )
+    }
+
+    @Test
+    fun listWithBoldItem() {
+        assertEquals(
+            "<ul><li><strong>жирный</strong> пункт</li></ul>",
+            MarkdownToHtml.convert("- **жирный** пункт")
+        )
+    }
+
+    @Test
+    fun boldAroundUrlStillWorks() {
+        assertEquals(
+            "<strong><a href=\"https://x.org\">https://x.org</a></strong>",
+            MarkdownToHtml.convert("**https://x.org**")
+        )
+    }
+
+    @Test
+    fun htmlInLabeledLinkLabelEscaped() {
+        assertEquals(
+            "<a href=\"https://x.org\">&lt;b&gt;не жирный&lt;/b&gt;</a>",
+            MarkdownToHtml.convert("[<b>не жирный</b>](https://x.org)")
+        )
+    }
+
+    @Test
     fun ampersandEscapedInUrl() {
         assertEquals(
             "<a href=\"https://x.org?a=1&amp;b=2\">https://x.org?a=1&amp;b=2</a>",

@@ -13,22 +13,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -38,11 +39,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -58,16 +60,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.matrix.messenger.data.model.RoomMemberInfo
+import com.matrix.messenger.data.model.RoomNotificationLevel
+import com.matrix.messenger.data.model.RoomSettingsInfo
 import com.matrix.messenger.platform.rememberFilePicker
 import com.matrix.messenger.ui.components.MatrixAvatar
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
 /**
- * Element X style room settings: avatar, name, topic, notification mute,
- * encryption status and the member list with power-level badges and kick.
+ * Element X style room settings: avatar, name, topic, notification levels,
+ * encryption status, member list with search, member card and moderation
+ * actions (kick / ban / unban / power level change / invite).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,7 +85,7 @@ fun RoomSettingsScreen(
 ) {
     val settings by viewModel.settings.collectAsState()
     val members by viewModel.members.collectAsState()
-    val isMuted by viewModel.isMuted.collectAsState()
+    val notificationLevel by viewModel.notificationLevel.collectAsState()
     val busy by viewModel.busy.collectAsState()
     val message by viewModel.message.collectAsState()
 
@@ -90,8 +96,10 @@ fun RoomSettingsScreen(
 
     var editingName by remember { mutableStateOf(false) }
     var editingTopic by remember { mutableStateOf(false) }
-    var confirmKick by remember { mutableStateOf<RoomMemberInfo?>(null) }
+    var inviting by remember { mutableStateOf(false) }
+    var selectedMember by remember { mutableStateOf<RoomMemberInfo?>(null) }
     var confirmLeave by remember { mutableStateOf(false) }
+    var memberSearch by remember { mutableStateOf("") }
 
     LaunchedEffect(message) {
         message?.let {
@@ -142,19 +150,21 @@ fun RoomSettingsScreen(
                         avatarUrl = info.avatarUrl,
                         size = 96.dp
                     )
-                    IconButton(
-                        onClick = { pickAvatar() },
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(percent = 50))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Icon(
-                            Icons.Default.PhotoCamera,
-                            contentDescription = "Изменить аватар",
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    if (info.canEdit) {
+                        IconButton(
+                            onClick = { pickAvatar() },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(percent = 50))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Icon(
+                                Icons.Default.PhotoCamera,
+                                contentDescription = "Изменить аватар",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -190,7 +200,8 @@ fun RoomSettingsScreen(
             SettingFieldRow(
                 label = "Название",
                 value = info.name,
-                onEdit = { editingName = true }
+                onEdit = { editingName = true },
+                editable = info.canEdit
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
 
@@ -199,61 +210,106 @@ fun RoomSettingsScreen(
                 label = "Описание",
                 value = info.topic,
                 emptyHint = "Добавить описание",
-                onEdit = { editingTopic = true }
+                onEdit = { editingTopic = true },
+                editable = info.canEdit
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
 
-            // Notifications toggle
+            // Notifications: three levels like Element
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
+                    .padding(top = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = if (isMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
+                    imageVector = if (notificationLevel == RoomNotificationLevel.MUTE) {
+                        Icons.Default.NotificationsOff
+                    } else {
+                        Icons.Default.Notifications
+                    },
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Уведомления", style = MaterialTheme.typography.bodyLarge)
+                Text("Уведомления", style = MaterialTheme.typography.bodyLarge)
+            }
+            RoomNotificationLevel.entries.forEach { level ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.setNotificationLevel(level) }
+                        .padding(start = 34.dp, top = 2.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = notificationLevel == level,
+                        onClick = { viewModel.setNotificationLevel(level) }
+                    )
                     Text(
-                        text = if (isMuted) "Отключены" else "Включены",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = when (level) {
+                            RoomNotificationLevel.ALL_MESSAGES -> "Все сообщения"
+                            RoomNotificationLevel.MENTIONS_ONLY -> "Только упоминания"
+                            RoomNotificationLevel.MUTE -> "Без звука"
+                        },
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
-                Switch(
-                    checked = !isMuted,
-                    onCheckedChange = { enabled -> viewModel.toggleMuted(!enabled) },
-                    enabled = !busy
-                )
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
 
             Spacer(Modifier.height(20.dp))
-            Text(
-                text = "Участники (${members.size})",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Участники (${members.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                if (info.canInvite) {
+                    TextButton(onClick = { inviting = true }) {
+                        Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Пригласить")
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+
+            OutlinedTextField(
+                value = memberSearch,
+                onValueChange = { memberSearch = it },
+                placeholder = { Text("Поиск участников") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
             )
             Spacer(Modifier.height(4.dp))
 
-            members.take(50).forEach { member ->
+            val query = memberSearch.trim().lowercase()
+            val visibleMembers = if (query.isEmpty()) {
+                members
+            } else {
+                members.filter {
+                    it.name?.lowercase()?.contains(query) == true || it.userId.lowercase().contains(query)
+                }
+            }
+            visibleMembers.forEach { member ->
                 MemberRow(
                     member = member,
-                    canKick = member.isSelf.not(),
-                    onKick = { confirmKick = member }
+                    canModerate = info.canKick && (member.isSelf || member.powerLevel < info.myPowerLevel),
+                    onClick = { selectedMember = member }
                 )
             }
-            if (members.size > 50) {
+            if (visibleMembers.isEmpty() && query.isNotEmpty()) {
                 Text(
-                    text = "…и ещё ${members.size - 50}",
+                    text = "Никого не найдено",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp)
+                    modifier = Modifier.padding(vertical = 12.dp)
                 )
             }
 
@@ -301,24 +357,62 @@ fun RoomSettingsScreen(
         )
     }
 
-    // Kick confirmation
-    confirmKick?.let { member ->
+    // Invite dialog
+    if (inviting) {
+        var inviteUserId by remember { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { confirmKick = null },
-            title = { Text("Исключить участника") },
-            text = { Text("Исключить ${member.name ?: member.userId} из комнаты?") },
+            onDismissRequest = { inviting = false },
+            title = { Text("Пригласить пользователя") },
+            text = {
+                OutlinedTextField(
+                    value = inviteUserId,
+                    onValueChange = { inviteUserId = it },
+                    placeholder = { Text("@user:server") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.kickUser(member.userId)
-                    confirmKick = null
-                }) {
-                    Text("Исключить", color = MaterialTheme.colorScheme.error)
-                }
+                TextButton(
+                    onClick = {
+                        inviting = false
+                        viewModel.inviteUser(inviteUserId.trim())
+                    },
+                    enabled = inviteUserId.trim().startsWith("@") && inviteUserId.trim().contains(":")
+                ) { Text("Пригласить") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmKick = null }) { Text("Отмена") }
+                TextButton(onClick = { inviting = false }) { Text("Отмена") }
             }
         )
+    }
+
+    // Member card (Element X style bottom sheet)
+    selectedMember?.let { member ->
+        settings?.let { info ->
+        MemberCardSheet(
+            member = member,
+            info = info,
+            busy = busy,
+            onDismiss = { selectedMember = null },
+            onKick = {
+                viewModel.kickUser(member.userId)
+                selectedMember = null
+            },
+            onBan = {
+                viewModel.banUser(member.userId)
+                selectedMember = null
+            },
+            onUnban = {
+                viewModel.unbanUser(member.userId)
+                selectedMember = null
+            },
+            onPowerLevel = { level ->
+                viewModel.setUserPowerLevel(member.userId, level)
+                selectedMember = null
+            }
+        )
+        }
     }
 
     // Leave confirmation
@@ -347,12 +441,13 @@ private fun SettingFieldRow(
     label: String,
     value: String?,
     emptyHint: String? = null,
+    editable: Boolean,
     onEdit: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onEdit)
+            .clickable(enabled = editable, onClick = onEdit)
             .padding(vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -366,27 +461,30 @@ private fun SettingFieldRow(
             Text(
                 text = value?.takeIf { it.isNotBlank() } ?: emptyHint ?: "—",
                 style = MaterialTheme.typography.bodyLarge,
-                color = if (value.isNullOrBlank() && emptyHint != null) {
+                color = if (value.isNullOrBlank() && emptyHint != null && editable) {
                     MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.onSurface
                 }
             )
         }
-        Icon(
-            Icons.Default.Edit,
-            contentDescription = "Изменить $label",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp)
-        )
+        if (editable) {
+            Icon(
+                Icons.Default.Edit,
+                contentDescription = "Изменить $label",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
     }
 }
 
 @Composable
-private fun MemberRow(member: RoomMemberInfo, canKick: Boolean, onKick: () -> Unit) {
+private fun MemberRow(member: RoomMemberInfo, canModerate: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -396,15 +494,16 @@ private fun MemberRow(member: RoomMemberInfo, canKick: Boolean, onKick: () -> Un
             Text(
                 text = member.name ?: member.userId,
                 style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-            if (member.isSelf) {
-                Text(
-                    text = "Вы",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = if (member.isSelf) "Вы · ${member.userId}" else member.userId,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
         val badge = when {
             member.powerLevel >= 100 -> "Админ"
@@ -423,16 +522,134 @@ private fun MemberRow(member: RoomMemberInfo, canKick: Boolean, onKick: () -> Un
             )
             Spacer(Modifier.width(8.dp))
         }
-        if (canKick) {
-            IconButton(onClick = onKick, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.Default.PersonRemove,
-                    contentDescription = "Исключить ${member.name ?: member.userId}",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
+        if (canModerate) {
+            Icon(
+                Icons.Default.PersonRemove,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+    }
+}
+
+/** Bottom sheet with a member's profile and allowed moderation actions. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MemberCardSheet(
+    member: RoomMemberInfo,
+    info: RoomSettingsInfo,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onKick: () -> Unit,
+    onBan: () -> Unit,
+    onUnban: () -> Unit,
+    onPowerLevel: (Long) -> Unit
+) {
+    val canModerateTarget = !member.isSelf && member.powerLevel < info.myPowerLevel
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            MatrixAvatar(name = member.name ?: member.userId, avatarUrl = member.avatarUrl, size = 72.dp)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = member.name ?: member.userId,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = member.userId,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "Уровень прав: ${member.powerLevel}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(12.dp))
+
+            if (member.membership == "ban") {
+                if (info.canBan) {
+                    SheetAction(
+                        text = "Разбанить",
+                        icon = Icons.Default.VerticalAlignTop,
+                        enabled = !busy,
+                        onClick = onUnban
+                    )
+                }
+            } else if (info.canBan && canModerateTarget) {
+                SheetAction(
+                    text = "Забанить",
+                    icon = Icons.Default.Block,
+                    enabled = !busy,
+                    onClick = onBan,
+                    destructive = true
                 )
             }
+            if (info.canKick && canModerateTarget) {
+                SheetAction(
+                    text = "Исключить из комнаты",
+                    icon = Icons.Default.PersonRemove,
+                    enabled = !busy,
+                    onClick = onKick,
+                    destructive = true
+                )
+            }
+            if (info.canChangePowerLevels && !member.isSelf) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Изменить уровень прав",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    listOf(0L to "Участник", 50L to "Модератор", 100L to "Админ").forEach { (level, label) ->
+                        TextButton(
+                            onClick = { onPowerLevel(level) },
+                            enabled = !busy && level < info.myPowerLevel
+                        ) { Text(label) }
+                    }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+@Composable
+private fun SheetAction(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    destructive: Boolean = false
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text,
+            color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 

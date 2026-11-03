@@ -21,7 +21,9 @@ data class ChatRoom(
     val membersCount: Int,
     val isFavorite: Boolean = false,
     val isLowPriority: Boolean = false,
-    val isEncrypted: Boolean = false
+    val isEncrypted: Boolean = false,
+    /** Room manually marked unread via account data (m.marked_unread). */
+    val isMarkedUnread: Boolean = false
 )
 
 /**
@@ -51,8 +53,26 @@ data class RoomSettingsInfo(
     val avatarUrl: String?,
     val isEncrypted: Boolean,
     val memberCount: Int,
-    val canEdit: Boolean
+    val canEdit: Boolean,
+    /** Power level of the current user in this room (Element X style permissions). */
+    val myPowerLevel: Long = 0,
+    val canInvite: Boolean = false,
+    val canKick: Boolean = false,
+    val canBan: Boolean = false,
+    val canChangePowerLevels: Boolean = false
 )
+
+/** Room notification level, mirroring Element (all / mentions only / mute). */
+enum class RoomNotificationLevel {
+    ALL_MESSAGES,
+    MENTIONS_ONLY,
+    MUTE;
+
+    companion object {
+        fun fromStored(value: String?): RoomNotificationLevel =
+            entries.firstOrNull { it.name == value } ?: ALL_MESSAGES
+    }
+}
 
 /** A room member for the participant list. */
 data class RoomMemberInfo(
@@ -60,7 +80,9 @@ data class RoomMemberInfo(
     val name: String?,
     val avatarUrl: String?,
     val powerLevel: Long,
-    val isSelf: Boolean
+    val isSelf: Boolean,
+    /** Raw m.room.member membership value: join / ban / leave / invite. */
+    val membership: String = "join"
 )
 
 data class LastMessage(
@@ -99,6 +121,8 @@ data class Message(
     /** Requesting device id for in-room key verification requests (m.key.verification.request). */
     val verificationDeviceId: String? = null,
     val reactions: Map<String, Int> = emptyMap(),
+    /** Reaction keys the current user has added to this message (toggle support). */
+    val myReactions: Set<String> = emptySet(),
     val mediaUrl: String? = null,
     val encryptedFile: EncryptedFile? = null,
     val replyTo: ReplyInfo? = null,

@@ -8,6 +8,7 @@ import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.UiState
 import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.data.repository.MatrixRepository
+import com.matrix.messenger.data.repository.SessionStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -209,12 +210,44 @@ class ChatViewModel(
         _uiState.value = _uiState.value.copy(imageViewerMessageId = null)
     }
 
+    private val _recentReactions = MutableStateFlow<List<String>>(emptyList())
+    val recentReactions: StateFlow<List<String>> = _recentReactions.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _recentReactions.value = runCatching { SessionStore.readRecentReactions() }.getOrDefault(emptyList())
+        }
+    }
+
+    private suspend fun rememberReaction(reaction: String) {
+        val updated = (listOf(reaction) + _recentReactions.value.filter { it != reaction }).take(8)
+        _recentReactions.value = updated
+        runCatching { SessionStore.saveRecentReactions(updated) }
+    }
+
     fun sendReaction(eventId: String, reaction: String) {
         viewModelScope.launch {
             try {
                 matrixRepository.sendReaction(eventId, reaction)
+                rememberReaction(reaction)
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки реакции: ${e.message}"))
+            }
+        }
+    }
+
+    /** Toggles a reaction: adds it, or removes it when the user already reacted with it. */
+    fun toggleReaction(message: Message, reaction: String) {
+        viewModelScope.launch {
+            try {
+                if (reaction in message.myReactions) {
+                    matrixRepository.unreact(_uiState.value.roomId, message.eventId, reaction)
+                } else {
+                    matrixRepository.sendReaction(message.eventId, reaction)
+                    rememberReaction(reaction)
+                }
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка реакции: ${e.message}"))
             }
         }
     }

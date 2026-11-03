@@ -126,6 +126,7 @@ fun ChatScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val verificationState by viewModel.verificationState.collectAsState()
+    val recentReactions by viewModel.recentReactions.collectAsState()
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     var editingMessage by remember { mutableStateOf<Message?>(null) }
@@ -466,8 +467,9 @@ fun ChatScreen(
                                         groupedWithPrevious = item.groupedWithPrevious,
                                         groupedWithNext = item.groupedWithNext,
                                         onReaction = { emoji ->
-                                            viewModel.sendReaction(item.message.eventId, emoji)
+                                            viewModel.toggleReaction(item.message, emoji)
                                         },
+                                        recentReactions = recentReactions,
                                         onEdit = {
                                             editText = item.message.body
                                             editingMessage = item.message
@@ -744,6 +746,7 @@ private fun MessageItem(
     groupedWithPrevious: Boolean,
     groupedWithNext: Boolean,
     isPinned: Boolean,
+    recentReactions: List<String> = emptyList(),
     onReaction: (String) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -981,9 +984,12 @@ private fun MessageItem(
                                     modifier = Modifier.padding(top = 4.dp)
                                 ) {
                                     message.reactions.forEach { (emoji, count) ->
+                                        val isMine = emoji in message.myReactions
                                         Surface(
                                             shape = MaterialTheme.shapes.extraLarge,
-                                            color = MaterialTheme.colorScheme.surface
+                                            color = if (isMine) MaterialTheme.colorScheme.primaryContainer
+                                            else MaterialTheme.colorScheme.surface,
+                                            modifier = Modifier.clickable { onReaction(emoji) }
                                         ) {
                                             Text(
                                                 text = "$emoji $count",
@@ -998,6 +1004,8 @@ private fun MessageItem(
                     }
                     ReactionPicker(
                         expanded = showReactionPicker,
+                        myReactions = message.myReactions,
+                        recentReactions = recentReactions,
                         onDismiss = { showReactionPicker = false },
                         onSelect = onReaction
                     )

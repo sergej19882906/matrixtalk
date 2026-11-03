@@ -18,8 +18,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MarkChatRead
+import androidx.compose.material.icons.filled.MarkChatUnread
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
@@ -296,7 +299,8 @@ fun HomeScreen(
                                         isMuted = uiState.mutedRooms.contains(room.roomId),
                                         onClick = { viewModel.onRoomClick(room.roomId) },
                                         onLeave = { roomToLeave = room },
-                                        onToggleFavorite = { viewModel.toggleFavorite(room.roomId) }
+                                        onToggleFavorite = { viewModel.toggleFavorite(room.roomId) },
+                                        onMarkUnread = { unread -> viewModel.setRoomMarkedUnread(room.roomId, unread) }
                                     )
                                 }
                             }
@@ -652,7 +656,8 @@ private fun RoomItem(
     isMuted: Boolean,
     onClick: () -> Unit,
     onLeave: () -> Unit,
-    onToggleFavorite: () -> Unit
+    onToggleFavorite: () -> Unit,
+    onMarkUnread: (Boolean) -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val hasUnread = room.unreadCount > 0
@@ -740,6 +745,13 @@ private fun RoomItem(
                     } else if (hasUnread) {
                         Spacer(modifier = Modifier.width(8.dp))
                         UnreadBadge(count = room.unreadCount)
+                    } else if (room.isMarkedUnread) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                        )
                     }
 
                     Spacer(modifier = Modifier.width(4.dp))
@@ -771,6 +783,19 @@ private fun RoomItem(
                                 onClick = {
                                     menuExpanded = false
                                     onToggleFavorite()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (room.isMarkedUnread) "Отметить прочитанной" else "Отметить как непрочитанную") },
+                                leadingIcon = {
+                                    Icon(
+                                        if (room.isMarkedUnread) Icons.Default.MarkChatRead else Icons.Default.MarkChatUnread,
+                                        contentDescription = null
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onMarkUnread(!room.isMarkedUnread)
                                 }
                             )
                             DropdownMenuItem(

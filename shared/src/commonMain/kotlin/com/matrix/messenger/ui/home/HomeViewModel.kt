@@ -281,6 +281,12 @@ class HomeViewModel(
         }
     }
 
+    fun setRoomMarkedUnread(roomId: String, unread: Boolean) {
+        viewModelScope.launch {
+            runCatching { matrixRepository.setRoomMarkedUnread(roomId, unread) }
+        }
+    }
+
     fun toggleFavorite(roomId: String) {
         viewModelScope.launch {
             try {

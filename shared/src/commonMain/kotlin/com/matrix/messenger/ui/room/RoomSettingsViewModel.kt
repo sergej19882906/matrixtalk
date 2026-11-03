@@ -3,6 +3,7 @@ package com.matrix.messenger.ui.room
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.matrix.messenger.data.model.RoomMemberInfo
+import com.matrix.messenger.data.model.RoomNotificationLevel
 import com.matrix.messenger.data.model.RoomSettingsInfo
 import com.matrix.messenger.data.repository.MatrixRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,7 +15,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Element X style room settings: name / topic / avatar editing, notification
- * mute toggle, member list with power levels and moderation actions.
+ * levels, member list with power levels and moderation actions (kick / ban /
+ * unban / power level change / invite).
  */
 class RoomSettingsViewModel(
     private val matrixRepository: MatrixRepository,
@@ -29,8 +31,9 @@ class RoomSettingsViewModel(
         matrixRepository.getRoomMembersFlow(roomId)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _isMuted = MutableStateFlow(false)
-    val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
+    private val _notificationLevel =
+        MutableStateFlow(RoomNotificationLevel.ALL_MESSAGES)
+    val notificationLevel: StateFlow<RoomNotificationLevel> = _notificationLevel.asStateFlow()
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
@@ -40,7 +43,9 @@ class RoomSettingsViewModel(
 
     init {
         viewModelScope.launch {
-            _isMuted.value = runCatching { matrixRepository.isRoomMuted(roomId) }.getOrDefault(false)
+            _notificationLevel.value = runCatching {
+                matrixRepository.getRoomNotificationLevel(roomId)
+            }.getOrDefault(RoomNotificationLevel.ALL_MESSAGES)
         }
     }
 
@@ -70,10 +75,17 @@ class RoomSettingsViewModel(
         }
     }
 
-    fun toggleMuted(muted: Boolean) {
-        _isMuted.value = muted
+    fun setNotificationLevel(level: RoomNotificationLevel) {
+        _notificationLevel.value = level
         launchAction("Не удалось изменить уведомления") {
-            matrixRepository.setRoomMuted(roomId, muted)
+            matrixRepository.setRoomNotificationLevel(roomId, level)
+        }
+    }
+
+    fun inviteUser(userId: String) {
+        launchAction("Не удалось пригласить пользователя") {
+            matrixRepository.inviteUserToRoom(roomId, userId)
+            _message.value = "Приглашение отправлено"
         }
     }
 
@@ -81,6 +93,27 @@ class RoomSettingsViewModel(
         launchAction("Не удалось исключить участника") {
             matrixRepository.kickUser(roomId, userId)
             _message.value = "Участник исключён"
+        }
+    }
+
+    fun banUser(userId: String) {
+        launchAction("Не удалось забанить участника") {
+            matrixRepository.banUser(roomId, userId)
+            _message.value = "Участник забанен"
+        }
+    }
+
+    fun unbanUser(userId: String) {
+        launchAction("Не удалось разбанить участника") {
+            matrixRepository.unbanUser(roomId, userId)
+            _message.value = "Участник разбанен"
+        }
+    }
+
+    fun setUserPowerLevel(userId: String, level: Long) {
+        launchAction("Не удалось изменить права") {
+            matrixRepository.setUserPowerLevel(roomId, userId, level)
+            _message.value = "Права обновлены"
         }
     }
 

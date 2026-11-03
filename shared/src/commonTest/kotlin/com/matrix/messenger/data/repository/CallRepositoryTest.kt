@@ -5,6 +5,7 @@ import com.matrix.messenger.call.WebRtcEvent
 import com.matrix.messenger.data.call.CallCandidate
 import com.matrix.messenger.data.call.CallSignalingCommand
 import com.matrix.messenger.data.call.CallSignalingEvent
+import com.matrix.messenger.data.model.RoomNotificationLevel
 import com.matrix.messenger.data.model.RoomSettingsInfo
 import com.matrix.messenger.data.model.RoomMemberInfo
 import com.matrix.messenger.data.model.CallState
@@ -81,6 +82,14 @@ class CallRepositoryTest {
         override suspend fun setRoomAvatar(roomId: String, filePath: String) = Unit
         override suspend fun kickUser(roomId: String, userId: String) = Unit
         override suspend fun setRoomMuted(roomId: String, muted: Boolean) = Unit
+        override suspend fun banUser(roomId: String, userId: String, reason: String?) = Unit
+        override suspend fun unbanUser(roomId: String, userId: String) = Unit
+        override suspend fun setUserPowerLevel(roomId: String, userId: String, level: Long) = Unit
+        override suspend fun getRoomNotificationLevel(roomId: String): RoomNotificationLevel =
+            RoomNotificationLevel.ALL_MESSAGES
+        override suspend fun setRoomNotificationLevel(roomId: String, level: RoomNotificationLevel) = Unit
+        override suspend fun unreact(roomId: String, eventId: String, reaction: String) = Unit
+        override suspend fun setRoomMarkedUnread(roomId: String, unread: Boolean) = Unit
         override suspend fun replyToMessage(roomId: String, eventId: String, text: String, threadRootId: String?) = Unit
         override suspend fun sendFileMessage(roomId: String, filePath: String, mimeType: String, caption: String?) = Unit
         override suspend fun getRoomInfo(roomId: String): ChatRoom? = null

@@ -35,7 +35,9 @@ object SessionStore {
         val notificationsEnabled: Boolean? = null,
         val videoDevice: String? = null,
         val audioInputDevice: String? = null,
-        val mutedRooms: List<String>? = null
+        val mutedRooms: List<String>? = null,
+        val roomNotificationLevels: Map<String, String>? = null,
+        val recentReactions: List<String>? = null
     )
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -117,6 +119,20 @@ object SessionStore {
     }
 
     suspend fun readMutedRooms(): List<String> = mutex.withLock { load().mutedRooms.orEmpty() }
+
+    suspend fun readRoomNotificationLevels(): Map<String, String> =
+        mutex.withLock { load().roomNotificationLevels.orEmpty() }
+
+    suspend fun saveRoomNotificationLevels(levels: Map<String, String>) {
+        save(load().copy(roomNotificationLevels = levels))
+    }
+
+    suspend fun readRecentReactions(): List<String> =
+        mutex.withLock { load().recentReactions.orEmpty() }
+
+    suspend fun saveRecentReactions(reactions: List<String>) {
+        save(load().copy(recentReactions = reactions))
+    }
 
     suspend fun saveMutedRooms(rooms: List<String>) = mutex.withLock {
         save(load().copy(mutedRooms = rooms))

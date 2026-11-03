@@ -7,6 +7,7 @@ import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.IceServer
 import com.matrix.messenger.data.model.RoomMemberInfo
+import com.matrix.messenger.data.model.RoomNotificationLevel
 import com.matrix.messenger.data.model.RoomSettingsInfo
 import com.matrix.messenger.data.model.RoomTrust
 import com.matrix.messenger.data.model.SelfVerificationInfo
@@ -120,11 +121,18 @@ interface MatrixRepository {
     suspend fun setRoomTopic(roomId: String, topic: String)
     suspend fun setRoomAvatar(roomId: String, filePath: String)
     suspend fun kickUser(roomId: String, userId: String)
+    suspend fun banUser(roomId: String, userId: String, reason: String? = null)
+    suspend fun unbanUser(roomId: String, userId: String)
+    suspend fun setUserPowerLevel(roomId: String, userId: String, level: Long)
     suspend fun setRoomMuted(roomId: String, muted: Boolean)
     suspend fun isRoomMuted(roomId: String): Boolean
 
     /** Rooms with notifications disabled (reactive; server push rule + local cache). */
     fun mutedRoomsFlow(): StateFlow<Set<String>>
+
+    /** Element style room notification levels (all / mentions only / mute). */
+    suspend fun getRoomNotificationLevel(roomId: String): RoomNotificationLevel
+    suspend fun setRoomNotificationLevel(roomId: String, level: RoomNotificationLevel)
 
     /** Room encryption + member-trust summary for the shield indicator. */
     fun getRoomTrustFlow(roomId: String): Flow<RoomTrust>
@@ -156,6 +164,9 @@ interface MatrixRepository {
 
     suspend fun leaveRoom(roomId: String)
 
+    /** Marks the room unread/read via the m.marked_unread account data (Element X). */
+    suspend fun setRoomMarkedUnread(roomId: String, unread: Boolean)
+
     suspend fun markRoomAsRead(roomId: String)
 
     /** Pinned messages of the room (m.room.pinned_events). */
@@ -170,6 +181,8 @@ interface MatrixRepository {
     fun getTypingUsersFlow(roomId: String): Flow<List<String>>
 
     suspend fun sendReaction(eventId: String, reaction: String)
+    /** Removes the current user's reaction (emoji) from a message. */
+    suspend fun unreact(roomId: String, eventId: String, reaction: String)
 
     suspend fun editMessage(eventId: String, roomId: String, newText: String)
 
