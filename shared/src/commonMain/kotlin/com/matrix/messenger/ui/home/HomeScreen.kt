@@ -305,6 +305,7 @@ fun HomeScreen(
                                     RoomItem(
                                         room = room,
                                         isMuted = uiState.mutedRooms.contains(room.roomId),
+                                        isPeerOnline = uiState.peerOnline[room.roomId] == true,
                                         onClick = { viewModel.onRoomClick(room.roomId) },
                                         onLeave = { roomToLeave = room },
                                         onToggleFavorite = { viewModel.toggleFavorite(room.roomId) },
@@ -689,6 +690,7 @@ private fun ContactItem(user: MatrixUser, onClick: () -> Unit) {
 private fun RoomItem(
     room: ChatRoom,
     isMuted: Boolean,
+    isPeerOnline: Boolean = false,
     onClick: () -> Unit,
     onLeave: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -708,11 +710,23 @@ private fun RoomItem(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            MatrixAvatar(
-                name = room.name ?: room.roomId,
-                avatarUrl = room.avatarUrl,
-                size = 52.dp
-            )
+            Box {
+                MatrixAvatar(
+                    name = room.name ?: room.roomId,
+                    avatarUrl = room.avatarUrl,
+                    size = 52.dp
+                )
+                if (isPeerOnline) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(14.dp)
+                            .background(MaterialTheme.colorScheme.surface, CircleShape)
+                            .padding(2.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape)
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.width(14.dp))
 

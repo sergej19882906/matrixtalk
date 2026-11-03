@@ -179,11 +179,69 @@ class ChatViewModel(
         }
     }
 
+    /**
+     * Element-style slash commands. Returns true when the input was a command
+     * and must not be sent as a message.
+     */
+    private suspend fun handleSlashCommand(raw: String): Boolean {
+        if (!raw.startsWith("/")) return false
+        val parts = raw.substring(1).split(' ').filter { it.isNotBlank() }
+        val command = parts.firstOrNull()?.lowercase() ?: return false
+        val args = parts.drop(1)
+        val roomId = _uiState.value.roomId
+
+        suspend fun requireUser(): String =
+            args.firstOrNull()?.takeIf { it.startsWith("@") && it.contains(":") }
+                ?: throw IllegalArgumentException("Укажите @user:server")
+
+        when (command) {
+            "me" -> matrixRepository.sendEmoteMessage(roomId, args.joinToString(" "))
+            "join" -> {
+                val target = args.firstOrNull()
+                    ?: throw IllegalArgumentException("Укажите #alias:server или roomId")
+                matrixRepository.joinRoom(target)
+                _events.send(UiEvent.ShowSnackbar("Присоединился к $target"))
+            }
+            "leave" -> {
+                matrixRepository.leaveRoom(roomId)
+                _events.send(UiEvent.ShowSnackbar("Вы вышли из комнаты"))
+            }
+            "invite" -> {
+                matrixRepository.inviteUserToRoom(roomId, requireUser())
+                _events.send(UiEvent.ShowSnackbar("Приглашение отправлено"))
+            }
+            "kick" -> {
+                matrixRepository.kickUser(roomId, requireUser())
+                _events.send(UiEvent.ShowSnackbar("Участник исключён"))
+            }
+            "ban" -> {
+                matrixRepository.banUser(roomId, requireUser(), args.drop(1).joinToString(" ").ifBlank { null })
+                _events.send(UiEvent.ShowSnackbar("Участник забанен"))
+            }
+            "unban" -> {
+                matrixRepository.unbanUser(roomId, requireUser())
+                _events.send(UiEvent.ShowSnackbar("Участник разбанен"))
+            }
+            "help" -> _events.send(
+                UiEvent.ShowSnackbar("/me /join #alias /leave /invite @user /kick @user /ban @user [причина] /unban @user")
+            )
+            else -> {
+                _events.send(UiEvent.ShowSnackbar("Неизвестная команда: /$command. /help — список"))
+            }
+        }
+        return true
+    }
+
     fun sendMessage() {
         viewModelScope.launch {
             val state = _uiState.value
             val message = state.messageInput.trim()
             if (message.isBlank()) return@launch
+
+            if (handleSlashCommand(message)) {
+                _uiState.value = _uiState.value.copy(messageInput = "", isTyping = false)
+                return@launch
+            }
 
             try {
                 val replyingTo = state.replyingTo

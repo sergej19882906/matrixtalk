@@ -101,6 +101,9 @@ interface MatrixRepository {
 
     suspend fun sendTextMessage(roomId: String, text: String, formattedBody: String? = null)
 
+    /** Sends an m.emote message ("/me" style action). */
+    suspend fun sendEmoteMessage(roomId: String, text: String)
+
     /** Sends a reply: text with m.in_reply_to relation to [eventId];
      * keeps the thread when [threadRootId] is set. */
     suspend fun replyToMessage(roomId: String, eventId: String, text: String, threadRootId: String? = null)

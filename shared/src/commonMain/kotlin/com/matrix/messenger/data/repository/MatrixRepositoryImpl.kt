@@ -100,6 +100,7 @@ import net.folivo.trixnity.client.room.getState
 import net.folivo.trixnity.core.model.events.ClientEvent
 import net.folivo.trixnity.client.store.RoomUser
 import net.folivo.trixnity.client.serverDiscovery
+import net.folivo.trixnity.client.room.message.emote
 import net.folivo.trixnity.client.room.message.react
 import net.folivo.trixnity.client.room.message.replace
 import net.folivo.trixnity.client.room.message.reply
@@ -139,6 +140,7 @@ import net.folivo.trixnity.core.model.events.m.ReactionEventContent
 import net.folivo.trixnity.core.model.events.m.RelatesTo
 import net.folivo.trixnity.core.model.events.InitialStateEvent
 import net.folivo.trixnity.core.model.events.m.room.AudioInfo
+import net.folivo.trixnity.core.model.events.m.room.EncryptedFile
 import net.folivo.trixnity.core.model.events.m.room.EncryptionEventContent
 import net.folivo.trixnity.core.model.events.m.room.FileInfo
 import net.folivo.trixnity.core.model.events.m.room.ImageInfo
@@ -156,7 +158,11 @@ import net.folivo.trixnity.core.model.events.m.room.TopicEventContent
 import net.folivo.trixnity.core.model.events.m.room.VideoInfo
 import net.folivo.trixnity.core.model.events.m.key.verification.VerificationCancelEventContent
 import net.folivo.trixnity.core.model.events.m.key.verification.VerificationMethod
+import net.folivo.trixnity.crypto.core.encryptAes256Ctr
+import net.folivo.trixnity.crypto.core.sha256
 import net.folivo.trixnity.utils.toByteArray
+import net.folivo.trixnity.crypto.core.encryptAes256Ctr
+import net.folivo.trixnity.crypto.core.sha256
 import net.folivo.trixnity.utils.toByteArrayFlow
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -730,13 +736,50 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
     }
 
+    /**
+     * Encrypts media bytes for an encrypted room (Matrix media encryption v2:
+     * AES-CTR-256 + SHA-256, key/iv/hashes as EncryptedFile). The IV is
+     * 8 random bytes followed by 8 zero bytes, as Element does.
+     */
+    private suspend fun encryptMediaBytes(bytes: ByteArray): Pair<EncryptedFile, ByteArray> {
+        val key = com.matrix.messenger.platform.randomBytes(32)
+        val iv = com.matrix.messenger.platform.randomBytes(8) + ByteArray(8)
+        val hashedFlow = bytes.toByteArrayFlow()
+            .encryptAes256Ctr(key, iv)
+            .sha256()
+        val encryptedBytes = hashedFlow.toByteArray()
+        val sha256 = hashedFlow.hash.value ?: error("SHA-256 hash was not computed")
+        val info = EncryptedFile(
+            url = "",
+            key = EncryptedFile.JWK(key = com.matrix.messenger.platform.encodeUnpaddedBase64Url(key)),
+            initialisationVector = com.matrix.messenger.platform.encodeUnpaddedBase64Url(iv),
+            hashes = mapOf("sha256" to sha256)
+        )
+        return info to encryptedBytes
+    }
+
+    override suspend fun sendEmoteMessage(roomId: String, text: String) {
+        requireClient().room.sendMessage(RoomId(roomId)) { emote(text) }
+    }
+
     override suspend fun sendFileMessage(roomId: String, filePath: String, mimeType: String, caption: String?) {
         val c = requireClient()
-        val bytes = readFileBytes(filePath)
+        val rId = RoomId(roomId)
+        var bytes = readFileBytes(filePath)
+        val isEncryptedRoom = runCatching {
+            c.room.getById(rId).firstOrNull()?.encrypted == true
+        }.getOrDefault(false)
+        var fileInfo: EncryptedFile? = null
+        if (isEncryptedRoom) {
+            val (info, encryptedBytes) = encryptMediaBytes(bytes)
+            bytes = encryptedBytes
+            fileInfo = info
+        }
         val mediaType = mimeType.ifBlank { "application/octet-stream" }
         val contentType = runCatching { ContentType.parse(mediaType) }
             .getOrElse { ContentType.Application.OctetStream }
         val mxc = uploadBytes(c, bytes, contentType)
+        fileInfo = fileInfo?.copy(url = mxc)
         val fileName = caption ?: filePath.substringAfterLast('/').substringAfterLast('\\')
         val infoMime = mediaType
         val size = bytes.size.toLong()
@@ -745,28 +788,32 @@ class MatrixRepositoryImpl : MatrixRepository {
                 RoomMessageEventContent.FileBased.Image(
                     body = fileName,
                     info = ImageInfo(mimeType = infoMime, size = size),
-                    url = mxc
+                    url = fileInfo?.let { null } ?: mxc,
+                    file = fileInfo
                 )
 
             mediaType.startsWith("video/") ->
                 RoomMessageEventContent.FileBased.Video(
                     body = fileName,
                     info = VideoInfo(mimeType = infoMime, size = size),
-                    url = mxc
+                    url = fileInfo?.let { null } ?: mxc,
+                    file = fileInfo
                 )
 
             mediaType.startsWith("audio/") ->
                 RoomMessageEventContent.FileBased.Audio(
                     body = fileName,
                     info = AudioInfo(mimeType = infoMime, size = size),
-                    url = mxc
+                    url = fileInfo?.let { null } ?: mxc,
+                    file = fileInfo
                 )
 
             else ->
                 RoomMessageEventContent.FileBased.File(
                     body = fileName,
                     info = FileInfo(mimeType = infoMime, size = size),
-                    url = mxc
+                    url = fileInfo?.let { null } ?: mxc,
+                    file = fileInfo
                 )
         }
         // Sent via the API directly, bypassing the outbox: Trixnity 4.9.2's outbox
@@ -974,14 +1021,28 @@ class MatrixRepositoryImpl : MatrixRepository {
     override suspend fun sendSticker(roomId: String, filePath: String, mimeType: String) {
         val c = requireClient()
         val rId = RoomId(roomId)
-        val bytes = readFileBytes(filePath)
+        var bytes = readFileBytes(filePath)
         require(bytes.isNotEmpty()) { "Выбранный файл пуст" }
         val contentType = runCatching { ContentType.parse(mimeType) }
             .getOrElse { ContentType.Application.OctetStream }
+        val isEncryptedRoom = runCatching {
+            c.room.getById(rId).firstOrNull()?.encrypted == true
+        }.getOrDefault(false)
+        var fileInfo: EncryptedFile? = null
+        if (isEncryptedRoom) {
+            val (info, encryptedBytes) = encryptMediaBytes(bytes)
+            bytes = encryptedBytes
+            fileInfo = info
+        }
         val mxc = uploadBytes(c, bytes, contentType)
+        fileInfo = fileInfo?.copy(url = mxc)
         val stickerJson = kotlinx.serialization.json.buildJsonObject {
             put("body", kotlinx.serialization.json.JsonPrimitive(filePath.substringAfterLast('/').substringAfterLast("\\")))
-            put("url", kotlinx.serialization.json.JsonPrimitive(mxc))
+            if (fileInfo != null) {
+                put("file", kotlinx.serialization.json.Json.encodeToJsonElement(EncryptedFile.serializer(), fileInfo))
+            } else {
+                put("url", kotlinx.serialization.json.JsonPrimitive(mxc))
+            }
             put("info", kotlinx.serialization.json.buildJsonObject {
                 put("mimetype", kotlinx.serialization.json.JsonPrimitive(mimeType))
                 put("size", kotlinx.serialization.json.JsonPrimitive(bytes.size.toLong()))

@@ -39,7 +39,9 @@ data class HomeUiState(
     /** Currently selected space filter, null = all chats. */
     val selectedSpaceId: String? = null,
     /** Room ids belonging to the selected space (loaded on selection). */
-    val selectedSpaceRoomIds: Set<String> = emptySet()
+    val selectedSpaceRoomIds: Set<String> = emptySet(),
+    /** Direct-chat roomId -> peer is online (polled). */
+    val peerOnline: Map<String, Boolean> = emptyMap()
 )
 
 class HomeViewModel(
@@ -64,6 +66,7 @@ class HomeViewModel(
                 _uiState.value = _uiState.value.copy(mutedRooms = muted)
             }
         }
+        observePeerPresence()
         viewModelScope.launch {
             matrixRepository.getInvitesFlow().flowOn(Dispatchers.Default).collect { invites ->
                 _uiState.value = _uiState.value.copy(invites = invites)
@@ -282,6 +285,29 @@ class HomeViewModel(
         return sorted.filter {
             it.name?.contains(query, ignoreCase = true) == true ||
             it.topic?.contains(query, ignoreCase = true) == true
+        }
+    }
+
+    /** Polls presence of direct-chat peers every minute (Element shows online dots). */
+    private fun observePeerPresence() {
+        viewModelScope.launch {
+            while (true) {
+                val directRooms = _uiState.value.rooms.filter { it.isDirect }
+                if (directRooms.isNotEmpty()) {
+                    val online = mutableMapOf<String, Boolean>()
+                    for (room in directRooms) {
+                        val peer = runCatching {
+                            matrixRepository.resolveDirectChatPeerId(room.roomId)
+                        }.getOrNull() ?: continue
+                        val presence = runCatching {
+                            matrixRepository.getPresence(peer)
+                        }.getOrNull()
+                        online[room.roomId] = presence?.presence == "online"
+                    }
+                    _uiState.value = _uiState.value.copy(peerOnline = online)
+                }
+                kotlinx.coroutines.delay(60_000)
+            }
         }
     }
 
