@@ -43,6 +43,26 @@ data class RoomTrust(
     val verified: Boolean?
 )
 
+/** Editable room state for the room settings screen. */
+data class RoomSettingsInfo(
+    val roomId: String,
+    val name: String?,
+    val topic: String?,
+    val avatarUrl: String?,
+    val isEncrypted: Boolean,
+    val memberCount: Int,
+    val canEdit: Boolean
+)
+
+/** A room member for the participant list. */
+data class RoomMemberInfo(
+    val userId: String,
+    val name: String?,
+    val avatarUrl: String?,
+    val powerLevel: Long,
+    val isSelf: Boolean
+)
+
 data class LastMessage(
     val senderId: String,
     val senderName: String?,

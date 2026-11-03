@@ -36,6 +36,8 @@ import androidx.compose.material.icons.filled.GppMaybe
 import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TextFormat
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
@@ -92,6 +94,8 @@ import com.matrix.messenger.ui.components.DateSeparator
 import com.matrix.messenger.ui.theme.ElementAmber
 import com.matrix.messenger.ui.components.MatrixAvatar
 import com.matrix.messenger.ui.components.TimeFormat
+import com.matrix.messenger.ui.components.ImageViewer
+import com.matrix.messenger.ui.components.ReactionPicker
 import com.matrix.messenger.ui.components.TimelineItem
 import com.matrix.messenger.ui.components.buildTimeline
 import kotlinx.coroutines.launch
@@ -117,6 +121,7 @@ fun ChatScreen(
     roomId: String,
     onNavigateBack: () -> Unit,
     onStartCall: () -> Unit = {},
+    onOpenRoomSettings: () -> Unit = {},
     viewModel: ChatViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -183,7 +188,25 @@ fun ChatScreen(
     }
 
     // Date headers + sender grouping projected once per message-list change.
-    val timeline = remember(uiState.messages) { buildTimeline(uiState.messages) }
+    // The unread divider is inserted before the first unread message snapshot.
+    val firstUnreadMessageIndex = if (uiState.initialUnreadCount > 0 && uiState.messages.isNotEmpty()) {
+        (uiState.messages.size - uiState.initialUnreadCount).coerceIn(0, uiState.messages.size - 1)
+    } else {
+        -1
+    }
+    val timeline = remember(uiState.messages, firstUnreadMessageIndex) {
+        buildTimeline(uiState.messages, firstUnreadMessageIndex)
+    }
+    var scrolledToUnread by remember(roomId) { mutableStateOf(false) }
+    LaunchedEffect(timeline.size, uiState.initialUnreadCount) {
+        if (!scrolledToUnread && firstUnreadMessageIndex >= 0 && uiState.messages.isNotEmpty()) {
+            val dividerIndex = timeline.indexOfFirst { it is TimelineItem.UnreadDivider }
+            if (dividerIndex >= 0) {
+                listState.scrollToItem(dividerIndex)
+                scrolledToUnread = true
+            }
+        }
+    }
 
     LaunchedEffect(uiState.messages.lastOrNull()?.eventId, uiState.messages.lastOrNull()?.isMine) {
         // Auto-scroll only for newly sent own messages or incoming messages while near the bottom;
@@ -201,6 +224,21 @@ fun ChatScreen(
                 is UiEvent.ShowSnackbar -> snackbarHostState.showSnackbar(event.message)
                 else -> {}
             }
+        }
+    }
+
+    val viewerMessageId = uiState.imageViewerMessageId
+    if (viewerMessageId != null) {
+        val viewerImages = uiState.messages.filter {
+            it.messageType == MessageType.IMAGE && !it.isDeleted && (it.mediaUrl != null || it.encryptedFile != null)
+        }.asReversed()
+        if (viewerImages.isNotEmpty()) {
+            ImageViewer(
+                images = viewerImages,
+                startMessageId = viewerMessageId,
+                onDismiss = { viewModel.closeImageViewer() },
+                onDownload = { msg -> viewModel.openAttachment(msg) }
+            )
         }
     }
 
@@ -320,6 +358,14 @@ fun ChatScreen(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Настройки комнаты") },
+                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                onClick = {
+                                    roomMenuExpanded = false
+                                    onOpenRoomSettings()
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Пригласить пользователя") },
                                 leadingIcon = { Icon(Icons.Default.PersonAdd, contentDescription = null) },
                                 onClick = {
@@ -353,7 +399,9 @@ fun ChatScreen(
                 recordingSeconds = uiState.recordingSeconds,
                 onStartVoice = { requestMicPermission(false) },
                 onStopVoice = { send -> viewModel.stopVoiceRecording(send) },
-                onCreatePoll = { showPollDialog = true }
+                onCreatePoll = { showPollDialog = true },
+                markdownEnabled = uiState.markdownEnabled,
+                onToggleMarkdown = { viewModel.toggleMarkdown() }
             )
         }
     ) { paddingValues ->
@@ -409,6 +457,7 @@ fun ChatScreen(
                             ) { item ->
                                 when (item) {
                                     is TimelineItem.Header -> DateSeparator(label = item.label)
+                                    is TimelineItem.UnreadDivider -> UnreadDividerRow()
                                     is TimelineItem.Msg -> MessageItem(
                                         message = item.message,
                                         ownShortId = currentUser?.shortUserId,
@@ -425,6 +474,7 @@ fun ChatScreen(
                                         },
                                         onDelete = { messageToDelete = item.message },
                                         onOpenAttachment = { viewModel.openAttachment(item.message) },
+                                        onOpenImage = { viewModel.openImageViewer(item.message) },
                                         onReply = { viewModel.replyToMessage(item.message) },
                                         onPlayAudio = { viewModel.playAudioMessage(item.message) },
                                         onVotePoll = { ids -> viewModel.votePoll(item.message, ids) },
@@ -698,12 +748,14 @@ private fun MessageItem(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onOpenAttachment: () -> Unit,
+    onOpenImage: () -> Unit = {},
     onReply: () -> Unit,
     onTogglePin: () -> Unit,
     onPlayAudio: () -> Unit,
     onVotePoll: (List<String>) -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    var showReactionPicker by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start
@@ -841,7 +893,8 @@ private fun MessageItem(
                                             contentDescription = message.body,
                                             modifier = Modifier
                                                 .widthIn(max = 280.dp)
-                                                .clip(RoundedCornerShape(8.dp)),
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable { onOpenImage() },
                                             contentScale = ContentScale.Fit
                                         )
                                     }
@@ -943,6 +996,11 @@ private fun MessageItem(
                             }
                         }
                     }
+                    ReactionPicker(
+                        expanded = showReactionPicker,
+                        onDismiss = { showReactionPicker = false },
+                        onSelect = onReaction
+                    )
                     DropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false }
@@ -964,6 +1022,17 @@ private fun MessageItem(
                                         .padding(4.dp)
                                 )
                             }
+                            Text(
+                                text = "+",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier
+                                    .clip(MaterialTheme.shapes.small)
+                                    .clickable {
+                                        menuExpanded = false
+                                        showReactionPicker = true
+                                    }
+                                    .padding(4.dp)
+                            )
                         }
                         HorizontalDivider()
                         if (!message.isDeleted) {
@@ -1144,7 +1213,9 @@ private fun MessageInputBar(
     recordingSeconds: Int,
     onStartVoice: () -> Unit,
     onStopVoice: (send: Boolean) -> Unit,
-    onCreatePoll: () -> Unit
+    onCreatePoll: () -> Unit,
+    markdownEnabled: Boolean = false,
+    onToggleMarkdown: () -> Unit = {}
 ) {
     var emojiVisible by remember { mutableStateOf(false) }
     var attachMenuVisible by remember { mutableStateOf(false) }
@@ -1237,6 +1308,14 @@ private fun MessageInputBar(
                         maxLines = 4
                     )
                     Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(onClick = onToggleMarkdown) {
+                        Icon(
+                            Icons.Default.TextFormat,
+                            contentDescription = "Markdown",
+                            tint = if (markdownEnabled) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Box {
                         IconButton(onClick = { attachMenuVisible = !attachMenuVisible }) {
                             Icon(
@@ -1332,5 +1411,24 @@ private fun EmojiPickerMenu(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun UnreadDividerRow() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+        Text(
+            text = "Новые сообщения",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+        HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
     }
 }

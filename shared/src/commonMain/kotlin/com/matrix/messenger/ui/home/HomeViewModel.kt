@@ -34,7 +34,8 @@ data class HomeUiState(
     val isSearchingContacts: Boolean = false,
     val contactSearchError: String? = null,
     val invites: List<ChatRoom> = emptyList(),
-    val spaces: List<ChatRoom> = emptyList()
+    val spaces: List<ChatRoom> = emptyList(),
+    val mutedRooms: Set<String> = emptySet()
 )
 
 class HomeViewModel(
@@ -54,6 +55,11 @@ class HomeViewModel(
     init {
         observeUser()
         observeRooms()
+        viewModelScope.launch {
+            matrixRepository.mutedRoomsFlow().collect { muted ->
+                _uiState.value = _uiState.value.copy(mutedRooms = muted)
+            }
+        }
         viewModelScope.launch {
             matrixRepository.getInvitesFlow().flowOn(Dispatchers.Default).collect { invites ->
                 _uiState.value = _uiState.value.copy(invites = invites)

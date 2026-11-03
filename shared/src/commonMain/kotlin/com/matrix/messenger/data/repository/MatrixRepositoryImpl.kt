@@ -47,6 +47,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
@@ -83,6 +85,8 @@ import net.folivo.trixnity.client.media
 import net.folivo.trixnity.client.media.InMemoryMediaStore
 import net.folivo.trixnity.client.room
 import net.folivo.trixnity.client.room.getState
+import net.folivo.trixnity.core.model.events.ClientEvent
+import net.folivo.trixnity.client.store.RoomUser
 import net.folivo.trixnity.client.serverDiscovery
 import net.folivo.trixnity.client.room.message.react
 import net.folivo.trixnity.client.room.message.replace
@@ -127,7 +131,14 @@ import net.folivo.trixnity.core.model.events.m.room.EncryptionEventContent
 import net.folivo.trixnity.core.model.events.m.room.FileInfo
 import net.folivo.trixnity.core.model.events.m.room.ImageInfo
 import net.folivo.trixnity.core.model.events.m.room.Membership
+import net.folivo.trixnity.core.model.events.m.room.PowerLevelsEventContent
 import net.folivo.trixnity.core.model.events.m.room.PinnedEventsEventContent
+import net.folivo.trixnity.core.model.events.m.room.NameEventContent
+import net.folivo.trixnity.core.model.events.m.room.AvatarEventContent
+import net.folivo.trixnity.clientserverapi.model.push.SetPushRule
+import net.folivo.trixnity.core.model.push.PushRuleKind
+import com.matrix.messenger.data.model.RoomMemberInfo
+import com.matrix.messenger.data.model.RoomSettingsInfo
 import net.folivo.trixnity.core.model.events.m.room.RoomMessageEventContent
 import net.folivo.trixnity.core.model.events.m.room.TopicEventContent
 import net.folivo.trixnity.core.model.events.m.room.VideoInfo
@@ -381,6 +392,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             logError("MatrixRepository", "fromStore restore failed, falling back to token", t)
         }
         // No persisted store yet: fall back to the persisted session token.
+        _mutedRooms.value = runCatching { SessionStore.readMutedRooms().toSet() }.getOrDefault(emptySet())
         val session = SessionStore.read()
         if (session == null) {
             _connectionState.value = ConnectionState.Disconnected("No active session")
@@ -672,8 +684,14 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
     }
 
-    override suspend fun sendTextMessage(roomId: String, text: String) {
-        requireClient().room.sendMessage(RoomId(roomId)) { text(text) }
+    override suspend fun sendTextMessage(roomId: String, text: String, formattedBody: String?) {
+        requireClient().room.sendMessage(RoomId(roomId)) {
+            text(
+                text,
+                format = formattedBody?.let { "org.matrix.custom.html" },
+                formattedBody = formattedBody
+            )
+        }
     }
 
     override suspend fun replyToMessage(roomId: String, eventId: String, text: String, threadRootId: String?) {
@@ -805,6 +823,117 @@ class MatrixRepositoryImpl : MatrixRepository {
                 }
             }
         }
+    }
+
+    override fun getRoomSettingsFlow(roomId: String): Flow<RoomSettingsInfo> = _clientState.flatMapLatest { c ->
+        if (c == null) {
+            flowOf(RoomSettingsInfo(roomId, null, null, null, false, 0, canEdit = false))
+        } else {
+            val rId = RoomId(roomId)
+            c.room.getById(rId).flatMapLatest { room ->
+                if (room == null) {
+                    flowOf(RoomSettingsInfo(roomId, null, null, null, false, 0, canEdit = false))
+                } else {
+                    val nameFlow = c.room.getState<NameEventContent>(rId).map { it?.content?.name }
+                    val topicFlow = c.room.getState<TopicEventContent>(rId).map { it?.content?.topic }
+                    val avatarFlow = c.room.getState<AvatarEventContent>(rId).map { it?.content?.url }
+                    combine(nameFlow, topicFlow, avatarFlow) { name: String?, topic: String?, avatarMxc: String? ->
+                        RoomSettingsInfo(
+                            roomId = roomId,
+                            name = name ?: room.name?.explicitName ?: room.name?.heroes
+                                ?.joinToString(", ") { it.full.substringBefore(":").removePrefix("@") }
+                                ?: roomId,
+                            topic = topic,
+                            avatarUrl = avatarMxc,
+                            isEncrypted = room.encrypted,
+                            memberCount = (room.name?.heroes?.size ?: 0) + (room.name?.otherUsersCount ?: 0) + 1,
+                            canEdit = room.name?.heroes?.isNotEmpty() == true || true
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    override fun getRoomMembersFlow(roomId: String): Flow<List<RoomMemberInfo>> = _clientState.flatMapLatest { c ->
+        if (c == null) {
+            flowOf(emptyList())
+        } else {
+            val rId = RoomId(roomId)
+            c.user.loadMembers(rId, wait = false)
+            val powerLevelsFlow = c.room.getState<PowerLevelsEventContent>(rId)
+            c.user.getAll(rId).flatMapLatest { members: Map<UserId, Flow<RoomUser?>> ->
+                powerLevelsFlow.flatMapLatest { pls: ClientEvent.StateBaseEvent<PowerLevelsEventContent>? ->
+                    val entries: List<Flow<RoomMemberInfo>> = members.entries.map { entry ->
+                        val userId = entry.key
+                        entry.value.map { user: RoomUser? ->
+                            val member = user?.event?.content
+                            RoomMemberInfo(
+                                userId = userId.full,
+                                name = user?.name,
+                                avatarUrl = member?.avatarUrl,
+                                powerLevel = pls?.content?.users?.get(userId) ?: pls?.content?.usersDefault ?: 0,
+                                isSelf = userId == c.userId
+                            )
+                        }.filter { memberInfo: RoomMemberInfo -> memberInfo.name != null }
+                    }
+                    if (entries.isEmpty()) {
+                        flowOf(emptyList<RoomMemberInfo>())
+                    } else {
+                        combine(entries) { list ->
+                            list.sortedWith(compareByDescending<RoomMemberInfo> { it.powerLevel }.thenBy { it.name?.lowercase() })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override suspend fun setRoomName(roomId: String, name: String) {
+        requireClient().api.room.sendStateEvent(RoomId(roomId), NameEventContent(name = name))
+    }
+
+    override suspend fun setRoomTopic(roomId: String, topic: String) {
+        requireClient().api.room.sendStateEvent(RoomId(roomId), TopicEventContent(topic = topic))
+    }
+
+    override suspend fun setRoomAvatar(roomId: String, filePath: String) {
+        val c = requireClient()
+        val bytes = readFileBytes(filePath)
+        require(bytes.isNotEmpty()) { "Выбранный файл пуст" }
+        val contentType = runCatching { ContentType.parse(mimeTypeForFile(filePath)) }
+            .getOrElse { ContentType.Application.OctetStream }
+        val mxc = uploadBytes(c, bytes, contentType)
+        c.api.room.sendStateEvent(RoomId(roomId), AvatarEventContent(url = mxc))
+    }
+
+    override suspend fun kickUser(roomId: String, userId: String) {
+        requireClient().api.room.kickUser(RoomId(roomId), UserId(userId)).getOrThrow()
+    }
+
+    private val _mutedRooms = MutableStateFlow<Set<String>>(emptySet())
+
+    override fun mutedRoomsFlow(): StateFlow<Set<String>> = _mutedRooms.asStateFlow()
+
+    override suspend fun isRoomMuted(roomId: String): Boolean = _mutedRooms.value.contains(roomId)
+
+    override suspend fun setRoomMuted(roomId: String, muted: Boolean) {
+        val c = requireClient()
+        val ruleId = RoomId(roomId).full
+        if (muted) {
+            c.api.push.setPushRule(
+                scope = "global",
+                kind = PushRuleKind.ROOM,
+                ruleId = ruleId,
+                pushRule = SetPushRule.Request(actions = emptySet())
+            ).getOrThrow()
+        } else {
+            c.api.push.deletePushRule(scope = "global", kind = PushRuleKind.ROOM, ruleId = ruleId).getOrThrow()
+        }
+        val mutedRooms = SessionStore.readMutedRooms().toMutableList()
+        if (muted) mutedRooms.add(roomId) else mutedRooms.remove(roomId)
+        SessionStore.saveMutedRooms(mutedRooms)
+        _mutedRooms.value = mutedRooms.toSet()
     }
 
     override fun getRoomTrustFlow(roomId: String): Flow<RoomTrust> = _clientState.flatMapLatest { c ->
@@ -1256,6 +1385,16 @@ class MatrixRepositoryImpl : MatrixRepository {
     }
 
     private fun requireClient(): MatrixClient = client ?: error("Не выполнен вход")
+
+    private fun mimeTypeForFile(filePath: String): String =
+        when (filePath.substringAfterLast('.').lowercase()) {
+            "png" -> "image/png"
+            "jpg", "jpeg" -> "image/jpeg"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "svg" -> "image/svg+xml"
+            else -> "application/octet-stream"
+        }
 
     /**
      * Drops file/image/video/audio rows from the outbox. Trixnity 4.9.2's outbox

@@ -1,39 +1,64 @@
-# Вторая волна редизайна + аудит аватаров (v1.16)
+# v1.19.0 — пакет фич Element (п.1–7 меню)
 
 ## Контекст
 
-Первая волна (v1.15.0) перестроила главные экраны. Вторая — второстепенные экраны. Параллельный аудит «отображения аватаров» нашёл **6 реальных багов рендеринга**, самый серьёзный: незашифрованные картинки в чате и галерее, а также аватар профиля в настройках **никогда не отображаются** — фабрика Coil возвращает `null` для `MatrixMedia(url, null)`, но coil3 не «проваливает» запрос к сетевой фабрике для чужого типа данных (та регистрируется на `Uri`, а не `MatrixMedia`) → «Unable to create a fetcher». Работают только незашифрованные `String`-модели (аватары списков) и зашифрованные вложения.
+Волна доверия и стабильность завершены (v1.18.1). По меню фич Element реализуем пакет «быстрых побед»: настройки комнаты со списком участников, per-room уведомления, просмотрщик изображений с зумом, произвольные реакции, markdown-композер, jump to unread. Проверенные API Trixnity 4.9.2: `api.room.sendStateEvent` (Name/Topic/Avatar/PowerLevels/Encryption contents), `UserService.loadMembers/getAll`, `RoomApiClient.kickUser/inviteUser`, `api.push.setPushRuleEnabled(ROOM)`, `Room.unreadMessageCount`, `api.room.setReadMarkers`.
 
-## Часть A — фиксы аватаров/медиа
+## Реализация
 
-1. **`media/MediaFetcher.kt`** (одна точка, чинит сразу 3 места): в `MatrixMediaFetcher.Factory.create` для `encryptedFile == null` явно строить сетевой fetcher: `NetworkFetcher.Factory().create(url.toUri(), options, imageLoader)` (импорт `coil3.network.NetworkFetcher`, `coil3.toUri`; coil-network-core уже в classpath через coil-network-okhttp).
-2. **Аватар комнаты в шапке чата**: `ChatUiState` + `roomAvatarUrl`; `ChatViewModel.observeMessages` (сейчас отбрасывает `getRoomInfo().avatarUrl`); `ChatScreen` TopAppBar — `MatrixAvatar(avatarUrl = uiState.roomAvatarUrl)`.
-3. **Аватары отправителей в ленте**: `Message.senderAvatarUrl: String?`; в `MatrixRepositoryImpl` рядом с `userNameCache` добавить кэш аватаров (`resolveSenderAvatar` через `c.user.getById(roomId, sender).avatarUrl` + `mxcToHttp`, с таймаутом как у имени); прокинуть в `mapToMessage`; `ChatScreen.MessageItem` — передавать в MatrixAvatar (36dp, CircleShape).
-4. **DM-фоллбэк в списке чатов**: `toChatRoom` — если у комнаты нет `m.room.avatar`, а это личный чат, взять аватар hero (собеседника) через `c.user.getById`.
-5. **Аватары контактов**: `searchUsers` отдаёт сырой `mxc://` → обернуть `mxcToHttp` (сейчас Coil не может загрузить).
-6. **Дедупликация**: инлайновые аватары `SettingsScreen` (профиль, 56dp) и `RoomsCatalogScreen.PublicRoomRow` (44dp) → `MatrixAvatar`; в диалоге «Профиль» на `HomeScreen` — MatrixAvatar вместо голого AsyncImage (буква-фоллбэк).
+### A. Настройки комнаты + участники (новый экран)
 
-## Часть B — второстепенные экраны (в стиль Element X)
+**Репозиторий** (`MatrixRepository.kt` + Impl):
+- `getRoomSettingsFlow(roomId): Flow<RoomSettingsInfo>` — name/topic/avatarUrl/encrypted/memberCount из state-флоу (`roomService.getState<NameEventContent/TopicEventContent/AvatarEventContent>`, `Room.encrypted`)
+- `getRoomMembersFlow(roomId): Flow<List<RoomMemberInfo>>` — `loadMembers` + `getAll` + power levels (`getPowerLevel(roomId, userId)`), только JOIN
+- `setRoomName/Topic/Avatar(roomId, ...)` — `api.room.sendStateEvent` (avatar: uploadBytes → AvatarEventContent(mxc))
+- `kickUser(roomId, userId)` — `api.room.kickUser`
+- `setRoomMuted(roomId, muted)` / `isRoomMutedFlow(roomId)` — SessionStore + `api.push.setPushRuleEnabled(ROOM, roomId.full, enabled=false/true)` (rule: PushRuleKind.ROOM, ruleId = roomId.full)
+- Чистка: мёртвый `respondToVerificationRequest` уже удалён
 
-Референс-паттерн: TopAppBar + строки на `surfaceContainerLow`, поля с `shapes.extraLarge`, иконки/виджеты из общего набора.
+**Модели** (`Models.kt`): `RoomSettingsInfo(name, topic, avatarUrl, encrypted, memberCount, canEdit)`, `RoomMemberInfo(userId, name, avatarUrl, powerLevel, membership, isSelf)`, `RoomTrust` уже есть
 
-- **SettingsScreen**: MatrixAvatar в профиле, заголовки секций `labelMedium`/`onSurfaceVariant`, выравнивание TopAppBar с Home/Chat.
-- **DevicesScreen**: строки устройств на `surfaceContainerLow`; `formatSeen` частично на `TimeFormat`; диалоги получают новый вид бесплатно (shapes).
-- **SearchScreen**: поле поиска — скруглённый pill (как в Home), строки с Surface + `TimeFormat` вместо локального `formatSearchTime`.
-- **RoomsCatalogScreen**: MatrixAvatar, «Вступить» → TextButton, строки на `surfaceContainerLow`.
-- **SpaceChildrenScreen**: извлечь композабл строки, добавить MatrixAvatar (буквенный), «Открыть» → TextButton.
-- **BridgesScreen**: лёгкая полировка Card (цвет `surfaceContainerLow`).
-- **LoginScreen**: лёгкая полировка — скруглённые поля (`shapes.extraLarge`), брендовый блок; Scaffold не добавляем.
+**Навигация**: `Screen.RoomSettings(route = "room/{roomId}/settings")` + AppNavigation; вход: ChatScreen MoreVert → «Настройки комнаты»
 
-**Не трогаем**: CallScreen (намеренно самостоятельный оверлей с своими цветами), аватары в результатах поиска (данных нет в `SearchResultItem` — отдельно, если попросите), аутентифицированные медиа MSC3916 (matrix.org пока принимает legacy-эндпоинт — риск задокументирован).
+**`ui/room/RoomSettingsScreen.kt`** (+ VM): поля имени/темы с «Сохранить», аватар с пикером (шаблон профиля из SettingsScreen), тумблер «Уведомления» (mute), зашифровано да/нет, список участников с PL-бейджами (админ ≥100, модератор ≥50), kick у участников (если `canKickUser`), кнопка «Выйти из комнаты»
+
+### B. Уведомления per-room
+
+- `SessionStore`: `mutedRooms: List<String>?` + read/save; Room-список: бейдж unread скрывается для muted
+- ChatViewModel/CallRepository: фильтр — muted-комнаты не поднимают CallState.Incoming popup (звонки в muted комнате — только сообщения о вызове)
+
+### C. Просмотрщик изображений (`ui/components/ImageViewer.kt`)
+
+- Fullscreen-диалог поверх чата: тёмный фон, `HorizontalPager` по списку изображений комнаты, зум/пан (`detectTransformGestures` + `graphicsLayer`), кнопка скачивания (existing `openAttachment`), кнопка закрытия
+- Вход: клик по изображению в MessageItem → `ChatViewModel.openImageViewer(startIndex)`; список = медиа-сообщения комнаты
+- Список медиа в `ChatUiState.imageMessages: List<Message>` (из существующей фильтрации GalleryPanel)
+
+### D. Произвольные реакции
+
+- `ui/components/ReactionPicker.kt`: Popup-грид ~48 эмодзи (категории: смайлы, жесты, символы) на пузыре сообщения — клик → существующий `sendReaction(eventId, emoji)` (API принимает любую строку ✓)
+- Быстрые реакции остаются в меню, пикер — по клику «+» рядом с ними
+
+### E. Markdown-композер
+
+- `ui/chat/MarkdownToHtml.kt`: конвертер `**bold**` → `<strong>`, `*italic*` → `<em>`, `` `code` `` → `<code>`, `~~strike~~` → `<del>`, URL → `<a>` (regex, без внешних зависимостей) + экранирование HTML
+- Композер: тумблер-иконка (TextFormat) — включён → текст уходит с `format = "org.matrix.custom.html"` + `formattedBody`
+- `sendTextMessage(text, formattedBody: String? = null)` — TextBased.Text(format, formattedBody)
+- Тест: `MarkdownToHtmlTest` (bold/italic/code/strike/комбинации/экранирование)
+
+### F. Jump to unread
+
+- `ChatUiState.unreadCount` — из `getRoomInfo` (`Room.unreadMessageCount`)
+- ChatScreen: при открытии чата с unread > 0 — вычислить индекс первого непрочитанного в TimelineItem-списке (messages.size - min(unreadCount, size)), прокрутить (`listState.scrollToItem`), вставить разделитель «Новые сообщения» перед первым непрочитанным (TimelineItem-обёртка в buildTimeline)
+- Прочитанные отметки уже отправляются (`markRoomAsRead` при открытии) — разделитель живёт до закрытия экрана
 
 ## Файлы
 
-- Правка: `media/MediaFetcher.kt`, `data/model/Models.kt` (+1 поле), `data/repository/MatrixRepositoryImpl.kt`, `ui/chat/{ChatViewModel,ChatScreen}.kt`, `ui/home/HomeScreen.kt` (диалог профиля), `ui/settings/{SettingsScreen,DevicesScreen}.kt`, `ui/search/SearchScreen.kt`, `ui/rooms/{RoomsCatalogScreen,SpaceChildrenScreen}.kt`, `ui/bridges/BridgesScreen.kt`, `ui/login/LoginScreen.kt`
-- Переиспользуем: `MatrixAvatar`, `TimeFormat`, палитру/типографику темы из v1.15.0
+- Новые: `ui/room/RoomSettingsScreen.kt`, `ui/room/RoomSettingsViewModel.kt`, `ui/components/ImageViewer.kt`, `ui/components/ReactionPicker.kt`, `ui/chat/MarkdownToHtml.kt`, `commonTest/.../MarkdownToHtmlTest.kt`
+- Правка: `Models.kt` (+3 модели), `MatrixRepository.kt`+Impl (room settings/members/kick/mute/self-ver уже частично есть), `ui/navigation/{Screen,AppNavigation}.kt`, `ui/chat/{ChatScreen,ChatViewModel}.kt`, `ui/home/HomeScreen.kt` (mute в списке), `data/repository/SessionStore.kt` (mutedRooms), `ui/settings/SettingsViewModel.kt`
+- Переиспользование: `uploadBytes`, `resolveSenderName/Avatar`, `rememberFilePicker`, `TimelineItem`, `MatrixAvatar`, `sendReaction`
 
 ## Проверка
 
-1. `gradlew :shared:compileKotlinDesktop :desktop-app:compileKotlinDesktop :app:assembleDebug` + `:shared:desktopTest :shared:testDebugUnitTest`
-2. `gradlew :desktop-app:run` — визуально: шапка чата с аватаром комнаты, аватары собеседников в ленте, незашифрованная картинка в чате/галерее, профиль в настройках с фото, список чатов с DM-аватарами
-3. Вручную у вас: тот же чат, где проверяли отправку — аватары с обеих сторон
+1. `gradlew :shared:compileKotlinDesktop :shared:compileDebugKotlinAndroid :desktop-app:compileKotlinDesktop :app:assembleDebug :shared:desktopTest :shared:testDebugUnitTest`
+2. Desktop-run: Настройки комнаты (имя/тема/аватар применяются в Element), участники + kick, mute гасит бейдж, клик по изображению → fullscreen viewer с зумом, реакции из пикера доходят до Element, markdown → отформатированный текст в Element, jump to unread
+3. `MarkdownToHtmlTest` — зелёный

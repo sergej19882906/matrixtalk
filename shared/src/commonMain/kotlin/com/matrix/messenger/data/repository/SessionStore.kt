@@ -34,7 +34,8 @@ object SessionStore {
         val themeMode: String? = null,
         val notificationsEnabled: Boolean? = null,
         val videoDevice: String? = null,
-        val audioInputDevice: String? = null
+        val audioInputDevice: String? = null,
+        val mutedRooms: List<String>? = null
     )
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -113,5 +114,11 @@ object SessionStore {
 
     suspend fun saveAudioInputDevice(device: String) = mutex.withLock {
         save(load().copy(audioInputDevice = device))
+    }
+
+    suspend fun readMutedRooms(): List<String> = mutex.withLock { load().mutedRooms.orEmpty() }
+
+    suspend fun saveMutedRooms(rooms: List<String>) = mutex.withLock {
+        save(load().copy(mutedRooms = rooms))
     }
 }

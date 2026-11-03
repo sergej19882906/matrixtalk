@@ -36,7 +36,13 @@ data class ChatUiState(
     val isRecordingVoice: Boolean = false,
     val recordingSeconds: Int = 0,
     val error: String? = null,
-    val replyingTo: Message? = null
+    val replyingTo: Message? = null,
+    /** Composer markdown mode: send text with org.matrix.custom.html formatting. */
+    val markdownEnabled: Boolean = false,
+    /** Unread messages at the moment the room was opened (for jump-to-unread). */
+    val initialUnreadCount: Int = 0,
+    /** Event id of the image currently opened in the fullscreen viewer, null = closed. */
+    val imageViewerMessageId: String? = null
 )
 
 class ChatViewModel(
@@ -88,7 +94,8 @@ class ChatViewModel(
             val roomInfo = matrixRepository.getRoomInfo(roomId)
             _uiState.value = _uiState.value.copy(
                 roomName = roomInfo?.name,
-                roomAvatarUrl = roomInfo?.avatarUrl
+                roomAvatarUrl = roomInfo?.avatarUrl,
+                initialUnreadCount = roomInfo?.unreadCount ?: 0
             )
         }
 
@@ -166,6 +173,12 @@ class ChatViewModel(
                         text = message,
                         threadRootId = replyingTo.threadRootId
                     )
+                } else if (state.markdownEnabled) {
+                    matrixRepository.sendTextMessage(
+                        state.roomId,
+                        message,
+                        formattedBody = MarkdownToHtml.convert(message)
+                    )
                 } else {
                     matrixRepository.sendTextMessage(
                         state.roomId,
@@ -182,6 +195,18 @@ class ChatViewModel(
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки: ${e.message}"))
             }
         }
+    }
+
+    fun toggleMarkdown() {
+        _uiState.value = _uiState.value.copy(markdownEnabled = !_uiState.value.markdownEnabled)
+    }
+
+    fun openImageViewer(message: Message) {
+        _uiState.value = _uiState.value.copy(imageViewerMessageId = message.eventId)
+    }
+
+    fun closeImageViewer() {
+        _uiState.value = _uiState.value.copy(imageViewerMessageId = null)
     }
 
     fun sendReaction(eventId: String, reaction: String) {

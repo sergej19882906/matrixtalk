@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
@@ -292,6 +293,7 @@ fun HomeScreen(
                                 items(filteredRooms, key = { it.roomId }) { room ->
                                     RoomItem(
                                         room = room,
+                                        isMuted = uiState.mutedRooms.contains(room.roomId),
                                         onClick = { viewModel.onRoomClick(room.roomId) },
                                         onLeave = { roomToLeave = room },
                                         onToggleFavorite = { viewModel.toggleFavorite(room.roomId) }
@@ -647,6 +649,7 @@ private fun ContactItem(user: MatrixUser, onClick: () -> Unit) {
 @Composable
 private fun RoomItem(
     room: ChatRoom,
+    isMuted: Boolean,
     onClick: () -> Unit,
     onLeave: () -> Unit,
     onToggleFavorite: () -> Unit
@@ -726,7 +729,15 @@ private fun RoomItem(
                         }
                     )
 
-                    if (hasUnread) {
+                    if (isMuted) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            Icons.Default.NotificationsOff,
+                            contentDescription = "Уведомления отключены",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (hasUnread) {
                         Spacer(modifier = Modifier.width(8.dp))
                         UnreadBadge(count = room.unreadCount)
                     }

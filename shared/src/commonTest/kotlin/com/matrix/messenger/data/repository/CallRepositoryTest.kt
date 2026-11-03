@@ -5,6 +5,8 @@ import com.matrix.messenger.call.WebRtcEvent
 import com.matrix.messenger.data.call.CallCandidate
 import com.matrix.messenger.data.call.CallSignalingCommand
 import com.matrix.messenger.data.call.CallSignalingEvent
+import com.matrix.messenger.data.model.RoomSettingsInfo
+import com.matrix.messenger.data.model.RoomMemberInfo
 import com.matrix.messenger.data.model.CallState
 import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.RoomTrust
@@ -20,6 +22,7 @@ import com.matrix.messenger.data.model.SearchResultItem
 import com.matrix.messenger.data.model.Message
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
@@ -66,7 +69,18 @@ class CallRepositoryTest {
         override suspend fun canLoadMoreMessages(roomId: String) = true
         override suspend fun resolveMediaFile(eventId: String, fileName: String): String? = null
         override suspend fun searchUsers(query: String): List<MatrixUser> = emptyList()
-        override suspend fun sendTextMessage(roomId: String, text: String) = Unit
+        override suspend fun sendTextMessage(roomId: String, text: String, formattedBody: String?) = Unit
+        override suspend fun isRoomMuted(roomId: String): Boolean = false
+        override fun mutedRoomsFlow(): StateFlow<Set<String>> = MutableStateFlow(emptySet())
+        override fun getRoomSettingsFlow(roomId: String): Flow<RoomSettingsInfo> = MutableStateFlow(
+            RoomSettingsInfo(roomId = roomId, name = null, topic = null, avatarUrl = null, isEncrypted = false, memberCount = 0, canEdit = false)
+        )
+        override fun getRoomMembersFlow(roomId: String): Flow<List<RoomMemberInfo>> = MutableStateFlow(emptyList())
+        override suspend fun setRoomName(roomId: String, name: String) = Unit
+        override suspend fun setRoomTopic(roomId: String, topic: String) = Unit
+        override suspend fun setRoomAvatar(roomId: String, filePath: String) = Unit
+        override suspend fun kickUser(roomId: String, userId: String) = Unit
+        override suspend fun setRoomMuted(roomId: String, muted: Boolean) = Unit
         override suspend fun replyToMessage(roomId: String, eventId: String, text: String, threadRootId: String?) = Unit
         override suspend fun sendFileMessage(roomId: String, filePath: String, mimeType: String, caption: String?) = Unit
         override suspend fun getRoomInfo(roomId: String): ChatRoom? = null

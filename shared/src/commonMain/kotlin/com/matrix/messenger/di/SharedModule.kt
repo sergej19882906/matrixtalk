@@ -11,6 +11,7 @@ import com.matrix.messenger.ui.rooms.RoomsCatalogViewModel
 import com.matrix.messenger.ui.search.SearchViewModel
 import com.matrix.messenger.ui.settings.DevicesViewModel
 import com.matrix.messenger.ui.settings.SettingsViewModel
+import org.koin.compose.viewmodel.dsl.viewModel
 import org.koin.compose.viewmodel.dsl.viewModelOf
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
@@ -28,4 +29,7 @@ val sharedModule = module {
     viewModelOf(::DevicesViewModel)
     viewModelOf(::SearchViewModel)
     viewModelOf(::RoomsCatalogViewModel)
+    viewModel { (roomId: String) ->
+        com.matrix.messenger.ui.room.RoomSettingsViewModel(get(), roomId)
+    }
 }

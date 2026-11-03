@@ -6,6 +6,8 @@ import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.DeviceInfo
 import com.matrix.messenger.data.model.IceServer
+import com.matrix.messenger.data.model.RoomMemberInfo
+import com.matrix.messenger.data.model.RoomSettingsInfo
 import com.matrix.messenger.data.model.RoomTrust
 import com.matrix.messenger.data.model.SelfVerificationInfo
 import com.matrix.messenger.data.model.LoginResult
@@ -15,6 +17,7 @@ import com.matrix.messenger.data.model.PublicRoomItem
 import com.matrix.messenger.data.model.SearchResultItem
 import com.matrix.messenger.data.model.VerificationUiState
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 
 interface MatrixRepository {
 
@@ -92,7 +95,7 @@ interface MatrixRepository {
     /** Downloads and decrypts an encrypted attachment to a local file; returns its path. */
     suspend fun resolveMediaFile(eventId: String, fileName: String): String?
 
-    suspend fun sendTextMessage(roomId: String, text: String)
+    suspend fun sendTextMessage(roomId: String, text: String, formattedBody: String? = null)
 
     /** Sends a reply: text with m.in_reply_to relation to [eventId];
      * keeps the thread when [threadRootId] is set. */
@@ -106,6 +109,22 @@ interface MatrixRepository {
     )
 
     suspend fun getRoomInfo(roomId: String): ChatRoom?
+
+    /** Room state for the room settings screen (reactive). */
+    fun getRoomSettingsFlow(roomId: String): Flow<RoomSettingsInfo>
+
+    /** Joined members of the room with power levels (reactive). */
+    fun getRoomMembersFlow(roomId: String): Flow<List<RoomMemberInfo>>
+
+    suspend fun setRoomName(roomId: String, name: String)
+    suspend fun setRoomTopic(roomId: String, topic: String)
+    suspend fun setRoomAvatar(roomId: String, filePath: String)
+    suspend fun kickUser(roomId: String, userId: String)
+    suspend fun setRoomMuted(roomId: String, muted: Boolean)
+    suspend fun isRoomMuted(roomId: String): Boolean
+
+    /** Rooms with notifications disabled (reactive; server push rule + local cache). */
+    fun mutedRoomsFlow(): StateFlow<Set<String>>
 
     /** Room encryption + member-trust summary for the shield indicator. */
     fun getRoomTrustFlow(roomId: String): Flow<RoomTrust>

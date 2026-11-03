@@ -114,6 +114,13 @@ class CallRepository(
     }
 
     private suspend fun onIncomingCall(event: CallSignalingEvent.Incoming) {
+        // Muted rooms never ring: the call is rejected so the caller is not left hanging.
+        if (matrixRepository.isRoomMuted(event.roomId)) {
+            runCatching {
+                matrixRepository.sendCallEvent(event.roomId, CallSignalingCommand.Reject(event.callId))
+            }
+            return
+        }
         if (_callState.value != CallState.Idle) {
             // busy: reject the second call
             runCatching {

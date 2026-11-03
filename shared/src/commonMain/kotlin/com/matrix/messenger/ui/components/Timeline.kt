@@ -13,6 +13,9 @@ sealed interface TimelineItem {
     /** Calendar-day separator; [epochDay] is the stable LazyColumn key suffix. */
     data class Header(val epochDay: Long, val label: String) : TimelineItem
 
+    /** Divider marking the first unread message when opening a chat. */
+    data object UnreadDivider : TimelineItem
+
     data class Msg(
         val message: Message,
         /** First bubble of a sender group -> show sender name (and avatar). */
@@ -27,12 +30,17 @@ sealed interface TimelineItem {
         get() = when (this) {
             is Header -> "date_$epochDay"
             is Msg -> message.eventId
+            is UnreadDivider -> "unread_divider"
         }
 }
 
 private const val GROUP_WINDOW_MS = 5 * 60 * 1000L
 
-fun buildTimeline(messages: List<Message>): List<TimelineItem> {
+fun buildTimeline(
+    messages: List<Message>,
+    /** Index of the first unread message; an unread divider is inserted before it. */
+    unreadDividerBefore: Int = -1
+): List<TimelineItem> {
     val items = mutableListOf<TimelineItem>()
     var lastEpochDay = Long.MIN_VALUE
     for (index in messages.indices) {
@@ -41,6 +49,9 @@ fun buildTimeline(messages: List<Message>): List<TimelineItem> {
         if (epochDay != lastEpochDay) {
             items += TimelineItem.Header(epochDay, TimeFormat.separatorLabel(message.timestamp))
             lastEpochDay = epochDay
+        }
+        if (index == unreadDividerBefore) {
+            items += TimelineItem.UnreadDivider
         }
         val previous = messages.getOrNull(index - 1)
         val next = messages.getOrNull(index + 1)
