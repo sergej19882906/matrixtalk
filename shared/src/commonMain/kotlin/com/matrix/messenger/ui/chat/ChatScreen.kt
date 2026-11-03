@@ -67,6 +67,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -81,6 +82,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.matrix.messenger.data.model.GeoLocation
@@ -853,212 +855,53 @@ internal fun MessageItem(
                     Text(
                         text = message.senderName?.substringBefore(":") ?: "Unknown",
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = FontWeight.SemiBold,
+                        color = senderAccentColor(message.senderName, message.isMine)
                     )
                 }
                 Box {
-                    Surface(
-                        shape = RoundedCornerShape(
-                            topStart = if (!message.isMine && groupedWithPrevious) 4.dp else 16.dp,
-                            topEnd = if (message.isMine && groupedWithPrevious) 4.dp else 16.dp,
-                            bottomStart = if (message.isMine && groupedWithNext) 4.dp else 16.dp,
-                            bottomEnd = if (!message.isMine && groupedWithNext) 4.dp else 16.dp
-                        ),
-                        color = if (message.isMine) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHighest
-                        },
-                        modifier = Modifier.clickable { menuExpanded = true }
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                            val replyTo = message.replyTo
-                            if (replyTo != null && !message.isDeleted) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                                    modifier = Modifier.padding(bottom = 6.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                                        Text(
-                                            text = replyTo.senderName?.substringBefore(":") ?: "Unknown",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            text = replyTo.body,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            }
-                            if (message.isDeleted) {
-                                Text(
-                                    text = "Сообщение удалено",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            } else {
-                                val poll = message.poll
-                                when {
-                                    poll != null -> PollContent(
-                                        message = message,
-                                        onVote = onVotePoll
+                    // Element X: text-like messages live in a bubble, media is borderless.
+                    val isMediaOnly = message.messageType in setOf(
+                        MessageType.IMAGE, MessageType.STICKER, MessageType.LOCATION
+                    ) && !message.isDeleted
+
+                    if (isMediaOnly) {
+                        Column(
+                            modifier = Modifier.clickable { menuExpanded = true },
+                            horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start
+                        ) {
+                            when {
+                                message.messageType == MessageType.LOCATION && message.location != null -> {
+                                    LocationCard(
+                                        location = message.location,
+                                        onOpenMap = { openUrl(GeoUri.toOsmUrl(message.location)) }
                                     )
+                                }
 
-                                    message.messageType == MessageType.VERIFICATION_REQUEST -> {
-                                        Column {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    Icons.Default.VerifiedUser,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = "Запрос верификации ключа",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-                                            if (!message.isMine) {
-                                                Text(
-                                                    text = "Устройство ${message.verificationDeviceId ?: "неизвестно"}",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "Element отменяет запросы верификации из чата — верифицируйте эту сессию через Настройки → Сессии в Element",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
+                                else -> {
+                                    val mediaModifier = when (message.messageType) {
+                                        MessageType.STICKER -> Modifier
+                                            .widthIn(max = 160.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { onOpenImage() }
+                                        else -> Modifier
+                                            .widthIn(max = 280.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { onOpenImage() }
                                     }
-
-                                    message.messageType == MessageType.CALL -> {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                Icons.Default.Call,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(20.dp),
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = message.body,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    }
-
-                                    message.messageType == MessageType.LOCATION && message.location != null -> {
-                                        LocationCard(
-                                            location = message.location,
-                                            onOpenMap = { openUrl(GeoUri.toOsmUrl(message.location)) }
-                                        )
-                                    }
-
-                                    message.messageType == MessageType.STICKER &&
-                                        (message.mediaUrl != null || message.encryptedFile != null) -> {
-                                        AsyncImage(
-                                            model = MatrixMedia(message.mediaUrl, message.encryptedFile),
-                                            contentDescription = message.body,
-                                            modifier = Modifier
-                                                .widthIn(max = 160.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .clickable { onOpenImage() },
-                                            contentScale = ContentScale.Fit
-                                        )
-                                    }
-
-                                    message.messageType == MessageType.IMAGE &&
-                                        (message.mediaUrl != null || message.encryptedFile != null) -> {
-                                        AsyncImage(
-                                            model = MatrixMedia(message.mediaUrl, message.encryptedFile),
-                                            contentDescription = message.body,
-                                            modifier = Modifier
-                                                .widthIn(max = 280.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .clickable { onOpenImage() },
-                                            contentScale = ContentScale.Fit
-                                        )
-                                    }
-
-                                    message.mediaUrl != null || message.encryptedFile != null -> {
-                                        if (message.messageType == MessageType.AUDIO) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.clickable { onPlayAudio() }
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.PlayArrow,
-                                                    contentDescription = "Воспроизвести",
-                                                    modifier = Modifier.size(24.dp),
-                                                    tint = MaterialTheme.colorScheme.primary
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    text = "Голосовое сообщение",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-                                        } else {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.clickable { onOpenAttachment() }
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.AttachFile,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(20.dp),
-                                                    tint = MaterialTheme.colorScheme.onSurface
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = message.body,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    else -> {
-                                        val formatted = message.formattedBody
-                                        if (formatted != null) {
-                                            RichMessageText(html = formatted)
-                                        } else {
-                                            Text(
-                                                text = buildMentionAnnotatedString(
-                                                    body = message.body,
-                                                    ownShortId = ownShortId,
-                                                    ownDisplayName = ownDisplayName,
-                                                    mentionColor = MaterialTheme.colorScheme.primary
-                                                ),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    }
+                                    AsyncImage(
+                                        model = MatrixMedia(message.mediaUrl, message.encryptedFile),
+                                        contentDescription = message.body,
+                                        modifier = mediaModifier,
+                                        contentScale = ContentScale.Fit
+                                    )
                                 }
                             }
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = TimeFormat.timeOnly(message.timestamp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                                 if (message.isEdited) {
                                     Text(
                                         text = "(ред.)",
@@ -1066,68 +909,251 @@ internal fun MessageItem(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                                Text(
+                                    text = TimeFormat.timeOnly(message.timestamp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                            if (message.isMine && readers.isNotEmpty()) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(top = 2.dp)
-                                ) {
-                                    readers.take(3).forEach { reader ->
-                                        MatrixAvatar(
-                                            name = reader.name ?: reader.userId,
-                                            avatarUrl = reader.avatarUrl,
-                                            size = 18.dp,
-                                            shape = CircleShape
-                                        )
-                                        Spacer(Modifier.width(3.dp))
-                                    }
-                                    if (readers.size > 3) {
-                                        Text(
-                                            text = "+${readers.size - 3}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Spacer(Modifier.width(4.dp))
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = "Прочитано",
-                                        modifier = Modifier.size(14.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                            if (message.reactions.isNotEmpty()) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.padding(top = 4.dp)
-                                ) {
-                                    message.reactions.forEach { (emoji, count) ->
-                                        val isMine = emoji in message.myReactions
-                                        Surface(
-                                            shape = MaterialTheme.shapes.extraLarge,
-                                            color = if (isMine) MaterialTheme.colorScheme.primaryContainer
-                                            else MaterialTheme.colorScheme.surface,
-                                            modifier = Modifier.clickable { onReaction(emoji) }
-                                        ) {
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(
+                                topStart = if (!message.isMine && groupedWithPrevious) 4.dp else 16.dp,
+                                topEnd = if (message.isMine && groupedWithPrevious) 4.dp else 16.dp,
+                                bottomStart = if (message.isMine && groupedWithNext) 4.dp else 16.dp,
+                                bottomEnd = if (!message.isMine && groupedWithNext) 4.dp else 16.dp
+                            ),
+                            color = if (message.isMine) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            },
+                            modifier = Modifier.clickable { menuExpanded = true }
+                        ) {
+                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                val replyTo = message.replyTo
+                                if (replyTo != null && !message.isDeleted) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                        modifier = Modifier.padding(bottom = 6.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                                             Text(
-                                                text = "$emoji $count",
+                                                text = replyTo.senderName?.substringBefore(":") ?: "Unknown",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = senderAccentColor(replyTo.senderName, message.isMine)
+                                            )
+                                            Text(
+                                                text = replyTo.body,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         }
                                     }
                                 }
+                                if (message.isDeleted) {
+                                    Text(
+                                        text = "Сообщение удалено",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else {
+                                    val poll = message.poll
+                                    when {
+                                        poll != null -> PollContent(
+                                            message = message,
+                                            onVote = onVotePoll
+                                        )
+
+                                        message.messageType == MessageType.VERIFICATION_REQUEST -> {
+                                            Column {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        Icons.Default.VerifiedUser,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = "Запрос верификации ключа",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+                                                if (!message.isMine) {
+                                                    Text(
+                                                        text = "Устройство ${message.verificationDeviceId ?: "неизвестно"}",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = "Element отменяет запросы верификации из чата — верифицируйте эту сессию через Настройки → Сессии в Element",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+
+                                        message.messageType == MessageType.CALL -> {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    Icons.Default.Call,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(20.dp),
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = message.body,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
+
+                                        message.mediaUrl != null || message.encryptedFile != null -> {
+                                            if (message.messageType == MessageType.AUDIO) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.clickable { onPlayAudio() }
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.PlayArrow,
+                                                        contentDescription = "Воспроизвести",
+                                                        modifier = Modifier.size(24.dp),
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = "Голосовое сообщение",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+                                            } else {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.clickable { onOpenAttachment() }
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.AttachFile,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(20.dp),
+                                                        tint = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = message.body,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        else -> {
+                                            val formatted = message.formattedBody
+                                            if (formatted != null) {
+                                                RichMessageText(html = formatted)
+                                            } else {
+                                                Text(
+                                                    text = buildMentionAnnotatedString(
+                                                        body = message.body,
+                                                        ownShortId = ownShortId,
+                                                        ownDisplayName = ownDisplayName,
+                                                        mentionColor = MaterialTheme.colorScheme.primary
+                                                    ),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                // Timestamp pinned to the bubble's bottom-right (Element X).
+                                Row(
+                                    modifier = Modifier.align(Alignment.End).padding(top = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (message.isEdited) {
+                                        Text(
+                                            text = "(ред.)",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Text(
+                                        text = TimeFormat.timeOnly(message.timestamp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
-                    ReactionPicker(
-                        expanded = showReactionPicker,
-                        myReactions = message.myReactions,
-                        recentReactions = recentReactions,
-                        onDismiss = { showReactionPicker = false },
-                        onSelect = onReaction
-                    )
+
+                    // Reactions and read receipts live OUTSIDE the bubble (Element X).
+                    if (message.isMine && readers.isNotEmpty()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            readers.take(3).forEach { reader ->
+                                MatrixAvatar(
+                                    name = reader.name ?: reader.userId,
+                                    avatarUrl = reader.avatarUrl,
+                                    size = 18.dp,
+                                    shape = CircleShape
+                                )
+                                Spacer(Modifier.width(3.dp))
+                            }
+                            if (readers.size > 3) {
+                                Text(
+                                    text = "+${readers.size - 3}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = "Прочитано",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    if (message.reactions.isNotEmpty()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            message.reactions.forEach { (emoji, count) ->
+                                val isMine = emoji in message.myReactions
+                                Surface(
+                                    shape = MaterialTheme.shapes.extraLarge,
+                                    color = if (isMine) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    modifier = Modifier.clickable { onReaction(emoji) }
+                                ) {
+                                    Text(
+                                        text = "$emoji $count",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                     DropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false }
@@ -1205,7 +1231,13 @@ internal fun MessageItem(
                             )
                         }
                     }
-                }
+                    ReactionPicker(
+                        expanded = showReactionPicker,
+                        myReactions = message.myReactions,
+                        recentReactions = recentReactions,
+                        onDismiss = { showReactionPicker = false },
+                        onSelect = onReaction
+                    )
             }
             if (message.isMine) {
                 Spacer(modifier = Modifier.width(36.dp))
@@ -1698,4 +1730,17 @@ private fun LocationSendDialog(
             TextButton(onClick = onDismiss) { Text("Отмена") }
         }
     )
+}
+
+/** Element X palette: deterministic per-sender accent for names and replies. */
+private val SenderAccents = listOf(
+    Color(0xFF368BD6), Color(0xFFAC3BA8), Color(0xFF03B381), Color(0xFFE64F7A),
+    Color(0xFFFF812D), Color(0xFF2DC2C5), Color(0xFF5C56F5), Color(0xFF74D12C)
+)
+
+private fun senderAccentColor(senderName: String?, isMine: Boolean): Color {
+    if (isMine) return Color.Unspecified
+    val key = (senderName ?: "?").trim().lowercase()
+    val hash = key.fold(0) { acc, ch -> (acc * 31 + ch.code) and Int.MAX_VALUE }
+    return SenderAccents[hash % SenderAccents.size]
 }
