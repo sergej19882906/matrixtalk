@@ -989,6 +989,18 @@ class MatrixRepositoryImpl : MatrixRepository {
         c.api.room.sendMessageEvent(rId, UnknownEventContent(stickerJson, "m.sticker")).getOrThrow()
     }
 
+    override suspend fun sendLocation(roomId: String, latitude: Double, longitude: Double, accuracyMeters: Double?) {
+        val c = requireClient()
+        val location = com.matrix.messenger.data.model.GeoLocation(latitude, longitude, accuracyMeters)
+        requireClient().api.room.sendMessageEvent(
+            RoomId(roomId),
+            RoomMessageEventContent.Location(
+                body = com.matrix.messenger.data.model.GeoUri.format(location),
+                geoUri = com.matrix.messenger.data.model.GeoUri.toGeoUri(location)
+            )
+        ).getOrThrow()
+    }
+
     override fun getReadReceiptsFlow(roomId: String): Flow<Map<String, List<ReadReceipt>>> = _clientState.flatMapLatest { c ->
         if (c == null) {
             flowOf(emptyMap())
@@ -1955,8 +1967,13 @@ class MatrixRepositoryImpl : MatrixRepository {
                 verificationDeviceId = messageContent.fromDevice
             )
         }
+        val location = (messageContent as? RoomMessageEventContent.Location)
+            ?.let { com.matrix.messenger.data.model.GeoUri.parse(it.geoUri) }
         val body = when {
             isDeleted -> ""
+            messageContent is RoomMessageEventContent.Location ->
+                messageContent.body
+
             messageContent is RoomMessageEventContent.FileBased ->
                 messageContent.fileName ?: messageContent.body
 
@@ -1986,6 +2003,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             isDeleted = isDeleted,
             mediaUrl = mediaUrl,
             encryptedFile = encryptedFile,
+            location = location,
             replyTo = replyTo,
             formattedBody = (messageContent as? RoomMessageEventContent.TextBased)?.formattedBody,
             threadRootId = (messageContent?.relatesTo as? RelatesTo.Thread)?.eventId?.full
@@ -2026,6 +2044,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         is RoomMessageEventContent.FileBased.Video -> MessageType.VIDEO
         is RoomMessageEventContent.FileBased.Audio -> MessageType.AUDIO
         is RoomMessageEventContent.FileBased.File -> MessageType.FILE
+        is RoomMessageEventContent.Location -> MessageType.LOCATION
         is RoomMessageEventContent -> MessageType.TEXT
         else -> MessageType.UNKNOWN
     }

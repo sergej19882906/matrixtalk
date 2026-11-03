@@ -118,6 +118,7 @@ enum class MessageType {
     TEXT,
     IMAGE,
     STICKER,
+    LOCATION,
     VIDEO,
     AUDIO,
     FILE,
@@ -145,6 +146,8 @@ data class Message(
     val reactions: Map<String, Int> = emptyMap(),
     /** Reaction keys the current user has added to this message (toggle support). */
     val myReactions: Set<String> = emptySet(),
+    /** Parsed geo point for m.location messages. */
+    val location: GeoLocation? = null,
     val mediaUrl: String? = null,
     val encryptedFile: EncryptedFile? = null,
     val replyTo: ReplyInfo? = null,

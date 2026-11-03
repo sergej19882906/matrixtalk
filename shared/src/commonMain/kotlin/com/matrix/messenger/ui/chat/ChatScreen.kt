@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.GppMaybe
 import androidx.compose.material.icons.filled.HowToVote
@@ -81,6 +83,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.matrix.messenger.data.model.GeoLocation
+import com.matrix.messenger.data.model.GeoUri
 import com.matrix.messenger.data.model.ReadReceipt
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
@@ -92,6 +96,8 @@ import com.matrix.messenger.media.MatrixMedia
 import com.matrix.messenger.platform.ScreenSource
 import com.matrix.messenger.platform.listScreenSources
 import com.matrix.messenger.platform.rememberCallPermissionRequester
+import com.matrix.messenger.platform.openUrl
+import com.matrix.messenger.platform.rememberLocationRequester
 import com.matrix.messenger.platform.rememberFilePicker
 import com.matrix.messenger.ui.components.DateSeparator
 import com.matrix.messenger.ui.theme.ElementAmber
@@ -162,6 +168,12 @@ fun ChatScreen(
 
     val pickSticker = rememberFilePicker(listOf("image/*")) { file ->
         viewModel.sendSticker(file.path, file.mimeType)
+    }
+    var locationDraft by remember { mutableStateOf<GeoLocation?>(null) }
+    var showLocationDialog by remember { mutableStateOf(false) }
+    val requestLocation = rememberLocationRequester { point ->
+        locationDraft = point
+        showLocationDialog = true
     }
     val callRepository: CallRepository = koinInject()
     val matrixRepository: MatrixRepository = koinInject()
@@ -249,6 +261,17 @@ fun ChatScreen(
                 onDownload = { msg -> viewModel.openAttachment(msg) }
             )
         }
+    }
+
+    if (showLocationDialog) {
+        LocationSendDialog(
+            initial = locationDraft,
+            onDismiss = { showLocationDialog = false },
+            onSend = { lat, lon ->
+                showLocationDialog = false
+                viewModel.sendLocation(lat, lon)
+            }
+        )
     }
 
     Scaffold(
@@ -441,7 +464,8 @@ fun ChatScreen(
                 onCreatePoll = { showPollDialog = true },
                 markdownEnabled = uiState.markdownEnabled,
                 onToggleMarkdown = { viewModel.toggleMarkdown() },
-                onPickSticker = { pickSticker() }
+                onPickSticker = { pickSticker() },
+                onPickLocation = { requestLocation() }
             )
         }
     ) { paddingValues ->
@@ -934,6 +958,13 @@ internal fun MessageItem(
                                         }
                                     }
 
+                                    message.messageType == MessageType.LOCATION && message.location != null -> {
+                                        LocationCard(
+                                            location = message.location,
+                                            onOpenMap = { openUrl(GeoUri.toOsmUrl(message.location)) }
+                                        )
+                                    }
+
                                     message.messageType == MessageType.STICKER &&
                                         (message.mediaUrl != null || message.encryptedFile != null) -> {
                                         AsyncImage(
@@ -1320,7 +1351,8 @@ private fun MessageInputBar(
     onCreatePoll: () -> Unit,
     markdownEnabled: Boolean = false,
     onToggleMarkdown: () -> Unit = {},
-    onPickSticker: () -> Unit = {}
+    onPickSticker: () -> Unit = {},
+    onPickLocation: () -> Unit = {}
 ) {
     var emojiVisible by remember { mutableStateOf(false) }
     var attachMenuVisible by remember { mutableStateOf(false) }
@@ -1442,6 +1474,14 @@ private fun MessageInputBar(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Геолокация") },
+                                leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                                onClick = {
+                                    attachMenuVisible = false
+                                    onPickLocation()
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Стикер") },
                                 leadingIcon = { Icon(Icons.Default.EmojiEmotions, contentDescription = null) },
                                 onClick = {
@@ -1544,4 +1584,118 @@ private fun UnreadDividerRow() {
         )
         HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
     }
+}
+
+@Composable
+private fun LocationCard(location: GeoLocation, onOpenMap: () -> Unit) {
+    Column {
+        Box(
+            modifier = Modifier
+                .widthIn(max = 240.dp)
+                .height(140.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(onClick = onOpenMap)
+        ) {
+            AsyncImage(
+                model = GeoUri.toTileUrl(location, zoom = 15),
+                contentDescription = "Карта",
+                modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .align(Alignment.Center)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.LocationOn,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Text(
+                text = "© OpenStreetMap",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
+                    .padding(horizontal = 4.dp)
+            )
+        }
+        Text(
+            text = GeoUri.format(location),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun LocationSendDialog(
+    initial: GeoLocation?,
+    onDismiss: () -> Unit,
+    onSend: (Double, Double) -> Unit
+) {
+    var latText by remember {
+        mutableStateOf(initial?.latitude?.toString() ?: "")
+    }
+    var lonText by remember {
+        mutableStateOf(initial?.longitude?.toString() ?: "")
+    }
+    val lat = latText.trim().replace(',', '.').toDoubleOrNull()
+    val lon = lonText.trim().replace(',', '.').toDoubleOrNull()
+    val valid = lat != null && lat in -90.0..90.0 && lon != null && lon in -180.0..180.0
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Отправить геолокацию") },
+        text = {
+            Column {
+                if (initial == null) {
+                    Text(
+                        text = "GPS недоступен — введите координаты вручную",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                } else {
+                    Text(
+                        text = GeoUri.format(initial) +
+                            (initial.accuracyMeters?.let { " (±${it.toInt()} м)" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                OutlinedTextField(
+                    value = latText,
+                    onValueChange = { latText = it },
+                    label = { Text("Широта (-90…90)") },
+                    singleLine = true,
+                    isError = latText.isNotBlank() && (lat == null || lat !in -90.0..90.0)
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = lonText,
+                    onValueChange = { lonText = it },
+                    label = { Text("Долгота (-180…180)") },
+                    singleLine = true,
+                    isError = lonText.isNotBlank() && (lon == null || lon !in -180.0..180.0)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (valid) onSend(lat!!, lon!!) },
+                enabled = valid
+            ) { Text("Отправить") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        }
+    )
 }

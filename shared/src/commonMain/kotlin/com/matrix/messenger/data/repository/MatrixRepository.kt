@@ -149,6 +149,9 @@ interface MatrixRepository {
     /** Sends an m.sticker image event (Element X style sticker). */
     suspend fun sendSticker(roomId: String, filePath: String, mimeType: String)
 
+    /** Sends an m.location message with the given point. */
+    suspend fun sendLocation(roomId: String, latitude: Double, longitude: Double, accuracyMeters: Double? = null)
+
     /** Read receipts of other members: eventId -> readers (reactive). */
     fun getReadReceiptsFlow(roomId: String): Flow<Map<String, List<ReadReceipt>>>
 

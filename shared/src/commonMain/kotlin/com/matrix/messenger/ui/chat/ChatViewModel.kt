@@ -242,6 +242,16 @@ class ChatViewModel(
         }
     }
 
+    fun sendLocation(latitude: Double, longitude: Double, accuracyMeters: Double? = null) {
+        viewModelScope.launch {
+            try {
+                matrixRepository.sendLocation(_uiState.value.roomId, latitude, longitude, accuracyMeters)
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка отправки геолокации: \${e.message}"))
+            }
+        }
+    }
+
     fun toggleMarkdown() {
         _uiState.value = _uiState.value.copy(markdownEnabled = !_uiState.value.markdownEnabled)
     }
