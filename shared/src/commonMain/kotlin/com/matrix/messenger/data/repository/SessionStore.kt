@@ -95,6 +95,11 @@ object SessionStore {
         }
     }
 
+    /** Forces logout: drops credentials, keeps user preferences (theme, proxy, muted rooms). */
+    suspend fun clearSession() {
+        save(load().copy(accessToken = null, deviceId = null, userId = null))
+    }
+
     suspend fun clear() = mutex.withLock {
         save(StoredPrefs())
     }

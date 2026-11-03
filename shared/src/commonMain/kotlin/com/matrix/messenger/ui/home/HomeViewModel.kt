@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.MatrixUser
+import com.matrix.messenger.data.model.ConnectionState
 import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.UiState
 import com.matrix.messenger.data.repository.MatrixRepository
@@ -64,6 +65,15 @@ class HomeViewModel(
         viewModelScope.launch {
             matrixRepository.mutedRoomsFlow().collect { muted ->
                 _uiState.value = _uiState.value.copy(mutedRooms = muted)
+            }
+        }
+        viewModelScope.launch {
+            matrixRepository.connectionState.collect { state ->
+                if (state is ConnectionState.Disconnected &&
+                    state.reason.contains("Сессия истекла")
+                ) {
+                    _events.send(UiEvent.NavigateToLogin)
+                }
             }
         }
         observePeerPresence()

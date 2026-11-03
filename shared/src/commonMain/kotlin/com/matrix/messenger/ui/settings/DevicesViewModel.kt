@@ -120,9 +120,13 @@ class DevicesViewModel(
                     isLoading = false
                 )
             } catch (e: Exception) {
+                val raw = e.message ?: "Не удалось загрузить устройства"
+                val friendly = if (raw.contains("401") || raw.contains("M_UNKNOWN_TOKEN")) {
+                    "Сессия недействительна (токен отозван сервером). Выйдите из приложения и войдите заново."
+                } else raw
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    error = e.message ?: "Не удалось загрузить устройства"
+                    error = friendly
                 )
             }
         }

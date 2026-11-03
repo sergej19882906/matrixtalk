@@ -4,6 +4,8 @@ import com.matrix.messenger.data.model.ProxySettings
 import com.matrix.messenger.data.model.ProxyType
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpResponseValidator
+import io.ktor.client.statement.bodyAsText
 import io.ktor.client.engine.okhttp.OkHttpConfig
 import io.ktor.client.HttpClientConfig
 import java.net.InetSocketAddress
@@ -21,6 +23,18 @@ fun createProxyHttpClientFactory(
     return { extraConfig ->
         HttpClient(OkHttp) {
             extraConfig(this)
+            // Detect server-side token invalidation (M_UNKNOWN_TOKEN). UIA flows
+            // also answer 401, so the body must contain the token error to count.
+            HttpResponseValidator {
+                validateResponse { response ->
+                    if (response.status.value == 401) {
+                        val body = runCatching { response.bodyAsText() }.getOrDefault("")
+                        if (body.contains("M_UNKNOWN_TOKEN") || body.contains("token is not active")) {
+                            TokenInvalidationDetector.trigger()
+                        }
+                    }
+                }
+            }
             if (effective != null) {
                 engine {
                     val address = InetSocketAddress(effective.host, effective.port)

@@ -551,6 +551,18 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
     }
 
+    private suspend fun forceLogout(reason: String) {
+        logError("MatrixRepository", "Forcing logout: $reason")
+        runCatching { client?.stopSync() }
+        client = null
+        MediaBytesProvider.resolver = null
+        MediaBytesProvider.mxcResolver = null
+        runCatching { SessionStore.clearSession() }
+        TokenInvalidationDetector.reset()
+        _clientState.value = null
+        _connectionState.value = ConnectionState.Disconnected(reason)
+    }
+
     override suspend fun logout() {
         val c = client
         client = null
@@ -1756,7 +1768,8 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
     }
 
-    private suspend fun attachClient(c: MatrixClient, url: String) {        client?.let { old ->
+    private suspend fun attachClient(c: MatrixClient, url: String) {
+        client?.let { old ->
             try {
                 old.stopSync()
             } catch (e: Exception) {
@@ -1798,6 +1811,13 @@ class MatrixRepositoryImpl : MatrixRepository {
                     SyncState.ERROR -> ConnectionState.Disconnected("Ошибка синхронизации")
                     SyncState.TIMEOUT -> ConnectionState.Connected
                     SyncState.STOPPED -> ConnectionState.Disconnected("Синхронизация остановлена")
+                }
+            }
+        }
+        repositoryScope.launch {
+            TokenInvalidationDetector.triggered.collect { invalid ->
+                if (invalid) {
+                    forceLogout("Сессия истекла — сервер отклонил токен (M_UNKNOWN_TOKEN). Войдите заново.")
                 }
             }
         }
