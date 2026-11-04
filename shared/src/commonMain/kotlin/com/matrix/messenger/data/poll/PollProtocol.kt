@@ -16,6 +16,8 @@ const val POLL_START_UNSTABLE = "org.matrix.msc3381.poll.start"
 const val POLL_RESPONSE_UNSTABLE = "org.matrix.msc3381.poll.response"
 const val POLL_START_STABLE = "m.poll.start"
 const val POLL_RESPONSE_STABLE = "m.poll.response"
+const val POLL_END_STABLE = "m.poll.end"
+private const val POLL_END = POLL_END_STABLE
 
 data class PollAnswer(val id: String, val text: String)
 
@@ -122,3 +124,15 @@ fun buildPollResponseContent(pollEventId: String, answerIds: List<String>): Unkn
             put("body", "[FALLBACK] Проголосовал в опросе")
         }
     )
+
+/** Builds an m.poll.end event closing the poll with the given start event id. */
+fun buildPollEndContent(pollEventId: String): UnknownEventContent {
+    val raw = buildJsonObject {
+        put("m.relates_to", buildJsonObject {
+            put("rel_type", "m.reference")
+            put("event_id", pollEventId)
+        })
+        put("m.text", "Опрос завершён")
+    }
+    return UnknownEventContent(raw, POLL_END)
+}

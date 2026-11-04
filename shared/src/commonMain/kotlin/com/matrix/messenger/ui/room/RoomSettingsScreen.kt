@@ -20,8 +20,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
@@ -58,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -93,6 +96,7 @@ fun RoomSettingsScreen(
     val pickAvatar = rememberFilePicker(listOf("image/*")) { file ->
         viewModel.uploadAvatar(file.path, file.mimeType)
     }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
 
     var editingName by remember { mutableStateOf(false) }
     var editingTopic by remember { mutableStateOf(false) }
@@ -258,6 +262,45 @@ fun RoomSettingsScreen(
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+
+            // Share room link (matrix.to) — only when an alias exists
+            val shareLink by viewModel.shareLink.collectAsState()
+            if (shareLink != null && shareLink!!.contains("/#/")) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            clipboard.setText(AnnotatedString(shareLink!!))
+                            viewModel.consumeMessage()
+                            viewModel.showCopied()
+                        }
+                        .padding(vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Link,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Ссылка на комнату", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = "Скопировать matrix.to",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        Icons.Default.ContentCopy,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+            }
 
             Spacer(Modifier.height(20.dp))
             Row(

@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PresentToAll
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Videocam
@@ -214,6 +215,18 @@ fun ChatScreen(
         viewModel.setRoomId(roomId)
     }
 
+    // Thread summary: reply counts per root message (Element X chip).
+    val threadReplyCounts = remember(uiState.messages) {
+        uiState.messages
+            .filter { it.threadRootId != null && !it.isDeleted }
+            .groupBy { it.threadRootId!! }
+            .mapValues { (_, replies) -> replies.size }
+    }
+
+    // In-chat search state.
+    var chatSearchActive by remember { mutableStateOf(false) }
+    var chatSearchQuery by remember { mutableStateOf("") }
+
     // Date headers + sender grouping projected once per message-list change.
     // The unread divider is inserted before the first unread message snapshot.
     val firstUnreadMessageIndex = if (uiState.initialUnreadCount > 0 && uiState.messages.isNotEmpty()) {
@@ -221,8 +234,22 @@ fun ChatScreen(
     } else {
         -1
     }
-    val timeline = remember(uiState.messages, firstUnreadMessageIndex) {
-        buildTimeline(uiState.messages, firstUnreadMessageIndex)
+    val searchQuery = chatSearchQuery.trim()
+    val searchMatches = remember(uiState.messages, searchQuery) {
+        if (searchQuery.isEmpty()) null
+        else uiState.messages.count {
+            !it.isDeleted && it.body.contains(searchQuery, ignoreCase = true)
+        }
+    }
+    val searchFilteredMessages = if (searchQuery.isEmpty()) {
+        uiState.messages
+    } else {
+        uiState.messages.filter {
+            !it.isDeleted && it.body.contains(searchQuery, ignoreCase = true)
+        }
+    }
+    val timeline = remember(searchFilteredMessages, firstUnreadMessageIndex) {
+        buildTimeline(searchFilteredMessages, firstUnreadMessageIndex)
     }
     var scrolledToUnread by remember(roomId) { mutableStateOf(false) }
     LaunchedEffect(timeline.size, uiState.initialUnreadCount) {
@@ -426,6 +453,14 @@ fun ChatScreen(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Поиск в чате") },
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                onClick = {
+                                    roomMenuExpanded = false
+                                    chatSearchActive = true
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Настройки комнаты") },
                                 leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
                                 onClick = {
@@ -476,6 +511,37 @@ fun ChatScreen(
             )
         }
     ) { paddingValues ->
+        if (chatSearchActive) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = chatSearchQuery,
+                    onValueChange = { chatSearchQuery = it },
+                    placeholder = { Text("Поиск в чате") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                if (searchMatches != null) {
+                    Text(
+                        text = "$searchMatches",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                }
+                IconButton(onClick = {
+                    chatSearchActive = false
+                    chatSearchQuery = ""
+                }) {
+                    Icon(Icons.Default.Close, contentDescription = "Закрыть поиск")
+                }
+            }
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -541,6 +607,7 @@ fun ChatScreen(
                                         },
                                         recentReactions = recentReactions,
                                         readers = readReceipts[item.message.eventId].orEmpty(),
+                                        threadReplyCount = threadReplyCounts[item.message.eventId] ?: 0,
                                         onEdit = {
                                             editText = item.message.body
                                             editingMessage = item.message
@@ -554,6 +621,7 @@ fun ChatScreen(
                                         onReply = { viewModel.replyToMessage(item.message) },
                                         onPlayAudio = { viewModel.playAudioMessage(item.message) },
                                         onVotePoll = { ids -> viewModel.votePoll(item.message, ids) },
+                                        onEndPoll = { viewModel.endPoll(item.message.eventId) },
                                         isPinned = uiState.pinnedMessages.any { it.eventId == item.message.eventId },
                                         onTogglePin = { viewModel.togglePin(item.message) }
                                     )
@@ -822,6 +890,7 @@ internal fun MessageItem(
     isPinned: Boolean,
     recentReactions: List<String> = emptyList(),
     readers: List<ReadReceipt> = emptyList(),
+    threadReplyCount: Int = 0,
     onReaction: (String) -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
@@ -831,7 +900,8 @@ internal fun MessageItem(
     onReply: () -> Unit = {},
     onTogglePin: () -> Unit = {},
     onPlayAudio: () -> Unit = {},
-    onVotePoll: (List<String>) -> Unit = {}
+    onVotePoll: (List<String>) -> Unit = {},
+    onEndPoll: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showReactionPicker by remember { mutableStateOf(false) }
@@ -977,7 +1047,8 @@ internal fun MessageItem(
                                     when {
                                         poll != null -> PollContent(
                                             message = message,
-                                            onVote = onVotePoll
+                                            onVote = onVotePoll,
+                                            ended = message.pollEnded
                                         )
 
                                         message.messageType == MessageType.VERIFICATION_REQUEST -> {
@@ -1186,6 +1257,24 @@ internal fun MessageItem(
                         }
                     }
 
+                    // Element X: thread summary chip under the root message.
+                    if (message.threadRootId == null && threadReplyCount > 0) {
+                        Surface(
+                            shape = MaterialTheme.shapes.extraLarge,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .clickable { onOpenThread() }
+                        ) {
+                            Text(
+                                text = "💬 В ветке: $threadReplyCount",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+
                     // Reactions and read receipts live OUTSIDE the bubble (Element X).
                     if (message.isMine && readers.isNotEmpty()) {
                         Row(
@@ -1315,6 +1404,16 @@ internal fun MessageItem(
                                     onDelete()
                                 }
                             )
+                            if (message.poll != null && message.isMine && !message.pollEnded) {
+                                DropdownMenuItem(
+                                    text = { Text("Завершить опрос") },
+                                    leadingIcon = { Icon(Icons.Default.HowToVote, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onEndPoll()
+                                    }
+                                )
+                            }
                         }
                     }
                     ReactionPicker(

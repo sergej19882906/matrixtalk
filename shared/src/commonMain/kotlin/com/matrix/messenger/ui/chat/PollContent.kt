@@ -1,6 +1,8 @@
 package com.matrix.messenger.ui.chat
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,8 +30,10 @@ import com.matrix.messenger.data.model.Message
 fun PollContent(
     message: Message,
     onVote: (List<String>) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    ended: Boolean = false
 ) {
+    val pollEnded = ended || message.pollEnded
     val poll = message.poll ?: return
     val total = message.pollTotalVoters.coerceAtLeast(1)
     Column(modifier = modifier.fillMaxWidth()) {
@@ -45,8 +49,20 @@ fun PollContent(
                 text = poll.question,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
             )
+            if (pollEnded) {
+                Text(
+                    text = "завершён",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                )
+            }
         }
         Spacer(modifier = Modifier.height(8.dp))
         poll.answers.forEach { answer ->
@@ -60,7 +76,7 @@ fun PollContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 2.dp)
-                    .clickable { onVote(listOf(answer.id)) }
+                    .clickable(enabled = !pollEnded) { onVote(listOf(answer.id)) }
             ) {
                 Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

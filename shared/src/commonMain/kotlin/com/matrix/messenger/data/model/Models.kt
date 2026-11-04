@@ -181,6 +181,8 @@ data class Message(
     val videoThumbnailFile: EncryptedFile? = null,
     /** Media duration in ms (video and audio). */
     val mediaDurationMs: Long? = null,
+    /** Poll in this message has been closed (m.poll.end received). */
+    val pollEnded: Boolean = false,
     val mediaUrl: String? = null,
     val encryptedFile: EncryptedFile? = null,
     val replyTo: ReplyInfo? = null,

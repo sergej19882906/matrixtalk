@@ -141,6 +141,7 @@ import net.folivo.trixnity.core.model.events.m.RelatesTo
 import net.folivo.trixnity.core.model.events.InitialStateEvent
 import net.folivo.trixnity.core.model.events.m.room.AudioInfo
 import net.folivo.trixnity.core.model.events.m.room.EncryptedFile
+import net.folivo.trixnity.core.model.events.m.room.CanonicalAliasEventContent
 import net.folivo.trixnity.core.model.events.m.room.EncryptionEventContent
 import net.folivo.trixnity.core.model.events.m.room.FileInfo
 import net.folivo.trixnity.core.model.events.m.room.ImageInfo
@@ -155,6 +156,7 @@ import net.folivo.trixnity.core.model.push.PushRuleKind
 import com.matrix.messenger.data.model.RoomMemberInfo
 import com.matrix.messenger.data.model.RoomSettingsInfo
 import net.folivo.trixnity.core.model.events.m.room.RoomMessageEventContent
+import net.folivo.trixnity.core.model.events.m.room.TombstoneEventContent
 import net.folivo.trixnity.core.model.events.m.room.TopicEventContent
 import net.folivo.trixnity.core.model.events.m.room.VideoInfo
 import net.folivo.trixnity.core.model.events.m.key.verification.VerificationCancelEventContent
@@ -185,6 +187,7 @@ class MatrixRepositoryImpl : MatrixRepository {
     private val userNameCache = mutableMapOf<String, String>()
     private val userAvatarCache = mutableMapOf<String, String>()
     private val eventRoomMap = mutableMapOf<String, String>()
+    private val pollEnds = mutableSetOf<String>()
     private val pageSizes = mutableMapOf<String, MutableStateFlow<Int>>()
     private val encryptedFiles = mutableMapOf<String, net.folivo.trixnity.core.model.events.m.room.EncryptedFile>()
     private val mediaMxcCache = mutableMapOf<String, String>()
@@ -644,11 +647,13 @@ class MatrixRepositoryImpl : MatrixRepository {
                     } else {
                         combine(eventFlows) { events -> events.toList() }
                             .mapLatest { events ->
+                                pollEnds.clear()
                                 val reactions = aggregateReactions(events)
                                 val polls = aggregatePolls(events, c.userId)
                                 events.mapNotNull { it.toMessageOrNull(c) }
                                     .map { message ->
                                         val entry = reactions[message.eventId]
+                                        val pollEnded = message.eventId in pollEnds
                                         val withReactions = if (entry.isNullOrEmpty()) message
                                         else message.copy(
                                             reactions = entry.mapValues { it.value.first },
@@ -661,7 +666,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                                                 pollTotalVoters = pollSummary.totalVoters,
                                                 pollMyAnswers = pollSummary.myAnswers
                                             )
-                                        } else withReactions
+                                        } else withReactions.copy(pollEnded = pollEnded)
                                     }
                             }
                     }
@@ -1912,6 +1917,22 @@ class MatrixRepositoryImpl : MatrixRepository {
         ).getOrThrow()
     }
 
+    override suspend fun sendPollEnd(roomId: String, pollEventId: String) {
+        requireClient().api.room.sendMessageEvent(
+            RoomId(roomId),
+            com.matrix.messenger.data.poll.buildPollEndContent(pollEventId)
+        ).getOrThrow()
+    }
+
+    override suspend fun getRoomShareLink(roomId: String): String? {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        val alias = runCatching {
+            c.room.getState<CanonicalAliasEventContent>(rId).firstOrNull()?.content?.alias
+        }.getOrNull()
+        return "https://matrix.to/#/${alias?.full ?: roomId}"
+    }
+
     private suspend fun Room.toChatRoom(c: MatrixClient): ChatRoom {
         val lastMsg = lastRelevantEventId?.let { eventId ->
             withTimeoutOrNull(LAST_EVENT_TIMEOUT_MS) {
@@ -2064,6 +2085,31 @@ class MatrixRepositoryImpl : MatrixRepository {
         val isDeleted = eventContent is RedactedEventContent
         val messageContent = eventContent as? RoomMessageEventContent
         if (messageContent?.relatesTo is RelatesTo.Replace) return null
+
+        // Poll end references: mark the corresponding poll as closed.
+        if (eventContent is UnknownEventContent && eventContent.eventType == "m.poll.end") {
+            val ref = eventContent.raw["m.relates_to"]?.let {
+                (it as? kotlinx.serialization.json.JsonObject)?.get("event_id")?.let { id ->
+                    (id as? kotlinx.serialization.json.JsonPrimitive)?.content
+                }
+            }
+            if (ref != null) pollEnds.add(ref)
+            return null
+        }
+        if (eventContent is TombstoneEventContent) {
+            return Message(
+                eventId = eventId.full,
+                senderId = sender.full,
+                senderName = c.resolveSenderName(roomId, sender),
+                senderAvatarUrl = null,
+                body = "Комната обновлена — открыта новая версия чата",
+                timestamp = originTimestamp,
+                messageType = MessageType.SYSTEM,
+                isMine = false,
+                isEdited = false,
+                isDeleted = false
+            )
+        }
 
         // Room state events render as centered system rows (Element style).
         val stateKey = (event as? ClientEvent.RoomEvent.StateEvent<*>)?.stateKey

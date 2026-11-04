@@ -66,6 +66,10 @@ interface MatrixRepository {
 
     /** Votes in a poll (replaces the previous vote of this device/user). */
     suspend fun sendPollVote(roomId: String, pollEventId: String, answerIds: List<String>)
+    /** Closes a poll the user created (m.poll.end). */
+    suspend fun sendPollEnd(roomId: String, pollEventId: String)
+    /** matrix.to link for sharing the room (canonical alias when present). */
+    suspend fun getRoomShareLink(roomId: String): String?
 
     suspend fun initialize()
 

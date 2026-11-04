@@ -47,6 +47,23 @@ class RoomSettingsViewModel(
                 matrixRepository.getRoomNotificationLevel(roomId)
             }.getOrDefault(RoomNotificationLevel.ALL_MESSAGES)
         }
+        viewModelScope.launch {
+            _shareLink.value = runCatching { matrixRepository.getRoomShareLink(roomId) }.getOrNull()
+        }
+    }
+
+    private val _shareLink = MutableStateFlow<String?>(null)
+    val shareLink: StateFlow<String?> = _shareLink.asStateFlow()
+
+    fun endPoll(pollEventId: String) {
+        launchAction("Не удалось завершить опрос") {
+            matrixRepository.sendPollEnd(roomId, pollEventId)
+            _message.value = "Опрос завершён"
+        }
+    }
+
+    fun showCopied() {
+        _message.value = "Ссылка скопирована"
     }
 
     fun consumeMessage() {

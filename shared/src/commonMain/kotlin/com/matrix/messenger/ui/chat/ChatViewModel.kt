@@ -556,6 +556,16 @@ class ChatViewModel(
         }
     }
 
+    fun endPoll(pollEventId: String) {
+        viewModelScope.launch {
+            try {
+                matrixRepository.sendPollEnd(_uiState.value.roomId, pollEventId)
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Не удалось завершить опрос: ${e.message}"))
+            }
+        }
+    }
+
     fun votePoll(message: Message, answerIds: List<String>) {
         viewModelScope.launch {
             try {
