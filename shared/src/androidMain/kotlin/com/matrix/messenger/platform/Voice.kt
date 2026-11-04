@@ -1,6 +1,8 @@
 package com.matrix.messenger.platform
 
 import android.media.MediaRecorder
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import android.os.Build
 
 actual fun createVoiceRecorder(): VoiceRecorder = AndroidVoiceRecorder()
@@ -9,6 +11,11 @@ private class AndroidVoiceRecorder : VoiceRecorder {
 
     private var recorder: MediaRecorder? = null
     private var outputPath: String? = null
+    private val amplitudes = mutableListOf<Int>()
+    private var amplitudeJob: kotlinx.coroutines.Job? = null
+
+    override val waveform: List<Int>
+        get() = amplitudes.toList()
 
     override var isRecording: Boolean = false
         private set
@@ -35,6 +42,16 @@ private class AndroidVoiceRecorder : VoiceRecorder {
             recorder = r
             outputPath = path
             isRecording = true
+            amplitudes.clear()
+            amplitudeJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+                while (isRecording) {
+                    recorder?.maxAmplitude?.takeIf { it > 0 }?.let { peak ->
+                        // normalize to MSC3245 scale 0..1024
+                        amplitudes.add((peak * 1024 / 32767).coerceIn(8, 1024))
+                    }
+                    kotlinx.coroutines.delay(100)
+                }
+            }
             true
         }.getOrElse {
             runCatching { recorder?.release() }
@@ -48,6 +65,8 @@ private class AndroidVoiceRecorder : VoiceRecorder {
         val r = recorder ?: return null
         val path = outputPath
         isRecording = false
+        amplitudeJob?.cancel()
+        amplitudeJob = null
         recorder = null
         outputPath = null
         return runCatching {
@@ -63,6 +82,9 @@ private class AndroidVoiceRecorder : VoiceRecorder {
     override fun cancel() {
         val r = recorder ?: return
         isRecording = false
+        amplitudeJob?.cancel()
+        amplitudeJob = null
+        amplitudes.clear()
         recorder = null
         outputPath = null
         runCatching {

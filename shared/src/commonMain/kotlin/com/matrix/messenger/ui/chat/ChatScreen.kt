@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.GppMaybe
 import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TextFormat
 import androidx.compose.material.icons.filled.PersonAdd
@@ -81,6 +83,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
@@ -142,6 +145,7 @@ fun ChatScreen(
     val verificationState by viewModel.verificationState.collectAsState()
     val recentReactions by viewModel.recentReactions.collectAsState()
     val readReceipts by viewModel.readReceipts.collectAsState()
+    val voicePlayback by viewModel.voicePlayback.collectAsState()
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     var editingMessage by remember { mutableStateOf<Message?>(null) }
@@ -608,6 +612,8 @@ fun ChatScreen(
                                         recentReactions = recentReactions,
                                         readers = readReceipts[item.message.eventId].orEmpty(),
                                         threadReplyCount = threadReplyCounts[item.message.eventId] ?: 0,
+                                        voicePlayback = voicePlayback.takeIf { it?.sourceId == item.message.eventId },
+                                        onSeekVoice = { fraction -> viewModel.seekVoice(fraction) },
                                         onEdit = {
                                             editText = item.message.body
                                             editingMessage = item.message
@@ -891,6 +897,8 @@ internal fun MessageItem(
     recentReactions: List<String> = emptyList(),
     readers: List<ReadReceipt> = emptyList(),
     threadReplyCount: Int = 0,
+    voicePlayback: com.matrix.messenger.platform.VoicePlaybackState? = null,
+    onSeekVoice: (Float) -> Unit = {},
     onReaction: (String) -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
@@ -1171,29 +1179,12 @@ internal fun MessageItem(
 
                                         message.mediaUrl != null || message.encryptedFile != null -> {
                                             if (message.messageType == MessageType.AUDIO) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.clickable { onPlayAudio() }
-                                                ) {
-                                                    Icon(
-                                                        Icons.Default.PlayArrow,
-                                                        contentDescription = "Воспроизвести",
-                                                        modifier = Modifier.size(24.dp),
-                                                        tint = MaterialTheme.colorScheme.primary
-                                                    )
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Text(
-                                                        text = buildString {
-                                                            append("Голосовое сообщение")
-                                                            message.mediaDurationMs?.let {
-                                                                append(" · ")
-                                                                append(com.matrix.messenger.data.model.MediaFormat.duration(it))
-                                                            }
-                                                        },
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurface
-                                                    )
-                                                }
+                                                VoiceMessageRow(
+                                                    message = message,
+                                                    playback = voicePlayback,
+                                                    onToggle = onPlayAudio,
+                                                    onSeek = onSeekVoice
+                                                )
                                             } else {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
@@ -1951,4 +1942,92 @@ fun BotBadge() {
             .background(MaterialTheme.colorScheme.primaryContainer)
             .padding(horizontal = 5.dp, vertical = 1.dp)
     )
+}
+
+/** Element X style voice message: play/pause, waveform, progress, tap-to-seek. */
+@Composable
+private fun VoiceMessageRow(
+    message: Message,
+    playback: com.matrix.messenger.platform.VoicePlaybackState?,
+    onToggle: () -> Unit,
+    onSeek: (Float) -> Unit
+) {
+    val active = playback?.sourceId == message.eventId
+    val playing = active && playback?.playing == true
+    val durationMs = playback?.takeIf { active }?.durationMs
+        ?: message.mediaDurationMs
+    val progress = if (active && playback != null && playback.durationMs > 0) {
+        (playback.positionMs.toFloat() / playback.durationMs).coerceIn(0f, 1f)
+    } else 0f
+    val bars = remember(message.voiceWaveform) {
+        com.matrix.messenger.data.model.MediaFormat.normalizeWaveform(
+            message.voiceWaveform ?: List(28) { 300 }
+        )
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.clickable { onToggle() }
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (playing) "Пауза" else "Воспроизвести",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Column {
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier
+                    .widthIn(max = 180.dp)
+                    .pointerInput(message.eventId) {
+                        detectTapGestures { offset ->
+                            val width = size.width.toFloat()
+                            if (width > 0) onSeek((offset.x / width).coerceIn(0f, 1f))
+                        }
+                    }
+            ) {
+                bars.forEachIndexed { i, amplitude ->
+                    val played = (i + 0.5f) / bars.size <= progress
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height((4 + (amplitude / 1024f) * 22).dp)
+                            .background(
+                                color = if (played) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                                shape = RoundedCornerShape(2.dp)
+                            )
+                    )
+                }
+            }
+            Text(
+                text = buildString {
+                    if (active && playback != null) {
+                        append(com.matrix.messenger.data.model.MediaFormat.duration(playback.positionMs))
+                        append(" / ")
+                        append(com.matrix.messenger.data.model.MediaFormat.duration(playback.durationMs))
+                    } else {
+                        append("Голосовое сообщение")
+                        message.mediaDurationMs?.let {
+                            append(" · ")
+                            append(com.matrix.messenger.data.model.MediaFormat.duration(it))
+                        }
+                    }
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }

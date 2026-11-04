@@ -104,6 +104,7 @@ class CallRepositoryTest {
         override suspend fun sendPollEnd(roomId: String, pollEventId: String) = Unit
         override suspend fun getRoomShareLink(roomId: String): String? = null
         override suspend fun setDefaultNotificationLevel(level: RoomNotificationLevel) = Unit
+        override suspend fun sendVoiceMessage(roomId: String, filePath: String, durationMs: Long?, waveform: List<Int>) = Unit
         // ChatRoom.bridge is read inside toChatRoom via the registered m.bridge mapping
         override suspend fun replyToMessage(roomId: String, eventId: String, text: String, threadRootId: String?) = Unit
         override suspend fun sendFileMessage(roomId: String, filePath: String, mimeType: String, caption: String?) = Unit

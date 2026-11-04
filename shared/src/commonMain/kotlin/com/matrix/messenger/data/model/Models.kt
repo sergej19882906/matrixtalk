@@ -181,6 +181,8 @@ data class Message(
     val videoThumbnailFile: EncryptedFile? = null,
     /** Media duration in ms (video and audio). */
     val mediaDurationMs: Long? = null,
+    /** Voice message waveform (MSC3245, 0..1024 per ~100ms bucket). */
+    val voiceWaveform: List<Int>? = null,
     /** Poll in this message has been closed (m.poll.end received). */
     val pollEnded: Boolean = false,
     val mediaUrl: String? = null,

@@ -16,4 +16,20 @@ object MediaFormat {
             "%d:%02d".format(minutes, seconds)
         }
     }
+
+    /** Downsamples raw peak amplitudes into a fixed number of bars. */
+    fun normalizeWaveform(raw: List<Int>, bins: Int = 32): List<Int> {
+        if (raw.isEmpty()) return List(bins) { 8 }
+        if (raw.size <= bins) {
+            val out = raw.toList()
+            return out + List(bins - out.size) { 8 }
+        }
+        val step = raw.size.toDouble() / bins
+        return List(bins) { i ->
+            val from = (i * step).toInt()
+            val to = (((i + 1) * step).toInt()).coerceAtLeast(from + 1)
+            val slice = raw.subList(from, to.coerceAtMost(raw.size))
+            (slice.maxOrNull() ?: 8).coerceIn(8, 1024)
+        }
+    }
 }

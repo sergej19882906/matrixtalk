@@ -290,6 +290,10 @@ class ChatViewModel(
         }
     }
 
+    fun seekVoice(fraction: Float) {
+        com.matrix.messenger.platform.VoicePlayback.seekTo(fraction)
+    }
+
     fun sendVideoMessage(path: String) {
         viewModelScope.launch {
             try {
@@ -465,13 +469,19 @@ class ChatViewModel(
                 return@launch
             }
             try {
-                val mime = if (path.endsWith(".wav")) "audio/wav" else "audio/mp4"
-                matrixRepository.sendFileMessage(_uiState.value.roomId, path, mime)
+                matrixRepository.sendVoiceMessage(
+                    _uiState.value.roomId,
+                    path,
+                    durationMs = null,
+                    waveform = recorder.waveform
+                )
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки голосового: ${e.message}"))
             }
         }
     }
+
+    val voicePlayback = com.matrix.messenger.platform.VoicePlayback.state
 
     fun playAudioMessage(message: Message) {
         viewModelScope.launch {
@@ -480,7 +490,7 @@ class ChatViewModel(
                 // the authenticated media client.
                 val source = matrixRepository.resolveMediaFile(message.eventId, message.body)
                 if (source != null) {
-                    com.matrix.messenger.platform.playAudio(source)
+                    com.matrix.messenger.platform.VoicePlayback.toggle(message.eventId, source)
                 } else {
                     _events.send(UiEvent.ShowSnackbar("Не удалось открыть аудио"))
                 }

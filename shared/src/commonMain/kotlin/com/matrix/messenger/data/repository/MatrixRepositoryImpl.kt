@@ -788,6 +788,44 @@ class MatrixRepositoryImpl : MatrixRepository {
         return info to encryptedBytes
     }
 
+    override suspend fun sendVoiceMessage(roomId: String, filePath: String, durationMs: Long?, waveform: List<Int>) {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        var bytes = readFileBytes(filePath)
+        val contentType = runCatching { ContentType.parse("audio/mp4") }
+            .getOrElse { ContentType.Application.OctetStream }
+        val isEncryptedRoom = runCatching {
+            c.room.getById(rId).firstOrNull()?.encrypted == true
+        }.getOrDefault(false)
+        var fileInfo: EncryptedFile? = null
+        if (isEncryptedRoom) {
+            val (info, encryptedBytes) = encryptMediaBytes(bytes)
+            bytes = encryptedBytes
+            fileInfo = info
+        }
+        val mxc = uploadBytes(c, bytes, contentType)
+        fileInfo = fileInfo?.copy(url = mxc)
+        val raw = kotlinx.serialization.json.buildJsonObject {
+            put("body", kotlinx.serialization.json.JsonPrimitive("Голосовое сообщение"))
+            put("msgtype", kotlinx.serialization.json.JsonPrimitive("m.audio"))
+            if (fileInfo != null) {
+                put("file", kotlinx.serialization.json.Json.encodeToJsonElement(EncryptedFile.serializer(), fileInfo))
+            } else {
+                put("url", kotlinx.serialization.json.JsonPrimitive(mxc))
+            }
+            put("info", kotlinx.serialization.json.buildJsonObject {
+                put("mimetype", kotlinx.serialization.json.JsonPrimitive("audio/mp4"))
+                durationMs?.let { put("duration", kotlinx.serialization.json.JsonPrimitive(it)) }
+                put("size", kotlinx.serialization.json.JsonPrimitive(bytes.size.toLong()))
+            })
+            put(
+                "org.matrix.msc3245.waveform",
+                kotlinx.serialization.json.JsonArray(waveform.map { kotlinx.serialization.json.JsonPrimitive(it) })
+            )
+        }
+        c.api.room.sendMessageEvent(rId, UnknownEventContent(raw, "m.audio")).getOrThrow()
+    }
+
     override suspend fun sendEmoteMessage(roomId: String, text: String) {
         requireClient().room.sendMessage(RoomId(roomId)) { emote(text) }
     }
@@ -2065,6 +2103,40 @@ class MatrixRepositoryImpl : MatrixRepository {
                     isDeleted = false,
                     poll = poll
                 )
+            }
+            if (eventContent.eventType == "m.audio") {
+                fun str(key: String): String? =
+                    (eventContent.raw[key] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                val url = str("url")
+                val fileJson = eventContent.raw["file"] as? kotlinx.serialization.json.JsonObject
+                val waveform = (eventContent.raw["org.matrix.msc3245.waveform"] as? kotlinx.serialization.json.JsonArray)
+                    ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() }
+                val info = eventContent.raw["info"] as? kotlinx.serialization.json.JsonObject
+                val duration = info?.get("duration")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() }
+                val effectiveUrl = url ?: fileJson?.get("url")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                if (effectiveUrl != null) {
+                    return Message(
+                        eventId = eventId.full,
+                        senderId = sender.full,
+                        senderName = c.resolveSenderName(roomId, sender),
+                        senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
+                        body = str("body") ?: "Голосовое сообщение",
+                        timestamp = originTimestamp,
+                        messageType = MessageType.AUDIO,
+                        isMine = sender == c.userId,
+                        isEdited = false,
+                        isDeleted = false,
+                        mediaUrl = effectiveUrl,
+                        encryptedFile = fileJson?.let {
+                            kotlinx.serialization.json.Json.decodeFromJsonElement(
+                                EncryptedFile.serializer(), it
+                            )
+                        },
+                        mediaDurationMs = duration,
+                        voiceWaveform = waveform
+                    )
+                }
+                return null
             }
             if (eventContent.eventType == "m.sticker") {
                 val url = (eventContent.raw["url"] as? kotlinx.serialization.json.JsonPrimitive)?.content
