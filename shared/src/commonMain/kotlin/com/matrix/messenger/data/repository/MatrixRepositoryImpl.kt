@@ -700,10 +700,28 @@ class MatrixRepositoryImpl : MatrixRepository {
         val c = client ?: return null
         val safeName = fileName.replace('/', '_').replace('\\', '_')
         val path = "${attachmentsDir()}/${eventId.removePrefix("$")}_$safeName"
-        val bytes = encryptedFiles[eventId]?.let { file ->
+        // Fast path: in-memory caches filled while mapping the timeline.
+        var encrypted = encryptedFiles[eventId]
+        var mxc = mediaMxcCache[eventId]
+        // Fallback: caches are memory-only (empty after restart or for history
+        // not yet mapped) — pull the event from the persistent store.
+        if (encrypted == null && mxc == null) {
+            val roomId = eventRoomMap[eventId]
+            if (roomId != null) {
+                val event = withTimeoutOrNull(RESOLVE_TIMEOUT_MS) {
+                    c.room.getTimelineEvent(RoomId(roomId), EventId(eventId)).firstOrNull()
+                }
+                val fileContent = event?.content?.getOrNull() as? RoomMessageEventContent.FileBased
+                encrypted = fileContent?.file
+                mxc = fileContent?.url
+                if (encrypted != null) encryptedFiles[eventId] = encrypted
+                if (mxc != null) mediaMxcCache[eventId] = mxc
+            }
+        }
+        val bytes = encrypted?.let { file ->
             c.media.getEncryptedMedia(file).getOrThrow().toByteArray()
-        } ?: mediaMxcCache[eventId]?.let { mxc ->
-            c.media.getMedia(mxc).getOrThrow().toByteArray()
+        } ?: mxc?.let { uri ->
+            c.media.getMedia(uri).getOrThrow().toByteArray()
         } ?: return null
         writeFileBytes(path, bytes)
         return path
