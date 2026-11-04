@@ -1010,7 +1010,7 @@ internal fun MessageItem(
                                         message.messageType == MessageType.CALL -> {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Icon(
-                                                    Icons.Default.Call,
+                                                    if (message.callIsVideo == true) Icons.Default.Videocam else Icons.Default.Call,
                                                     contentDescription = null,
                                                     modifier = Modifier.size(20.dp),
                                                     tint = MaterialTheme.colorScheme.primary

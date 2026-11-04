@@ -144,6 +144,7 @@ import net.folivo.trixnity.core.model.events.m.room.EncryptedFile
 import net.folivo.trixnity.core.model.events.m.room.EncryptionEventContent
 import net.folivo.trixnity.core.model.events.m.room.FileInfo
 import net.folivo.trixnity.core.model.events.m.room.ImageInfo
+import net.folivo.trixnity.core.model.events.m.room.MemberEventContent
 import net.folivo.trixnity.core.model.events.m.room.Membership
 import net.folivo.trixnity.core.model.events.m.room.PowerLevelsEventContent
 import net.folivo.trixnity.core.model.events.m.room.PinnedEventsEventContent
@@ -2044,13 +2045,18 @@ class MatrixRepositoryImpl : MatrixRepository {
                     senderId = sender.full,
                     senderName = c.resolveSenderName(roomId, sender),
                     senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
-                    body = if (isMine) (if (isVideo) "Исходящий видеозвонок" else "Исходящий звонок")
-                    else (if (isVideo) "Входящий видеозвонок" else "Входящий звонок"),
+                    body = when {
+                        isMine && isVideo -> "Исходящий видеозвонок"
+                        isMine -> "Исходящий голосовой звонок"
+                        isVideo -> "Входящий видеозвонок"
+                        else -> "Входящий голосовой звонок"
+                    },
                     timestamp = originTimestamp,
                     messageType = MessageType.CALL,
                     isMine = isMine,
                     isEdited = false,
-                    isDeleted = false
+                    isDeleted = false,
+                    callIsVideo = isVideo
                 )
             }
             return null
@@ -2058,6 +2064,45 @@ class MatrixRepositoryImpl : MatrixRepository {
         val isDeleted = eventContent is RedactedEventContent
         val messageContent = eventContent as? RoomMessageEventContent
         if (messageContent?.relatesTo is RelatesTo.Replace) return null
+
+        // Room state events render as centered system rows (Element style).
+        val stateKey = (event as? ClientEvent.RoomEvent.StateEvent<*>)?.stateKey
+        val systemText: String? = when (eventContent) {
+            is MemberEventContent -> {
+                val subject = stateKey ?: return null
+                val subjectName = c.resolveSenderName(roomId, UserId(subject))
+                com.matrix.messenger.data.model.EventDescriptions.member(
+                    membership = eventContent.membership.value,
+                    sender = c.resolveSenderName(roomId, sender) ?: sender.full,
+                    subject = subjectName ?: subject,
+                    newDisplayName = eventContent.displayName
+                )
+            }
+            is TopicEventContent -> com.matrix.messenger.data.model.EventDescriptions.topic(
+                c.resolveSenderName(roomId, sender) ?: sender.full,
+                eventContent.topic
+            )
+            is NameEventContent -> com.matrix.messenger.data.model.EventDescriptions.roomName(
+                c.resolveSenderName(roomId, sender) ?: sender.full,
+                eventContent.name
+            )
+            is EncryptionEventContent -> "Шифрование включено в этой комнате"
+            else -> null
+        }
+        if (systemText != null && !isDeleted) {
+            return Message(
+                eventId = eventId.full,
+                senderId = sender.full,
+                senderName = c.resolveSenderName(roomId, sender),
+                senderAvatarUrl = null,
+                body = systemText,
+                timestamp = originTimestamp,
+                messageType = MessageType.SYSTEM,
+                isMine = false,
+                isEdited = false,
+                isDeleted = false
+            )
+        }
         // In-room key verification request (Element sends these into the DM):
         // render as an actionable verification bubble instead of the English fallback text.
         if (messageContent is RoomMessageEventContent.VerificationRequest && !isDeleted) {

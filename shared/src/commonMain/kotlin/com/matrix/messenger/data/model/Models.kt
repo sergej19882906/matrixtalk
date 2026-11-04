@@ -140,6 +140,8 @@ enum class MessageType {
     IMAGE,
     STICKER,
     LOCATION,
+    /** Room state event rendered as a centered system row (joins, renames, ...). */
+    SYSTEM,
     VIDEO,
     AUDIO,
     FILE,
@@ -171,6 +173,8 @@ data class Message(
     val location: GeoLocation? = null,
     /** Sender is a bot (Element-style heuristic: id/name contains "bot"). */
     val isBot: Boolean = false,
+    /** For CALL messages: true = video call, false = voice call. */
+    val callIsVideo: Boolean? = null,
     val mediaUrl: String? = null,
     val encryptedFile: EncryptedFile? = null,
     val replyTo: ReplyInfo? = null,
