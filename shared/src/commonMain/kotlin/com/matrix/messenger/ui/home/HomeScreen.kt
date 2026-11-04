@@ -101,6 +101,7 @@ fun HomeScreen(
     onRoomClick: (String) -> Unit,
     onLogout: () -> Unit,
     onBridges: () -> Unit,
+    onOpenSpaces: () -> Unit = {},
     onSettings: () -> Unit,
     onSearch: () -> Unit,
     onRoomsCatalog: () -> Unit,
@@ -146,6 +147,8 @@ fun HomeScreen(
             when (event) {
                 is UiEvent.NavigateToChat -> onRoomClick(event.roomId)
                 is UiEvent.NavigateToLogin -> onLogout()
+                is UiEvent.OpenSpaces -> onOpenSpaces()
+                is UiEvent.OpenSpaces -> onOpenSpaces()
                 is UiEvent.ShowSnackbar -> snackbarHostState.showSnackbar(event.message)
                 else -> {}
             }
@@ -181,6 +184,14 @@ fun HomeScreen(
                                 onClick = {
                                     avatarMenuExpanded = false
                                     showCreateChatDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Пространства") },
+                                leadingIcon = { Icon(Icons.Default.Workspaces, contentDescription = null) },
+                                onClick = {
+                                    avatarMenuExpanded = false
+                                    viewModel.openSpaces()
                                 }
                             )
                             DropdownMenuItem(

@@ -310,6 +310,12 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     override suspend fun getSpaceChildren(spaceId: String): List<PublicRoomItem> {
         val c = requireClient()
+        val knownSpaceIds = runCatching {
+            c.room.getAll().flattenValues().first()
+                .filter { it.createEventContent?.type is net.folivo.trixnity.core.model.events.m.room.CreateEventContent.RoomType.Space }
+                .map { it.roomId.full }
+                .toSet()
+        }.getOrDefault(emptySet())
         val response = c.api.room.getHierarchy(
             roomId = RoomId(spaceId),
             from = "",
@@ -318,7 +324,10 @@ class MatrixRepositoryImpl : MatrixRepository {
         ).getOrThrow()
         return response.rooms
             .filter { it.roomId.full != spaceId }
-            .map { it.toPublicRoomItem() }
+            .map { chunk ->
+                val isSpace = knownSpaceIds.contains(chunk.roomId.full)
+                chunk.toPublicRoomItem().copy(isSpace = isSpace)
+            }
     }
 
     private fun net.folivo.trixnity.clientserverapi.model.rooms.GetHierarchy.Response.PublicRoomsChunk.toPublicRoomItem() =

@@ -5,6 +5,7 @@ import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.data.repository.MatrixRepositoryImpl
 import com.matrix.messenger.ui.call.CallViewModel
 import com.matrix.messenger.ui.chat.ChatViewModel
+import com.matrix.messenger.ui.spaces.SpacesViewModel
 import com.matrix.messenger.ui.home.HomeViewModel
 import com.matrix.messenger.ui.login.LoginViewModel
 import com.matrix.messenger.ui.rooms.RoomsCatalogViewModel
@@ -34,5 +35,9 @@ val sharedModule = module {
     }
     viewModel { (roomId: String, rootId: String) ->
         com.matrix.messenger.ui.chat.ThreadViewModel(get(), roomId, rootId)
+    }
+    viewModelOf(::SpacesViewModel)
+    viewModel { (spaceId: String) ->
+        com.matrix.messenger.ui.spaces.SpaceDetailViewModel(get(), spaceId)
     }
 }

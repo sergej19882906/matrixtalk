@@ -321,6 +321,10 @@ class HomeViewModel(
         }
     }
 
+    fun openSpaces() {
+        viewModelScope.launch { _events.send(UiEvent.OpenSpaces) }
+    }
+
     fun selectSpace(spaceId: String?) {
         val current = _uiState.value
         if (spaceId.isNullOrEmpty() || current.selectedSpaceId == spaceId) {

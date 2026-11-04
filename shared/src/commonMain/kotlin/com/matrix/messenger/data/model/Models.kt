@@ -248,7 +248,9 @@ data class PublicRoomItem(
     val topic: String?,
     val avatarUrl: String?,
     val joinedMembers: Long,
-    val joinRule: String
+    val joinRule: String,
+    /** True when this child is itself a space (MSC1772 room type). */
+    val isSpace: Boolean = false
 )
 
 sealed class LoginResult {

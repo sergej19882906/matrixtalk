@@ -77,6 +77,9 @@ fun AppNavigation(
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
                 },
+                onOpenSpaces = {
+                    navController.navigate(Screen.Spaces.route)
+                },
                 onBridges = {
                     navController.navigate(Screen.Bridges.route)
                 },
@@ -134,6 +137,32 @@ fun AppNavigation(
                 roomId = roomId,
                 rootId = rootId,
                 onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.Spaces.route) {
+            com.matrix.messenger.ui.spaces.SpacesScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenSpace = { spaceId, _ ->
+                    navController.navigate(Screen.SpaceDetail.createRoute(spaceId))
+                }
+            )
+        }
+
+        composable(
+            route = Screen.SpaceDetail.route,
+            arguments = listOf(
+                navArgument("spaceId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val spaceId = backStackEntry.arguments?.getString("spaceId") ?: return@composable
+            com.matrix.messenger.ui.spaces.SpaceDetailScreen(
+                spaceId = spaceId,
+                onNavigateBack = { navController.popBackStack() },
+                onOpenRoom = { roomId -> navController.navigate(Screen.Chat.createRoute(roomId)) },
+                onOpenNestedSpace = { nestedId, _ ->
+                    navController.navigate(Screen.SpaceDetail.createRoute(nestedId))
+                }
             )
         }
 

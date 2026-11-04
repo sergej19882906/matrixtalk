@@ -19,6 +19,10 @@ sealed class Screen(val route: String) {
             return "chat/$roomId/thread/$rootId"
         }
     }
+    object Spaces : Screen("spaces")
+    object SpaceDetail : Screen("space_detail/{spaceId}") {
+        fun createRoute(spaceId: String): String = "space_detail/$spaceId"
+    }
     object RoomSettings : Screen("room/{roomId}/settings") {
         fun createRoute(roomId: String): String {
             return "room/$roomId/settings"

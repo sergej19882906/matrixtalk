@@ -11,6 +11,7 @@ sealed class UiEvent {
     data object NavigateBack : UiEvent()
     data object NavigateToHome : UiEvent()
     data object NavigateToLogin : UiEvent()
+    data object OpenSpaces : UiEvent()
     data class ShowSnackbar(val message: String) : UiEvent()
     data class ShowDialog(val title: String, val message: String) : UiEvent()
 }
