@@ -2139,6 +2139,8 @@ class MatrixRepositoryImpl : MatrixRepository {
         val encryptedFile = (messageContent as? RoomMessageEventContent.FileBased)?.file
         if (encryptedFile != null) encryptedFiles[eventId.full] = encryptedFile
         if (mediaUrl != null) mediaMxcCache[eventId.full] = mediaUrl
+        val videoInfo = (messageContent as? RoomMessageEventContent.FileBased.Video)?.info
+        val audioInfo = (messageContent as? RoomMessageEventContent.FileBased.Audio)?.info
         eventRoomMap[eventId.full] = roomId.full
         if (eventRoomMap.size > EVENT_ROOM_MAP_MAX) {
             eventRoomMap.entries.take(EVENT_ROOM_MAP_MAX / 2).forEach { eventRoomMap.remove(it.key) }
@@ -2159,6 +2161,9 @@ class MatrixRepositoryImpl : MatrixRepository {
             mediaUrl = mediaUrl,
             encryptedFile = encryptedFile,
             location = location,
+            videoThumbnailUrl = videoInfo?.thumbnailUrl,
+            videoThumbnailFile = videoInfo?.thumbnailFile,
+            mediaDurationMs = videoInfo?.duration ?: audioInfo?.duration,
             replyTo = replyTo,
             formattedBody = (messageContent as? RoomMessageEventContent.TextBased)?.formattedBody,
             threadRootId = (messageContent?.relatesTo as? RelatesTo.Thread)?.eventId?.full

@@ -290,6 +290,16 @@ class ChatViewModel(
         }
     }
 
+    fun sendVideoMessage(path: String) {
+        viewModelScope.launch {
+            try {
+                matrixRepository.sendFileMessage(_uiState.value.roomId, path, "video/mp4")
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка отправки видео: ${e.message}"))
+            }
+        }
+    }
+
     fun sendSticker(filePath: String, mimeType: String) {
         viewModelScope.launch {
             try {

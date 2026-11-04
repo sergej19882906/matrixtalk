@@ -100,6 +100,7 @@ import com.matrix.messenger.platform.listScreenSources
 import com.matrix.messenger.platform.rememberCallPermissionRequester
 import com.matrix.messenger.platform.openUrl
 import com.matrix.messenger.platform.rememberLocationRequester
+import com.matrix.messenger.platform.rememberVideoRecorder
 import com.matrix.messenger.platform.rememberFilePicker
 import com.matrix.messenger.ui.components.DateSeparator
 import com.matrix.messenger.ui.theme.ElementAmber
@@ -176,6 +177,9 @@ fun ChatScreen(
     val requestLocation = rememberLocationRequester { point ->
         locationDraft = point
         showLocationDialog = true
+    }
+    val captureVideo = rememberVideoRecorder { path ->
+        if (path != null) viewModel.sendVideoMessage(path)
     }
     val callRepository: CallRepository = koinInject()
     val matrixRepository: MatrixRepository = koinInject()
@@ -467,7 +471,8 @@ fun ChatScreen(
                 markdownEnabled = uiState.markdownEnabled,
                 onToggleMarkdown = { viewModel.toggleMarkdown() },
                 onPickSticker = { pickSticker() },
-                onPickLocation = { requestLocation() }
+                onPickLocation = { requestLocation() },
+                onPickVideo = { captureVideo() }
             )
         }
     ) { paddingValues ->
@@ -1024,6 +1029,75 @@ internal fun MessageItem(
                                             }
                                         }
 
+                                        message.messageType == MessageType.VIDEO &&
+                                            (message.mediaUrl != null || message.encryptedFile != null) -> {
+                                            val hasThumb = message.videoThumbnailUrl != null || message.videoThumbnailFile != null
+                                            Box(
+                                                modifier = Modifier.clickable { onOpenAttachment() }
+                                            ) {
+                                                if (hasThumb) {
+                                                    AsyncImage(
+                                                        model = MatrixMedia(message.videoThumbnailUrl, message.videoThumbnailFile),
+                                                        contentDescription = message.body,
+                                                        modifier = Modifier
+                                                            .widthIn(max = 280.dp)
+                                                            .clip(RoundedCornerShape(12.dp)),
+                                                        contentScale = ContentScale.Crop
+                                                    )
+                                                } else {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .widthIn(max = 280.dp)
+                                                            .height(140.dp)
+                                                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                                            .clip(RoundedCornerShape(12.dp)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Default.Videocam,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            modifier = Modifier.size(36.dp)
+                                                        )
+                                                    }
+                                                }
+                                                // Play button over the preview
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
+                                                    modifier = Modifier
+                                                        .align(Alignment.Center)
+                                                        .size(44.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            Icons.Default.PlayArrow,
+                                                            contentDescription = "Воспроизвести видео",
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(28.dp)
+                                                        )
+                                                    }
+                                                }
+                                                // Duration badge
+                                                message.mediaDurationMs?.let { ms ->
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = Color.Black.copy(alpha = 0.6f),
+                                                        modifier = Modifier
+                                                            .align(Alignment.BottomEnd)
+                                                            .padding(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = com.matrix.messenger.data.model.MediaFormat.duration(ms),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = Color.White,
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                         message.mediaUrl != null || message.encryptedFile != null -> {
                                             if (message.messageType == MessageType.AUDIO) {
                                                 Row(
@@ -1038,7 +1112,13 @@ internal fun MessageItem(
                                                     )
                                                     Spacer(modifier = Modifier.width(6.dp))
                                                     Text(
-                                                        text = "Голосовое сообщение",
+                                                        text = buildString {
+                                                            append("Голосовое сообщение")
+                                                            message.mediaDurationMs?.let {
+                                                                append(" · ")
+                                                                append(com.matrix.messenger.data.model.MediaFormat.duration(it))
+                                                            }
+                                                        },
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         color = MaterialTheme.colorScheme.onSurface
                                                     )
@@ -1390,7 +1470,8 @@ private fun MessageInputBar(
     markdownEnabled: Boolean = false,
     onToggleMarkdown: () -> Unit = {},
     onPickSticker: () -> Unit = {},
-    onPickLocation: () -> Unit = {}
+    onPickLocation: () -> Unit = {},
+    onPickVideo: () -> Unit = {}
 ) {
     var emojiVisible by remember { mutableStateOf(false) }
     var attachMenuVisible by remember { mutableStateOf(false) }
@@ -1517,6 +1598,14 @@ private fun MessageInputBar(
                                 onClick = {
                                     attachMenuVisible = false
                                     onPickLocation()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Видео") },
+                                leadingIcon = { Icon(Icons.Default.Videocam, contentDescription = null) },
+                                onClick = {
+                                    attachMenuVisible = false
+                                    onPickVideo()
                                 }
                             )
                             DropdownMenuItem(

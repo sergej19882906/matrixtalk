@@ -175,6 +175,12 @@ data class Message(
     val isBot: Boolean = false,
     /** For CALL messages: true = video call, false = voice call. */
     val callIsVideo: Boolean? = null,
+    /** Video preview frame (mxc) from Element senders / server thumbnails. */
+    val videoThumbnailUrl: String? = null,
+    /** Encrypted preview frame for E2EE rooms. */
+    val videoThumbnailFile: EncryptedFile? = null,
+    /** Media duration in ms (video and audio). */
+    val mediaDurationMs: Long? = null,
     val mediaUrl: String? = null,
     val encryptedFile: EncryptedFile? = null,
     val replyTo: ReplyInfo? = null,
