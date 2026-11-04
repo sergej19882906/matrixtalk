@@ -36,6 +36,16 @@ data class SettingsUiState(
     /** Default notification level applied to newly joined rooms. */
     val defaultNotificationLevel: com.matrix.messenger.data.model.RoomNotificationLevel =
         com.matrix.messenger.data.model.RoomNotificationLevel.ALL_MESSAGES,
+    /** Account-wide notification mode (server rules). */
+    val accountMode: com.matrix.messenger.data.repository.AccountNotificationMode =
+        com.matrix.messenger.data.repository.AccountNotificationMode.ALL_MESSAGES,
+    /** Keyword notification rules (content rules). */
+    val keywords: List<net.folivo.trixnity.core.model.push.PushRule.Content> = emptyList(),
+    /** Server push rules (debug list). */
+    val pushRules: List<com.matrix.messenger.data.repository.PushRuleView> = emptyList(),
+    /** Registered pushers (debug list). */
+    val pushers: List<com.matrix.messenger.data.repository.PushersView> = emptyList(),
+    val pushRulesExpanded: Boolean = false,
     /** Outbound proxy (applied after an app restart). */
     val proxy: ProxySettings? = null,
     val proxyDirty: Boolean = false,
@@ -63,6 +73,7 @@ class SettingsViewModel(
                 pushStatus = runCatching { com.matrix.messenger.platform.pushServiceStatusText() }.getOrNull()
             )
         }
+        viewModelScope.launch { loadPushRules() }
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 pinEnabled = runCatching { SessionStore.readPinHash() } != null,
@@ -135,6 +146,53 @@ class SettingsViewModel(
             runCatching { SessionStore.saveProxySettings(current) }
             _uiState.value = _uiState.value.copy(proxyDirty = false, proxyMessage = PROXY_SAVED)
         }
+    }
+
+    private suspend fun loadPushRules() {
+        runCatching {
+            val mode = matrixRepository.getAccountNotificationMode()
+            val keywords = matrixRepository.getKeywords()
+            val rules = matrixRepository.getPushRulesDebug()
+            val pushers = matrixRepository.getPushersDebug()
+            _uiState.value = _uiState.value.copy(
+                accountMode = mode, keywords = keywords,
+                pushRules = rules, pushers = pushers
+            )
+        }
+    }
+
+    fun setAccountMode(mode: com.matrix.messenger.data.repository.AccountNotificationMode) {
+        viewModelScope.launch {
+            runCatching { matrixRepository.setAccountNotificationMode(mode) }
+            _uiState.value = _uiState.value.copy(accountMode = mode)
+            loadPushRules()
+        }
+    }
+
+    fun addKeyword(keyword: String) {
+        if (keyword.isBlank()) return
+        viewModelScope.launch {
+            runCatching { matrixRepository.addKeyword(keyword.trim()) }
+            loadPushRules()
+        }
+    }
+
+    fun removeKeyword(ruleId: String) {
+        viewModelScope.launch {
+            runCatching { matrixRepository.removeKeyword(ruleId) }
+            loadPushRules()
+        }
+    }
+
+    fun toggleRule(kind: net.folivo.trixnity.core.model.push.PushRuleKind, ruleId: String, enabled: Boolean) {
+        viewModelScope.launch {
+            runCatching { matrixRepository.setRuleEnabled(kind, ruleId, enabled) }
+            loadPushRules()
+        }
+    }
+
+    fun togglePushRulesExpanded() {
+        _uiState.value = _uiState.value.copy(pushRulesExpanded = !_uiState.value.pushRulesExpanded)
     }
 
     fun setDefaultNotificationLevel(level: com.matrix.messenger.data.model.RoomNotificationLevel) {

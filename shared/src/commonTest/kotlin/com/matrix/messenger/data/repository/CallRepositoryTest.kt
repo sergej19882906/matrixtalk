@@ -8,6 +8,11 @@ import com.matrix.messenger.data.call.CallSignalingEvent
 import com.matrix.messenger.data.model.KeyBackupStatus
 import com.matrix.messenger.data.model.PresenceInfo
 import com.matrix.messenger.data.model.ReadReceipt
+import com.matrix.messenger.data.repository.AccountNotificationMode
+import com.matrix.messenger.data.repository.PushRuleView
+import com.matrix.messenger.data.repository.PushersView
+import net.folivo.trixnity.core.model.push.PushRule
+import net.folivo.trixnity.core.model.push.PushRuleKind
 import com.matrix.messenger.data.model.RoomNotificationLevel
 import com.matrix.messenger.data.model.RoomSettingsInfo
 import com.matrix.messenger.data.model.RoomMemberInfo
@@ -105,6 +110,14 @@ class CallRepositoryTest {
         override suspend fun getRoomShareLink(roomId: String): String? = null
         override suspend fun setDefaultNotificationLevel(level: RoomNotificationLevel) = Unit
         override suspend fun sendVoiceMessage(roomId: String, filePath: String, durationMs: Long?, waveform: List<Int>) = Unit
+        override suspend fun getAccountNotificationMode(): AccountNotificationMode = AccountNotificationMode.ALL_MESSAGES
+        override suspend fun setAccountNotificationMode(mode: AccountNotificationMode) = Unit
+        override suspend fun getKeywords(): List<PushRule.Content> = emptyList()
+        override suspend fun addKeyword(keyword: String) = Unit
+        override suspend fun removeKeyword(ruleId: String) = Unit
+        override suspend fun getPushRulesDebug(): List<PushRuleView> = emptyList()
+        override suspend fun setRuleEnabled(kind: PushRuleKind, ruleId: String, enabled: Boolean) = Unit
+        override suspend fun getPushersDebug(): List<PushersView> = emptyList()
         // ChatRoom.bridge is read inside toChatRoom via the registered m.bridge mapping
         override suspend fun replyToMessage(roomId: String, eventId: String, text: String, threadRootId: String?) = Unit
         override suspend fun sendFileMessage(roomId: String, filePath: String, mimeType: String, caption: String?) = Unit

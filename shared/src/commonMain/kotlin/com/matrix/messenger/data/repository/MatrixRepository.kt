@@ -10,6 +10,11 @@ import com.matrix.messenger.data.model.RoomMemberInfo
 import com.matrix.messenger.data.model.KeyBackupStatus
 import com.matrix.messenger.data.model.PresenceInfo
 import com.matrix.messenger.data.model.ReadReceipt
+import com.matrix.messenger.data.repository.AccountNotificationMode
+import com.matrix.messenger.data.repository.PushRuleView
+import com.matrix.messenger.data.repository.PushersView
+import net.folivo.trixnity.core.model.push.PushRule
+import net.folivo.trixnity.core.model.push.PushRuleKind
 import com.matrix.messenger.data.model.RoomNotificationLevel
 import com.matrix.messenger.data.model.RoomSettingsInfo
 import com.matrix.messenger.data.model.RoomTrust
@@ -145,6 +150,16 @@ interface MatrixRepository {
     suspend fun setRoomNotificationLevel(roomId: String, level: RoomNotificationLevel)
     /** Default level applied to newly joined rooms (settings). */
     suspend fun setDefaultNotificationLevel(level: RoomNotificationLevel)
+
+    /** Account-wide notification mode (server push rules). */
+    suspend fun getAccountNotificationMode(): AccountNotificationMode
+    suspend fun setAccountNotificationMode(mode: AccountNotificationMode)
+    suspend fun getKeywords(): List<PushRule.Content>
+    suspend fun addKeyword(keyword: String)
+    suspend fun removeKeyword(ruleId: String)
+    suspend fun getPushRulesDebug(): List<PushRuleView>
+    suspend fun setRuleEnabled(kind: PushRuleKind, ruleId: String, enabled: Boolean)
+    suspend fun getPushersDebug(): List<PushersView>
 
     /** Server-side key backup status; null when no backup exists. */
     suspend fun getKeyBackupStatus(): KeyBackupStatus?

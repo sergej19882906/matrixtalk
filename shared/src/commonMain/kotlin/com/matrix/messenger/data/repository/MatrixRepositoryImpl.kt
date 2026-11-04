@@ -54,6 +54,8 @@ import net.folivo.trixnity.core.model.events.m.MarkedUnreadEventContent
 import net.folivo.trixnity.core.model.events.m.Presence
 import net.folivo.trixnity.core.model.events.EventType
 import net.folivo.trixnity.core.model.events.StateEventContent
+import net.folivo.trixnity.core.model.push.PushRule
+import net.folivo.trixnity.core.model.push.PushRuleSet
 import net.folivo.trixnity.core.model.push.PushAction
 import com.matrix.messenger.data.model.KeyBackupStatus
 import com.matrix.messenger.data.model.PresenceInfo
@@ -2405,6 +2407,95 @@ class MatrixRepositoryImpl : MatrixRepository {
         return url
     }
 
+    override suspend fun getAccountNotificationMode(): AccountNotificationMode {
+    val rules = requireClient().api.push.getPushRules().getOrThrow().global
+    return AccountNotificationMode.fromRules(rules)
+}
+
+    override suspend fun setAccountNotificationMode(mode: AccountNotificationMode) {
+    val api = requireClient().api.push
+    // Master on => everything suppressed.
+    api.setPushRuleEnabled(
+        scope = "global", kind = PushRuleKind.OVERRIDE,
+        ruleId = PushRulesConstants.MASTER_RULE_ID,
+        enabled = mode == AccountNotificationMode.OFF
+    ).getOrThrow()
+    if (mode != AccountNotificationMode.OFF) {
+        // Mentions-only: suppress the default "notify on any message" underride.
+        api.setPushRuleEnabled(
+            scope = "global", kind = PushRuleKind.UNDERRIDE,
+            ruleId = PushRulesConstants.ROOM_MESSAGE_RULE_ID,
+            enabled = mode == AccountNotificationMode.ALL_MESSAGES
+        ).getOrThrow()
+    }
+}
+
+    override suspend fun getKeywords(): List<PushRule.Content> =
+    requireClient().api.push.getPushRules().getOrThrow().global.content
+        .orEmpty().filter { !it.default }
+
+    override suspend fun addKeyword(keyword: String) {
+    val api = requireClient().api.push
+    val ruleId = "matrixtalk_keyword_${keyword.trim().lowercase().replace(Regex("[^a-z0-9]"), "_")}"
+    api.setPushRule(
+        scope = "global",
+        kind = PushRuleKind.CONTENT,
+        ruleId = ruleId,
+        pushRule = net.folivo.trixnity.clientserverapi.model.push.SetPushRule.Request(
+            actions = setOf(
+                PushAction.Notify,
+                PushAction.SetSoundTweak("default"),
+                PushAction.SetHighlightTweak(false)
+            ),
+            pattern = keyword.trim()
+        )
+    ).getOrThrow()
+}
+
+    override suspend fun removeKeyword(ruleId: String) {
+    requireClient().api.push.deletePushRule(
+        scope = "global", kind = PushRuleKind.CONTENT, ruleId = ruleId
+    ).getOrThrow()
+}
+
+    override suspend fun getPushRulesDebug(): List<PushRuleView> {
+    val rules = requireClient().api.push.getPushRules().getOrThrow().global
+    val out = mutableListOf<PushRuleView>()
+    fun add(kind: PushRuleKind, list: List<PushRule>?) {
+        list.orEmpty().forEach { rule ->
+            out += PushRuleView(
+                kind = kind,
+                ruleId = rule.ruleId,
+                default = rule.default,
+                enabled = rule.enabled,
+                notify = rule.actions.any { it is PushAction.Notify },
+                highlight = rule.actions.any { it is PushAction.SetHighlightTweak && it.value }
+            )
+        }
+    }
+    add(PushRuleKind.OVERRIDE, rules.override)
+    add(PushRuleKind.CONTENT, rules.content)
+    add(PushRuleKind.ROOM, rules.room)
+    add(PushRuleKind.SENDER, rules.sender)
+    add(PushRuleKind.UNDERRIDE, rules.underride)
+    return out
+}
+
+    override suspend fun setRuleEnabled(kind: PushRuleKind, ruleId: String, enabled: Boolean) {
+    requireClient().api.push.setPushRuleEnabled(
+        scope = "global", kind = kind, ruleId = ruleId, enabled = enabled
+    ).getOrThrow()
+}
+
+    override suspend fun getPushersDebug(): List<PushersView> =
+    requireClient().api.push.getPushers().getOrThrow().devices.map { pusher ->
+        PushersView(
+            appDisplayName = pusher.appDisplayName,
+            deviceDisplayName = pusher.deviceDisplayName,
+            pushkeyTail = pusher.pushkey.takeLast(12)
+        )
+    }
+
     private companion object {
         const val MESSAGE_PAGE_SIZE = 50
         const val LAST_EVENT_TIMEOUT_MS = 400L
@@ -2424,3 +2515,43 @@ class MatrixRepositoryImpl : MatrixRepository {
         const val LOW_PRIORITY_TAG = "m.lowpriority"
     }
 }
+
+/** Account-wide notification mode derived from the default server rules. */
+enum class AccountNotificationMode {
+    ALL_MESSAGES,
+    MENTIONS_ONLY,
+    OFF;
+
+    companion object {
+        fun fromRules(rules: PushRuleSet): AccountNotificationMode {
+            val master = rules.override.orEmpty().firstOrNull { it.ruleId == PushRulesConstants.MASTER_RULE_ID }
+            if (master?.enabled == true) return OFF
+            val roomMessage = rules.underride.orEmpty().firstOrNull { it.ruleId == PushRulesConstants.ROOM_MESSAGE_RULE_ID }
+            if (roomMessage?.enabled == false) return MENTIONS_ONLY
+            return ALL_MESSAGES
+        }
+    }
+}
+
+object PushRulesConstants {
+    const val MASTER_RULE_ID = ".m.rule.master"
+    const val ROOM_MESSAGE_RULE_ID = ".m.rule.room_message"
+}
+
+/** Flattened rule for the debug list. */
+data class PushRuleView(
+    val kind: PushRuleKind,
+    val ruleId: String,
+    val default: Boolean,
+    val enabled: Boolean,
+    val notify: Boolean,
+    val highlight: Boolean
+)
+
+data class PushersView(
+    val appDisplayName: String,
+    val deviceDisplayName: String,
+    val pushkeyTail: String
+)
+
+/** Server-side push rules & pushers management (Element "notification settings"). */

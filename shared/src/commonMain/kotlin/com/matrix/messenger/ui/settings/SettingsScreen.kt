@@ -1,5 +1,7 @@
 package com.matrix.messenger.ui.settings
 
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -255,6 +257,15 @@ fun SettingsScreen(
                     }
                 }
             }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+            PushRulesSection(
+                uiState = uiState,
+                onSetMode = viewModel::setAccountMode,
+                onAddKeyword = viewModel::addKeyword,
+                onRemoveKeyword = viewModel::removeKeyword,
+                onToggleRule = viewModel::toggleRule,
+                onToggleExpanded = viewModel::togglePushRulesExpanded
+            )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
@@ -595,4 +606,166 @@ private fun PinSetupDialog(
             }
         }
     )
+}
+
+@Composable
+private fun PushRulesSection(
+    uiState: SettingsUiState,
+    onSetMode: (com.matrix.messenger.data.repository.AccountNotificationMode) -> Unit,
+    onAddKeyword: (String) -> Unit,
+    onRemoveKeyword: (String) -> Unit,
+    onToggleRule: (net.folivo.trixnity.core.model.push.PushRuleKind, String, Boolean) -> Unit,
+    onToggleExpanded: () -> Unit
+) {
+    var newKeyword by remember { mutableStateOf("") }
+
+    Text(
+        text = "Режим аккаунта (сервер)",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp)
+    )
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        listOf(
+            com.matrix.messenger.data.repository.AccountNotificationMode.ALL_MESSAGES to "Все",
+            com.matrix.messenger.data.repository.AccountNotificationMode.MENTIONS_ONLY to "Упоминания",
+            com.matrix.messenger.data.repository.AccountNotificationMode.OFF to "Выкл."
+        ).forEach { (mode, label) ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clickable { onSetMode(mode) }
+                    .padding(end = 12.dp)
+            ) {
+                RadioButton(
+                    selected = uiState.accountMode == mode,
+                    onClick = { onSetMode(mode) }
+                )
+                Text(label, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+    Text(
+        text = "Ключевые слова",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp)
+    )
+    uiState.keywords.forEach { rule ->
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "«${rule.pattern}»",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = { onRemoveKeyword(rule.ruleId) }, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Default.Close, contentDescription = "Удалить ключевое слово", modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedTextField(
+            value = newKeyword,
+            onValueChange = { newKeyword = it },
+            placeholder = { Text("Новое ключевое слово") },
+            singleLine = true,
+            shape = MaterialTheme.shapes.extraLarge,
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Button(
+            onClick = {
+                onAddKeyword(newKeyword)
+                newKeyword = ""
+            },
+            enabled = newKeyword.isNotBlank()
+        ) { Text("Добавить") }
+    }
+    Text(
+        text = "Сообщения с ключевым словом уведомляют даже в комнатах без звука.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp)
+    )
+
+    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+    // --- Debug: pushers + server rules ---
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggleExpanded() }
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Правила уведомлений (сервер)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = if (uiState.pushRulesExpanded) "скрыть" else "показать",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+    if (uiState.pushRulesExpanded) {
+        Text(
+            text = "Пушеры (куда доставляются уведомления):",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+        uiState.pushers.forEach { pusher ->
+            Text(
+                text = "• ${pusher.appDisplayName} — ${pusher.deviceDisplayName}",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Правила (тумблер = включено):",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+        uiState.pushRules.forEach { rule ->
+            val kindLabel = when (rule.kind) {
+                net.folivo.trixnity.core.model.push.PushRuleKind.OVERRIDE -> "override"
+                net.folivo.trixnity.core.model.push.PushRuleKind.CONTENT -> "content"
+                net.folivo.trixnity.core.model.push.PushRuleKind.ROOM -> "room"
+                net.folivo.trixnity.core.model.push.PushRuleKind.SENDER -> "sender"
+                net.folivo.trixnity.core.model.push.PushRuleKind.UNDERRIDE -> "underride"
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 1.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "[$kindLabel] ${rule.ruleId}" +
+                        if (rule.notify) "" else " (без уведомления)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Switch(
+                    checked = rule.enabled,
+                    onCheckedChange = { onToggleRule(rule.kind, rule.ruleId, it) },
+                    modifier = Modifier.height(28.dp)
+                )
+            }
+        }
+    }
 }
