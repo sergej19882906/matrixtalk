@@ -120,7 +120,8 @@ fun AppNavigation(
                     }
                 },
                 onOpenRoomSettings = { navController.navigate(Screen.RoomSettings.createRoute(roomId)) },
-                onOpenThread = { rootId -> navController.navigate(Screen.Thread.createRoute(roomId, rootId)) }
+                onOpenThread = { rootId -> navController.navigate(Screen.Thread.createRoute(roomId, rootId)) },
+                onStartGroupCall = { navController.navigate(Screen.CallWidget.createRoute(roomId)) }
             )
         }
 
@@ -179,6 +180,26 @@ fun AppNavigation(
                 onLeftRoom = {
                     navController.popBackStack(Screen.Home.route, inclusive = false)
                 }
+            )
+        }
+
+        composable(
+            route = Screen.CallWidget.route,
+            arguments = listOf(
+                navArgument("roomId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: return@composable
+            val session = kotlinx.coroutines.runBlocking {
+                com.matrix.messenger.data.repository.SessionStore.read()
+            }
+            val url = com.matrix.messenger.ui.call.elementCallUrl(
+                roomId,
+                session?.homeServer ?: ""
+            )
+            com.matrix.messenger.ui.call.ElementCallScreen(
+                url = url,
+                onBack = { navController.popBackStack() }
             )
         }
 

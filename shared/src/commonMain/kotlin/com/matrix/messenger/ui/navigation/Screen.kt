@@ -10,6 +10,9 @@ sealed class Screen(val route: String) {
         }
     }
     object Call : Screen("call")
+    object CallWidget : Screen("call_widget/{roomId}") {
+        fun createRoute(roomId: String): String = "call_widget/$roomId"
+    }
     object Settings : Screen("settings")
     object Devices : Screen("devices")
     object Search : Screen("search")

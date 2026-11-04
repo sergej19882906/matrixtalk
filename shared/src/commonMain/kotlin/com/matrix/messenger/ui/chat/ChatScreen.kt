@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.GppMaybe
 import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material.icons.filled.Mic
@@ -138,6 +139,7 @@ fun ChatScreen(
     onNavigateBack: () -> Unit,
     onStartCall: () -> Unit = {},
     onOpenRoomSettings: () -> Unit = {},
+    onStartGroupCall: () -> Unit = {},
     onOpenThread: (String) -> Unit = {},
     viewModel: ChatViewModel = koinViewModel()
 ) {
@@ -454,6 +456,14 @@ fun ChatScreen(
                                             screenSources = sources
                                         }
                                     }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Групповой звонок (Element Call)") },
+                                leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null) },
+                                onClick = {
+                                    roomMenuExpanded = false
+                                    onStartGroupCall()
                                 }
                             )
                             DropdownMenuItem(
