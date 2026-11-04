@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -183,6 +184,19 @@ fun LoginScreen(
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+
+            TextButton(
+                onClick = {
+                    val server = uiState.homeServer.trim().ifBlank { "matrix.org" }
+                    val base = if (server.startsWith("http")) server.trimEnd('/') else "https://$server"
+                    com.matrix.messenger.platform.openUrl(
+                        "$base/#/register?hs_url=$base"
+                    )
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Text("Нет аккаунта? Создать через Element Web")
+            }
 
             Button(
                 onClick = {
