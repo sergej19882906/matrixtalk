@@ -86,7 +86,8 @@ jobs:
             task: packageDeb
             format: deb
             glob: '*.deb'
-          - os: macos-latest
+          # macos-13 (intel) — arm64 runners suffer long capacity queues
+          - os: macos-13
             task: packageDmg
             format: dmg
             glob: '*.dmg'
