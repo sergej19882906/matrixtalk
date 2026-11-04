@@ -23,7 +23,9 @@ private class AndroidVoiceRecorder : VoiceRecorder {
     override fun start(): Boolean {
         if (isRecording) return false
         val context = appContext ?: return false
-        val path = "${context.cacheDir.absolutePath}/voice_${System.currentTimeMillis()}.m4a"
+        val useOpus = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        val extension = if (useOpus) "ogg" else "m4a"
+        val path = "${context.cacheDir.absolutePath}/voice_${System.currentTimeMillis()}.$extension"
         return runCatching {
             val r = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 MediaRecorder(context)
@@ -32,10 +34,15 @@ private class AndroidVoiceRecorder : VoiceRecorder {
                 MediaRecorder()
             }
             r.setAudioSource(MediaRecorder.AudioSource.MIC)
-            r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            if (useOpus) {
+                r.setOutputFormat(MediaRecorder.OutputFormat.OGG)
+                r.setAudioEncoder(MediaRecorder.AudioEncoder.OPUS)
+            } else {
+                r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            }
             r.setAudioEncodingBitRate(64_000)
-            r.setAudioSamplingRate(44_100)
+            r.setAudioSamplingRate(48_000)
             r.setOutputFile(path)
             r.prepare()
             r.start()

@@ -792,7 +792,12 @@ class MatrixRepositoryImpl : MatrixRepository {
         val c = requireClient()
         val rId = RoomId(roomId)
         var bytes = readFileBytes(filePath)
-        val contentType = runCatching { ContentType.parse("audio/mp4") }
+        val mime = when {
+            filePath.endsWith(".ogg", true) || filePath.endsWith(".opus", true) -> "audio/ogg"
+            filePath.endsWith(".wav", true) -> "audio/wav"
+            else -> "audio/mp4"
+        }
+        val contentType = runCatching { ContentType.parse(mime) }
             .getOrElse { ContentType.Application.OctetStream }
         val isEncryptedRoom = runCatching {
             c.room.getById(rId).firstOrNull()?.encrypted == true
@@ -814,7 +819,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 put("url", kotlinx.serialization.json.JsonPrimitive(mxc))
             }
             put("info", kotlinx.serialization.json.buildJsonObject {
-                put("mimetype", kotlinx.serialization.json.JsonPrimitive("audio/mp4"))
+                put("mimetype", kotlinx.serialization.json.JsonPrimitive(mime))
                 durationMs?.let { put("duration", kotlinx.serialization.json.JsonPrimitive(it)) }
                 put("size", kotlinx.serialization.json.JsonPrimitive(bytes.size.toLong()))
             })

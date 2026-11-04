@@ -76,6 +76,10 @@ kotlin {
             dependencies {
                 implementation(compose.desktop.currentOs)
 
+                // Voice playback on desktop: Ogg/Opus demux + pure-Java Opus decoder
+                implementation("org.gagravarr:vorbis-java-core:0.8")
+                implementation("io.github.jaredmdobson:concentus:1.0.2")
+
                 // Dispatchers.Main provider on JVM (viewModelScope, UI events)
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
 
