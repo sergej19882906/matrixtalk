@@ -143,6 +143,8 @@ interface MatrixRepository {
     /** Element style room notification levels (all / mentions only / mute). */
     suspend fun getRoomNotificationLevel(roomId: String): RoomNotificationLevel
     suspend fun setRoomNotificationLevel(roomId: String, level: RoomNotificationLevel)
+    /** Default level applied to newly joined rooms (settings). */
+    suspend fun setDefaultNotificationLevel(level: RoomNotificationLevel)
 
     /** Server-side key backup status; null when no backup exists. */
     suspend fun getKeyBackupStatus(): KeyBackupStatus?

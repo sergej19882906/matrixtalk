@@ -39,6 +39,8 @@ object SessionStore {
         val mutedRooms: List<String>? = null,
         val roomNotificationLevels: Map<String, String>? = null,
         val recentReactions: List<String>? = null,
+        val pinHash: String? = null,
+        val defaultNotificationLevel: String? = null,
         val proxyType: String? = null,
         val proxyHost: String? = null,
         val proxyPort: Int? = null,
@@ -136,6 +138,19 @@ object SessionStore {
 
     suspend fun saveRoomNotificationLevels(levels: Map<String, String>) {
         save(load().copy(roomNotificationLevels = levels))
+    }
+
+    suspend fun readPinHash(): String? = mutex.withLock { load().pinHash }
+
+    suspend fun savePinHash(hash: String?) {
+        save(load().copy(pinHash = hash))
+    }
+
+    suspend fun readDefaultNotificationLevel(): String? =
+        mutex.withLock { load().defaultNotificationLevel }
+
+    suspend fun saveDefaultNotificationLevel(level: String?) {
+        save(load().copy(defaultNotificationLevel = level))
     }
 
     suspend fun readProxySettings(): ProxySettings? {

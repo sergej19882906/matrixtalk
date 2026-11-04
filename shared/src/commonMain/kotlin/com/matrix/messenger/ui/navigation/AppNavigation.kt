@@ -4,6 +4,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -11,6 +14,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.matrix.messenger.data.model.CallState
+import com.matrix.messenger.ui.settings.PinLockScreen
 import com.matrix.messenger.data.repository.CallRepository
 import com.matrix.messenger.ui.bridges.BridgesScreen
 import com.matrix.messenger.ui.call.CallScreen
@@ -35,6 +39,17 @@ fun AppNavigation(
         ) {
             navController.navigate(Screen.Call.route)
         }
+    }
+
+    // App lock: PIN gate before anything else when configured.
+    val pinHash = remember { kotlinx.coroutines.runBlocking { com.matrix.messenger.data.repository.SessionStore.readPinHash() } }
+    var pinUnlocked by remember { mutableStateOf(pinHash == null) }
+    if (!pinUnlocked) {
+        PinLockScreen(
+            pinHash = pinHash!!,
+            onUnlock = { pinUnlocked = true }
+        )
+        return
     }
 
     NavHost(

@@ -31,6 +31,11 @@ data class SettingsUiState(
     val keyBackupVersion: String? = null,
     /** Background push status (Android); null on desktop. */
     val pushStatus: String? = null,
+    /** App lock configured (PIN). */
+    val pinEnabled: Boolean = false,
+    /** Default notification level applied to newly joined rooms. */
+    val defaultNotificationLevel: com.matrix.messenger.data.model.RoomNotificationLevel =
+        com.matrix.messenger.data.model.RoomNotificationLevel.ALL_MESSAGES,
     /** Outbound proxy (applied after an app restart). */
     val proxy: ProxySettings? = null,
     val proxyDirty: Boolean = false,
@@ -56,6 +61,16 @@ class SettingsViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 pushStatus = runCatching { com.matrix.messenger.platform.pushServiceStatusText() }.getOrNull()
+            )
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                pinEnabled = runCatching { SessionStore.readPinHash() } != null,
+                defaultNotificationLevel = runCatching {
+                    com.matrix.messenger.data.model.RoomNotificationLevel.fromStored(
+                        SessionStore.readDefaultNotificationLevel()
+                    )
+                }.getOrDefault(com.matrix.messenger.data.model.RoomNotificationLevel.ALL_MESSAGES)
             )
         }
         viewModelScope.launch {
@@ -119,6 +134,27 @@ class SettingsViewModel(
         viewModelScope.launch {
             runCatching { SessionStore.saveProxySettings(current) }
             _uiState.value = _uiState.value.copy(proxyDirty = false, proxyMessage = PROXY_SAVED)
+        }
+    }
+
+    fun setDefaultNotificationLevel(level: com.matrix.messenger.data.model.RoomNotificationLevel) {
+        viewModelScope.launch {
+            runCatching { matrixRepository.setDefaultNotificationLevel(level) }
+            _uiState.value = _uiState.value.copy(defaultNotificationLevel = level)
+        }
+    }
+
+    fun setPin(pin: String) {
+        viewModelScope.launch {
+            runCatching { SessionStore.savePinHash(PinHash.of(pin)) }
+            _uiState.value = _uiState.value.copy(pinEnabled = true)
+        }
+    }
+
+    fun clearPin() {
+        viewModelScope.launch {
+            runCatching { SessionStore.savePinHash(null) }
+            _uiState.value = _uiState.value.copy(pinEnabled = false)
         }
     }
 

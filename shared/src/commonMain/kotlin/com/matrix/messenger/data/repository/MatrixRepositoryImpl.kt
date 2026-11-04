@@ -67,6 +67,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.transformLatest
@@ -587,7 +588,10 @@ class MatrixRepositoryImpl : MatrixRepository {
         _connectionState.value = ConnectionState.Disconnected("Logged out")
     }
 
-    override fun getRoomsFlow(): Flow<List<ChatRoom>> = _clientState.flatMapLatest { c ->
+    override fun getRoomsFlow(): Flow<List<ChatRoom>> =
+        roomsFlowInternal().onEach { rooms -> runCatching { applyDefaultLevelForNewRooms(rooms) } }
+
+    private fun roomsFlowInternal(): Flow<List<ChatRoom>> = _clientState.flatMapLatest { c ->
         if (c == null) {
             flowOf(emptyList())
         } else {
@@ -1196,6 +1200,33 @@ class MatrixRepositoryImpl : MatrixRepository {
         SessionStore.saveMutedRooms(mutedRooms)
         _mutedRooms.value = mutedRooms.toSet()
         setRoomNotificationLevel(roomId, if (muted) RoomNotificationLevel.MUTE else RoomNotificationLevel.ALL_MESSAGES)
+    }
+
+    private var defaultLevelApplied = false
+    private val knownRoomIds = mutableSetOf<String>()
+
+    /** Applies the default notification level to rooms that appeared after startup. */
+    private suspend fun applyDefaultLevelForNewRooms(rooms: List<ChatRoom>) {
+        if (!defaultLevelApplied) {
+            knownRoomIds.addAll(rooms.map { it.roomId })
+            defaultLevelApplied = true
+            return
+        }
+        val fresh = rooms.filter { it.roomId !in knownRoomIds }
+        knownRoomIds.addAll(rooms.map { it.roomId })
+        if (fresh.isEmpty()) return
+        val stored = runCatching { SessionStore.readRoomNotificationLevels() }.getOrDefault(emptyMap())
+        val default = runCatching { SessionStore.readDefaultNotificationLevel() }.getOrNull() ?: return
+        if (default == RoomNotificationLevel.ALL_MESSAGES.name) return
+        fresh.filter { !stored.containsKey(it.roomId) }.forEach { room ->
+            runCatching {
+                setRoomNotificationLevel(room.roomId, RoomNotificationLevel.valueOf(default))
+            }
+        }
+    }
+
+    override suspend fun setDefaultNotificationLevel(level: RoomNotificationLevel) {
+        SessionStore.saveDefaultNotificationLevel(level.name)
     }
 
     override suspend fun getRoomNotificationLevel(roomId: String): RoomNotificationLevel {

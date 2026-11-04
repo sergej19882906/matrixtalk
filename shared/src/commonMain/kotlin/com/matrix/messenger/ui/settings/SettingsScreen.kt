@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhonelinkLock
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenuItem
@@ -77,6 +78,22 @@ fun SettingsScreen(
             snackbarHostState.showSnackbar(it)
             viewModel.consumeProxyMessage()
         }
+    }
+
+    var pinDialog by remember { mutableStateOf(false) }
+    if (pinDialog) {
+        PinSetupDialog(
+            pinEnabled = uiState.pinEnabled,
+            onDismiss = { pinDialog = false },
+            onSet = { pin ->
+                pinDialog = false
+                viewModel.setPin(pin)
+            },
+            onClear = {
+                pinDialog = false
+                viewModel.clearPin()
+            }
+        )
     }
 
     Scaffold(
@@ -212,6 +229,32 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Для новых комнат:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                listOf(
+                    com.matrix.messenger.data.model.RoomNotificationLevel.ALL_MESSAGES to "Все",
+                    com.matrix.messenger.data.model.RoomNotificationLevel.MENTIONS_ONLY to "Упоминания"
+                ).forEach { (level, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable { viewModel.setDefaultNotificationLevel(level) }
+                            .padding(end = 16.dp)
+                    ) {
+                        RadioButton(
+                            selected = uiState.defaultNotificationLevel == level,
+                            onClick = { viewModel.setDefaultNotificationLevel(level) }
+                        )
+                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
@@ -503,5 +546,53 @@ private fun SettingsSectionHeader(title: String) {
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+    )
+}
+
+@Composable
+private fun PinSetupDialog(
+    pinEnabled: Boolean,
+    onDismiss: () -> Unit,
+    onSet: (String) -> Unit,
+    onClear: () -> Unit
+) {
+    var pin by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (pinEnabled) "Изменить PIN" else "Задать PIN") },
+        text = {
+            Column {
+                androidx.compose.material3.OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it.filter { ch -> ch.isDigit() }.take(4) },
+                    label = { Text("PIN (4 цифры)") },
+                    singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                androidx.compose.material3.OutlinedTextField(
+                    value = confirm,
+                    onValueChange = { confirm = it.filter { ch -> ch.isDigit() }.take(4) },
+                    label = { Text("Повторите PIN") },
+                    singleLine = true,
+                    isError = confirm.length == 4 && confirm != pin,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSet(pin) },
+                enabled = pin.length == 4 && pin == confirm
+            ) { Text(if (pinEnabled) "Изменить" else "Включить") }
+        },
+        dismissButton = {
+            if (pinEnabled) {
+                TextButton(onClick = onClear) { Text("Отключить") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("Отмена") }
+            }
+        }
     )
 }
