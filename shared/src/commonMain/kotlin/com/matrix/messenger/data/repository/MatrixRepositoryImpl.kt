@@ -42,7 +42,9 @@ import io.ktor.http.contentType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,6 +74,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -147,6 +150,15 @@ import net.folivo.trixnity.core.model.events.RoomEventContent
 import net.folivo.trixnity.core.model.events.UnknownEventContent
 import net.folivo.trixnity.core.model.events.m.ReactionEventContent
 import net.folivo.trixnity.core.model.events.m.RelatesTo
+import net.folivo.trixnity.clientserverapi.client.getAccountData
+import com.matrix.messenger.data.emote.EmoteRoomsEventContent
+import com.matrix.messenger.data.emote.RoomEmotesEventContent
+import com.matrix.messenger.data.emote.UserEmotesEventContent
+import com.matrix.messenger.data.location.BeaconEventContent
+import com.matrix.messenger.data.location.BeaconInfoEventContent
+import com.matrix.messenger.data.sticker.StickerEventContent
+import com.matrix.messenger.platform.deleteFileIfExists
+import com.matrix.messenger.platform.getCurrentLocation
 import net.folivo.trixnity.core.model.events.InitialStateEvent
 import net.folivo.trixnity.core.model.events.m.room.AudioInfo
 import net.folivo.trixnity.core.model.events.m.room.EncryptedFile
@@ -183,6 +195,9 @@ class MatrixRepositoryImpl : MatrixRepository {
         encodeDefaults = true
     }
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** MSC3488 live location broadcaster for the current user's share. */
+    private var liveLocationJob: Job? = null
     private val lifecycleMutex = Mutex()
     private val clientJobs = mutableListOf<kotlinx.coroutines.Job>()
     private val _clientState = MutableStateFlow<MatrixClient?>(null)
@@ -1263,19 +1278,15 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
         val mxc = uploadBytes(c, bytes, contentType)
         fileInfo = fileInfo?.copy(url = mxc)
-        val stickerJson = kotlinx.serialization.json.buildJsonObject {
-            put("body", kotlinx.serialization.json.JsonPrimitive(filePath.substringAfterLast('/').substringAfterLast("\\")))
-            if (fileInfo != null) {
-                put("file", kotlinx.serialization.json.Json.encodeToJsonElement(EncryptedFile.serializer(), fileInfo))
-            } else {
-                put("url", kotlinx.serialization.json.JsonPrimitive(mxc))
-            }
-            put("info", kotlinx.serialization.json.buildJsonObject {
-                put("mimetype", kotlinx.serialization.json.JsonPrimitive(mimeType))
-                put("size", kotlinx.serialization.json.JsonPrimitive(bytes.size.toLong()))
-            })
-        }
-        sendRoomEvent(c, rId, UnknownEventContent(stickerJson, "m.sticker"))
+        sendRoomEvent(
+            c, rId,
+            StickerEventContent(
+                body = filePath.substringAfterLast('/').substringAfterLast("\\"),
+                url = if (fileInfo == null) mxc else null,
+                file = fileInfo,
+                info = ImageInfo(mimeType = mimeType, size = bytes.size.toLong()),
+            )
+        )
     }
 
     override suspend fun sendLocation(roomId: String, latitude: Double, longitude: Double, accuracyMeters: Double?) {
@@ -1289,6 +1300,204 @@ class MatrixRepositoryImpl : MatrixRepository {
                 geoUri = com.matrix.messenger.data.model.GeoUri.toGeoUri(location)
             )
         )
+    }
+
+    override suspend fun sendStickerUrl(roomId: String, mxcUrl: String, body: String, mimeType: String?, width: Int?, height: Int?) {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        require(mxcUrl.startsWith("mxc://")) { "Некорректный URL стикера" }
+        val content = if (requireJoinedRoom(c, rId).encrypted) {
+            // The pack media is unencrypted: re-encrypt and re-upload for this room's key.
+            val sourceBytes = c.media.getMedia(mxcUrl).getOrThrow().toByteArray()
+            require(sourceBytes.isNotEmpty()) { "Не удалось загрузить стикер" }
+            val (fileInfo, encryptedBytes) = encryptMediaBytes(sourceBytes)
+            val newMxc = uploadBytes(
+                c, encryptedBytes,
+                runCatching { ContentType.parse(mimeType ?: "image/png") }.getOrElse { ContentType.Application.OctetStream }
+            )
+            StickerEventContent(
+                body = body, file = fileInfo.copy(url = newMxc),
+                info = ImageInfo(mimeType = mimeType, width = width, height = height, size = encryptedBytes.size.toLong()),
+            )
+        } else {
+            StickerEventContent(
+                body = body, url = mxcUrl,
+                info = ImageInfo(mimeType = mimeType, width = width, height = height),
+            )
+        }
+        sendRoomEvent(c, rId, content)
+    }
+
+    override suspend fun getStickerPacks(roomId: String): List<com.matrix.messenger.data.model.StickerPack> {
+        val c = requireClient()
+        val packs = mutableListOf<com.matrix.messenger.data.model.StickerPack>()
+        fun packFromEntries(
+            id: String, name: String, avatarUrl: String?,
+            entries: Map<String, com.matrix.messenger.data.emote.EmotePackEntry>,
+        ): com.matrix.messenger.data.model.StickerPack? {
+            val items = entries.mapNotNull { (shortcode, entry) ->
+                val url = entry.url ?: return@mapNotNull null
+                val usage = entry.usage
+                com.matrix.messenger.data.model.StickerItem(
+                    shortcode = shortcode,
+                    url = url,
+                    body = entry.body ?: shortcode,
+                    isSticker = usage == null || "sticker" in usage,
+                )
+            }
+            if (items.isEmpty()) return null
+            return com.matrix.messenger.data.model.StickerPack(id = id, name = name, avatarUrl = avatarUrl, stickers = items)
+        }
+        val userEmotes = runCatching {
+            c.api.user.getAccountData<UserEmotesEventContent>(userId = c.userId).getOrNull()
+        }.getOrNull()
+        if (userEmotes != null) {
+            packFromEntries("user", userEmotes.pack?.displayName ?: "Мои стикеры", userEmotes.pack?.avatarUrl, userEmotes.entries)
+                ?.let(packs::add)
+        }
+        val subscribedRooms = runCatching {
+            c.api.user.getAccountData<EmoteRoomsEventContent>(userId = c.userId).getOrNull()?.roomIds
+        }.getOrNull().orEmpty() + roomId
+        subscribedRooms.distinct().forEach { rid ->
+            runCatching {
+                val states = c.room.getAllState(RoomId(rid), RoomEmotesEventContent::class)
+                    .firstOrNull().orEmpty()
+                states.forEach { (stateKey, flow) ->
+                    val content = flow.filterNotNull().firstOrNull()?.content ?: return@forEach
+                    val name = content.pack?.displayName?.takeIf { it.isNotBlank() }
+                        ?: (if (stateKey.isBlank()) "Пак комнаты" else "Пак $stateKey")
+                    packFromEntries("$rid#$stateKey", name, content.pack?.avatarUrl, content.entries)?.let(packs::add)
+                }
+            }
+        }
+        return packs
+    }
+
+    override suspend fun addStickerPackRoom(roomIdToAdd: String) {
+        val c = requireClient()
+        val ue = c.api.user.getAccountData<UserEmotesEventContent>(userId = c.userId).getOrNull() ?: UserEmotesEventContent()
+        c.api.user.setAccountData(
+            ue.copy(packs = (ue.packs.orEmpty() + roomIdToAdd).distinct()),
+            userId = c.userId,
+        ).getOrThrow()
+        val er = c.api.user.getAccountData<EmoteRoomsEventContent>(userId = c.userId).getOrNull() ?: EmoteRoomsEventContent()
+        val rooms = er.rooms.orEmpty().toMutableMap()
+        rooms.putIfAbsent(roomIdToAdd, emptyMap())
+        c.api.user.setAccountData(er.copy(rooms = rooms), userId = c.userId).getOrThrow()
+    }
+
+    override suspend fun removeStickerPackRoom(roomIdToRemove: String) {
+        val c = requireClient()
+        val ue = c.api.user.getAccountData<UserEmotesEventContent>(userId = c.userId).getOrNull() ?: UserEmotesEventContent()
+        c.api.user.setAccountData(
+            ue.copy(packs = ue.packs.orEmpty().filterNot { it == roomIdToRemove }),
+            userId = c.userId,
+        ).getOrThrow()
+        val er = c.api.user.getAccountData<EmoteRoomsEventContent>(userId = c.userId).getOrNull() ?: EmoteRoomsEventContent()
+        c.api.user.setAccountData(
+            er.copy(rooms = er.rooms.orEmpty().filterKeys { it != roomIdToRemove }),
+            userId = c.userId,
+        ).getOrThrow()
+    }
+
+    override suspend fun reportMessage(roomId: String, eventId: String, reason: String?, score: Int?) {
+        val c = requireClient()
+        c.api.room.reportEvent(RoomId(roomId), EventId(eventId), reason, score?.toLong()).getOrThrow()
+    }
+
+    override suspend fun deleteMessages(roomId: String, eventIds: List<String>) {
+        eventIds.forEach { deleteMessage(it, roomId) }
+    }
+
+    override suspend fun forwardMessages(targetRoomId: String, messages: List<com.matrix.messenger.data.model.Message>): Int {
+        var forwarded = 0
+        messages.forEach { message ->
+            when (message.messageType) {
+                com.matrix.messenger.data.model.MessageType.TEXT ->
+                    sendTextMessage(targetRoomId, message.body)
+                com.matrix.messenger.data.model.MessageType.EMOTE ->
+                    sendEmoteMessage(targetRoomId, message.body)
+                com.matrix.messenger.data.model.MessageType.STICKER -> {
+                    val mxc = message.mediaUrl ?: return@forEach
+                    val mime = message.encryptedFile?.let { null }
+                        ?: "image/png"
+                    sendStickerUrl(targetRoomId, mxc, message.body, mime)
+                }
+                else -> {
+                    // Media: download (decrypt if needed), park in a temp file, resend per type.
+                    val bytes = withContext(Dispatchers.IO) {
+                        message.encryptedFile?.let { requireClient().media.getEncryptedMedia(it).getOrThrow().toByteArray() }
+                            ?: message.mediaUrl?.let { requireClient().media.getMedia(it).getOrThrow().toByteArray() }
+                    } ?: return@forEach
+                    val mime = "application/octet-stream"
+                    val suffix = com.matrix.messenger.data.repository.mediaSuffix(mime) ?: "bin"
+                    val tempPath = "${attachmentsDir()}/forward-${kotlin.random.Random.nextLong(1_000_000_000L)}.$suffix"
+                    writeFileBytes(tempPath, bytes)
+                    try {
+                        sendFileMessage(targetRoomId, tempPath, mime, null)
+                    } finally {
+                        deleteFileIfExists(tempPath)
+                    }
+                }
+            }
+            forwarded++
+        }
+        return forwarded
+    }
+
+    override suspend fun deactivateAccount(eraseData: Boolean, passwordProvider: suspend () -> String?) {
+        val c = requireClient()
+        val initial = c.api.authentication.deactivateAccount(erase = eraseData).getOrThrow()
+        completeUia(initial, passwordProvider)
+    }
+
+    override suspend fun startLiveLocationShare(roomId: String, durationMs: Long, description: String?) {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        requireJoinedRoom(c, rId)
+        val now = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+        val infoId = c.api.room.sendStateEvent(
+            rId,
+            BeaconInfoEventContent(description = description, timeout = durationMs, live = true, ts = now),
+            stateKey = c.userId.full,
+        ).getOrThrow().full
+        liveLocationJob?.cancel()
+        liveLocationJob = repositoryScope.launch {
+            val deadline = now + durationMs
+            while (isActive && kotlinx.datetime.Clock.System.now().toEpochMilliseconds() < deadline) {
+                getCurrentLocation()?.let { loc ->
+                    runCatching {
+                        sendRoomEvent(
+                            c, rId,
+                            BeaconEventContent(
+                                location = BeaconEventContent.BeaconLocation(com.matrix.messenger.data.model.GeoUri.toGeoUri(loc)),
+                                ts = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
+                                relatesTo = RelatesTo.Reference(EventId(infoId)),
+                            )
+                        )
+                    }.onFailure { logError("LiveLocation", "beacon send failed", it) }
+                }
+                delay(LIVE_LOCATION_BEACON_INTERVAL_MS)
+            }
+        }
+    }
+
+    override suspend fun stopLiveLocationShare(roomId: String) {
+        liveLocationJob?.cancel()
+        liveLocationJob = null
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        val current = runCatching {
+            c.room.getState<BeaconInfoEventContent>(rId, c.userId.full)
+                .firstOrNull()?.content
+        }.getOrNull() ?: return
+        if (current.live) {
+            c.api.room.sendStateEvent(
+                rId,
+                current.copy(live = false),
+                stateKey = c.userId.full,
+            ).getOrThrow()
+        }
     }
 
     override fun getReadReceiptsFlow(roomId: String): Flow<Map<String, List<ReadReceipt>>> = _clientState.flatMapLatest { c ->
@@ -2249,6 +2458,62 @@ class MatrixRepositoryImpl : MatrixRepository {
                 callIsVideo = isVideo
             )
         }
+        if (eventContent is BeaconEventContent) {
+            val geo = com.matrix.messenger.data.model.GeoUri.parse(eventContent.location.geoUri) ?: return null
+            val refId = (eventContent.relatesTo as? RelatesTo.Reference)?.eventId?.full
+            var info: BeaconInfoEventContent? = null
+            var infoTs: Long? = null
+            if (refId != null) {
+                val infoEvent = runCatching {
+                    withTimeoutOrNull(STATE_FETCH_TIMEOUT_MS) {
+                        c.room.getTimelineEvent(roomId, EventId(refId)).firstOrNull()
+                    }
+                }.getOrNull()
+                info = infoEvent?.content?.getOrNull() as? BeaconInfoEventContent
+                infoTs = infoEvent?.originTimestamp
+            }
+            return Message(
+                eventId = eventId.full,
+                senderId = sender.full,
+                senderName = c.resolveSenderName(roomId, sender),
+                senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
+                body = info?.description ?: "Live-геолокация",
+                timestamp = originTimestamp,
+                messageType = MessageType.LOCATION,
+                isMine = sender == c.userId,
+                isEdited = false,
+                isDeleted = false,
+                location = geo,
+                liveBeacon = com.matrix.messenger.data.model.LiveLocationBeacon(
+                    infoEventId = refId.orEmpty(),
+                    location = geo,
+                    endTimestamp = info?.let { (it.ts ?: infoTs)?.plus(it.timeout) },
+                    live = info?.live ?: true,
+                    description = info?.description,
+                ),
+            )
+        }
+        if (eventContent is BeaconInfoEventContent) {
+            // beacon_info state updates are service events: surfaced through beacons only.
+            return null
+        }
+        if (eventContent is StickerEventContent) {
+            val mxc = eventContent.url ?: eventContent.file?.url ?: return null
+            return Message(
+                eventId = eventId.full,
+                senderId = sender.full,
+                senderName = c.resolveSenderName(roomId, sender),
+                senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
+                body = eventContent.body.ifBlank { "Стикер" },
+                timestamp = originTimestamp,
+                messageType = MessageType.STICKER,
+                isMine = sender == c.userId,
+                isEdited = false,
+                isDeleted = false,
+                mediaUrl = mxc,
+                encryptedFile = eventContent.file
+            )
+        }
         if (eventContent is UnknownEventContent) {
             // Polls and call invites surface as dedicated message types;
             // other unknown events stay hidden.
@@ -2304,6 +2569,8 @@ class MatrixRepositoryImpl : MatrixRepository {
             }
             if (eventContent.eventType == "m.sticker") {
                 val url = (eventContent.raw["url"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    ?: (eventContent.raw["file"] as? kotlinx.serialization.json.JsonObject)
+                        ?.get("url")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
                 if (url != null) {
                     return Message(
                         eventId = eventId.full,
@@ -2317,7 +2584,9 @@ class MatrixRepositoryImpl : MatrixRepository {
                         isEdited = false,
                         isDeleted = false,
                         mediaUrl = url,
-                        encryptedFile = null
+                        encryptedFile = (eventContent.raw["file"] as? kotlinx.serialization.json.JsonObject)?.let {
+                            kotlinx.serialization.json.Json.decodeFromJsonElement(EncryptedFile.serializer(), it)
+                        }
                     )
                 }
                 return null
@@ -2644,6 +2913,9 @@ class MatrixRepositoryImpl : MatrixRepository {
         const val STATE_FETCH_TIMEOUT_MS = 500L
         const val EVENT_ROOM_MAP_MAX = 1000
         const val DEFAULT_TURN_TTL_SECONDS = 300L
+
+        /** Beacon broadcast cadence for live location shares (MSC3488). */
+        const val LIVE_LOCATION_BEACON_INTERVAL_MS = 10_000L
         const val REPLY_RESOLVE_TIMEOUT_MS = 300L
         const val REPLY_PREVIEW_MAX = 120
         const val TYPING_DISPLAY_TIMEOUT_MS = 6_000L

@@ -1,6 +1,9 @@
 package com.matrix.messenger.data.bridge
 
 import com.matrix.messenger.data.call.callEventContentSerializerMappings
+import com.matrix.messenger.data.emote.emoteEventContentSerializerMappings
+import com.matrix.messenger.data.location.beaconEventContentSerializerMappings
+import com.matrix.messenger.data.sticker.stickerEventContentSerializerMappings
 import com.matrix.messenger.data.voice.voiceEventContentSerializerMappings
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -80,9 +83,16 @@ val customEventContentSerializerMappings: EventContentSerializerMappings =
         override val message = (
             DefaultEventContentSerializerMappings.message.filterNot { it.type == "m.room.message" } +
                 callEventContentSerializerMappings.message.filterNot { it.type == "m.room.message" } +
-                voiceEventContentSerializerMappings.message
+                voiceEventContentSerializerMappings.message +
+                stickerEventContentSerializerMappings.message.filter { it.type == "m.sticker" } +
+                beaconEventContentSerializerMappings.message.filter { it.type == "m.beacon" }
             ).toSet()
-        override val state = DefaultEventContentSerializerMappings.state + bridgeStateEventContentMappings
+        override val state = DefaultEventContentSerializerMappings.state +
+            bridgeStateEventContentMappings +
+            emoteEventContentSerializerMappings.state.filter { it.type.startsWith("im.ponies.") } +
+            beaconEventContentSerializerMappings.state.filter { it.type == "m.beacon_info" }
+        override val globalAccountData = DefaultEventContentSerializerMappings.globalAccountData +
+            emoteEventContentSerializerMappings.globalAccountData.filter { it.type.startsWith("im.ponies.") }
     }
 
 /** One Koin binding registers all content mappings used by MatrixClient and its stores. */

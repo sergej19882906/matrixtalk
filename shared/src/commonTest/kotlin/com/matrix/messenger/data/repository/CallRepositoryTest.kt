@@ -154,6 +154,16 @@ class CallRepositoryTest {
         override suspend fun sendReaction(eventId: String, reaction: String) = Unit
         override suspend fun editMessage(eventId: String, roomId: String, newText: String) = Unit
         override suspend fun deleteMessage(eventId: String, roomId: String) = Unit
+        override suspend fun sendStickerUrl(roomId: String, mxcUrl: String, body: String, mimeType: String?, width: Int?, height: Int?) = Unit
+        override suspend fun getStickerPacks(roomId: String): List<com.matrix.messenger.data.model.StickerPack> = emptyList()
+        override suspend fun addStickerPackRoom(roomIdToAdd: String) = Unit
+        override suspend fun removeStickerPackRoom(roomIdToRemove: String) = Unit
+        override suspend fun reportMessage(roomId: String, eventId: String, reason: String?, score: Int?) = Unit
+        override suspend fun deleteMessages(roomId: String, eventIds: List<String>) = Unit
+        override suspend fun forwardMessages(targetRoomId: String, messages: List<Message>): Int = 0
+        override suspend fun deactivateAccount(eraseData: Boolean, passwordProvider: suspend () -> String?) = Unit
+        override suspend fun startLiveLocationShare(roomId: String, durationMs: Long, description: String?) = Unit
+        override suspend fun stopLiveLocationShare(roomId: String) = Unit
         override suspend fun uploadAvatar(filePath: String, mimeType: String) = Unit
         override suspend fun setDisplayName(name: String) = Unit
         override suspend fun getDevices(): List<DeviceInfo> = emptyList()

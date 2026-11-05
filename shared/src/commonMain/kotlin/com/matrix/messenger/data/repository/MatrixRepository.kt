@@ -183,6 +183,43 @@ interface MatrixRepository {
     /** Sends an m.sticker image event (Element X style sticker). */
     suspend fun sendSticker(roomId: String, filePath: String, mimeType: String)
 
+    /** Sends a typed m.sticker from an already-uploaded mxc URL (sticker pack picker). */
+    suspend fun sendStickerUrl(roomId: String, mxcUrl: String, body: String, mimeType: String?, width: Int? = null, height: Int? = null)
+
+    /** MSC2545 sticker/emote packs visible in this room (global user pack + subscribed rooms + room packs). */
+    suspend fun getStickerPacks(roomId: String): List<com.matrix.messenger.data.model.StickerPack>
+
+    /** Subscribes to a room's `im.ponies.room_emotes` pack (adds to user emote rooms). */
+    suspend fun addStickerPackRoom(roomIdToAdd: String)
+
+    /** Unsubscribes a room's packs from the user emote rooms. */
+    suspend fun removeStickerPackRoom(roomIdToRemove: String)
+
+    /** Reports a message to the homeserver administrators (spec report endpoint). */
+    suspend fun reportMessage(roomId: String, eventId: String, reason: String?, score: Int? = null)
+
+    /** Batch redacts several own messages (multi-select delete). Fails fast on first error. */
+    suspend fun deleteMessages(roomId: String, eventIds: List<String>)
+
+    /**
+     * Forwards messages to another room: text/emoji resent as text, media re-uploaded
+     * through the normal per-type send flow (re-encrypted for the target room).
+     * Returns the number of forwarded messages.
+     */
+    suspend fun forwardMessages(targetRoomId: String, messages: List<com.matrix.messenger.data.model.Message>): Int
+
+    /**
+     * Permanently deactivates the account (POST /account/deactivate) with password UIA.
+     * Irreversible; [eraseData] asks the server to also erase message data.
+     */
+    suspend fun deactivateAccount(eraseData: Boolean, passwordProvider: suspend () -> String?)
+
+    /** Starts an MSC3488 live location share (m.beacon_info + periodic m.beacon). */
+    suspend fun startLiveLocationShare(roomId: String, durationMs: Long, description: String? = null)
+
+    /** Stops the current user's live location share in this room (beacon live=false). */
+    suspend fun stopLiveLocationShare(roomId: String)
+
     /** Sends an m.location message with the given point. */
     suspend fun sendLocation(roomId: String, latitude: Double, longitude: Double, accuracyMeters: Double? = null)
 

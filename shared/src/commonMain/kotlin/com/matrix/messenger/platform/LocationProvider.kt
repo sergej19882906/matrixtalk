@@ -14,3 +14,13 @@ import com.matrix.messenger.data.model.GeoLocation
 expect fun rememberLocationRequester(
     onResult: (location: GeoLocation?) -> Unit
 ): () -> Unit
+
+/**
+ * One-shot current location for non-composable callers (live location beacon
+ * broadcaster). Never shows a permission dialog — the UI flow must request the
+ * permission first. Returns null when unavailable.
+ */
+expect suspend fun getCurrentLocation(): GeoLocation?
+
+/** Whether the platform has any location provider at all (desktop has none). */
+expect fun hasLocationProvider(): Boolean

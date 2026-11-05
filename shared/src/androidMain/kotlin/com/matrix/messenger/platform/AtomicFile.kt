@@ -32,3 +32,8 @@ actual fun writeFileBytesAtomic(path: String, bytes: ByteArray) {
         temporary.delete()
     }
 }
+
+actual fun deleteFileIfExists(path: String): Boolean {
+    val file = java.io.File(path)
+    return if (file.exists()) file.delete() else false
+}

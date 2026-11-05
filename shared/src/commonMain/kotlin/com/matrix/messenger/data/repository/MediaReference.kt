@@ -7,18 +7,21 @@ import net.folivo.trixnity.core.model.events.RoomEventContent
 import net.folivo.trixnity.core.model.events.UnknownEventContent
 import net.folivo.trixnity.core.model.events.m.room.EncryptedFile
 import net.folivo.trixnity.core.model.events.m.room.RoomMessageEventContent
+import com.matrix.messenger.data.sticker.StickerEventContent
 import com.matrix.messenger.data.voice.VoiceAudioContent
 
 internal data class MediaReference(val url: String?, val file: EncryptedFile?, val mimeType: String?)
 
 internal fun RoomEventContent.mediaReference(): MediaReference? {
-    val fileContent = when (this) {
-        is RoomMessageEventContent.FileBased -> this
-        is VoiceAudioContent -> stockAudio
-        else -> null
-    }
-    if (fileContent != null) {
-        return MediaReference(if (fileContent.file == null) fileContent.url else null, fileContent.file, fileContent.info?.mimeType)
+    when (this) {
+        is RoomMessageEventContent.FileBased ->
+            return MediaReference(if (file == null) url else null, file, info?.mimeType)
+        is VoiceAudioContent -> stockAudio.let {
+            return MediaReference(if (it.file == null) it.url else null, it.file, it.info?.mimeType)
+        }
+        is StickerEventContent ->
+            return MediaReference(if (file == null) url else null, file, info?.mimeType)
+        else -> {}
     }
     if (this !is UnknownEventContent || eventType !in setOf("m.audio", "m.sticker", "m.room.message")) return null
     val file = (raw["file"] as? JsonObject)?.let { Json.decodeFromJsonElement(EncryptedFile.serializer(), it) }

@@ -197,7 +197,37 @@ data class Message(
     /** Aggregated poll votes: answerId -> number of voters. */
     val pollVotes: Map<String, Int> = emptyMap(),
     val pollTotalVoters: Int = 0,
-    val pollMyAnswers: List<String> = emptyList()
+    val pollMyAnswers: List<String> = emptyList(),
+    /** MSC3488 live location beacon payload when this message is an m.beacon. */
+    val liveBeacon: LiveLocationBeacon? = null
+)
+
+/** Live location beacon state attached to m.beacon messages. */
+data class LiveLocationBeacon(
+    /** m.beacon_info state event id this beacon belongs to. */
+    val infoEventId: String,
+    val location: GeoLocation,
+    /** Beacon broadcast end (origin_server_ts of beacon_info + timeout), null when unknown. */
+    val endTimestamp: Long? = null,
+    /** live flag of the referenced beacon_info (false = broadcast stopped). */
+    val live: Boolean = true,
+    val description: String? = null
+)
+
+/** MSC2545 sticker/emote pack for the picker. */
+data class StickerPack(
+    val id: String,
+    val name: String,
+    val avatarUrl: String? = null,
+    val isStickerOnly: Boolean = false,
+    val stickers: List<StickerItem> = emptyList()
+)
+
+data class StickerItem(
+    val shortcode: String,
+    val url: String,
+    val body: String,
+    val isSticker: Boolean = true
 )
 
 /** Quoted original of a reply (m.in_reply_to). */

@@ -54,3 +54,15 @@ private fun fetchLastKnownLocation(context: Context): GeoLocation? {
     }
     return best?.let { GeoLocation(it.latitude, it.longitude, it.accuracy.toDouble()) }
 }
+
+actual suspend fun getCurrentLocation(): GeoLocation? {
+    val context = appContext ?: return null
+    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+    if (!granted) return null
+    return fetchLastKnownLocation(context)
+}
+
+actual fun hasLocationProvider(): Boolean = true
