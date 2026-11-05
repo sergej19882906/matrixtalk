@@ -1,32 +1,23 @@
 package com.matrix.messenger.data.bridge
 
-import kotlinx.serialization.KSerializer
+import com.matrix.messenger.data.call.callEventContentSerializerMappings
+import com.matrix.messenger.data.voice.voiceEventContentSerializerMappings
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import net.folivo.trixnity.core.model.events.EphemeralDataUnitContent
-import net.folivo.trixnity.core.model.events.EphemeralEventContent
-import net.folivo.trixnity.core.model.events.GlobalAccountDataEventContent
-import net.folivo.trixnity.core.model.events.RoomAccountDataEventContent
-import net.folivo.trixnity.core.model.events.ToDeviceEventContent
+import net.folivo.trixnity.core.model.events.StateEventContent
 import net.folivo.trixnity.core.serialization.events.DefaultEventContentSerializerMappings
-import net.folivo.trixnity.core.serialization.events.EventContentSerializerMapping
 import net.folivo.trixnity.core.serialization.events.EventContentSerializerMappings
-import net.folivo.trixnity.core.serialization.events.MessageEventContentSerializerMapping
 import net.folivo.trixnity.core.serialization.events.StateEventContentSerializerMapping
-import kotlin.reflect.KClass
 
-/**
- * MSC2346 room account data (m.bridge): published by appservice bridges on
- * every bridged room. Lets clients show "this is a Telegram bridge" badges.
- */
+/** MSC2346 bridge room state, published by appservice bridges. */
 @Serializable
 data class BridgeEventContent(
     @SerialName("bridgebot") val bridgeBot: String? = null,
     @SerialName("protocol") val protocol: BridgeProtocol? = null,
     @SerialName("channel") val channel: BridgeChannel? = null,
     @SerialName("network") val network: BridgeNetwork? = null,
-) : RoomAccountDataEventContent {
-
+    @SerialName("external_url") override val externalUrl: String? = null,
+) : StateEventContent {
     @Serializable
     data class BridgeProtocol(
         @SerialName("id") val id: String? = null,
@@ -52,39 +43,49 @@ data class BridgeEventContent(
     }
 }
 
-/** Human-readable network name: "Telegram", "WhatsApp", … */
+/** Legacy bridge state has its own class, so serialization preserves its wire type. */
+@Serializable
+data class LegacyBridgeEventContent(
+    @SerialName("bridgebot") val bridgeBot: String? = null,
+    @SerialName("protocol") val protocol: BridgeEventContent.BridgeProtocol? = null,
+    @SerialName("channel") val channel: BridgeEventContent.BridgeChannel? = null,
+    @SerialName("network") val network: BridgeEventContent.BridgeNetwork? = null,
+    @SerialName("external_url") override val externalUrl: String? = null,
+) : StateEventContent {
+    fun toBridgeEventContent(): BridgeEventContent =
+        BridgeEventContent(bridgeBot, protocol, channel, network, externalUrl)
+
+    companion object {
+        const val TYPE = "uk.half-shot.bridge"
+    }
+}
+
+/** Human-readable network name: "Telegram", "WhatsApp", etc. */
 val BridgeEventContent.displayName: String?
     get() = protocol?.displayName ?: network?.displayName
         ?: channel?.displayName ?: protocol?.id
 
-@Suppress("UNCHECKED_CAST")
-private val bridgeRoomAccountDataMapping: EventContentSerializerMapping<RoomAccountDataEventContent> =
-    object : EventContentSerializerMapping<RoomAccountDataEventContent> {
-        override val type: String = BridgeEventContent.TYPE
-        override val kClass: KClass<out RoomAccountDataEventContent> = BridgeEventContent::class
-        override val serializer: KSerializer<RoomAccountDataEventContent> =
-            BridgeEventContent.serializer() as KSerializer<RoomAccountDataEventContent>
+val LegacyBridgeEventContent.displayName: String?
+    get() = toBridgeEventContent().displayName
+
+/** m.bridge state mappings (stable + legacy wire types); merged into [customEventContentSerializerMappings]. */
+val bridgeStateEventContentMappings: Set<StateEventContentSerializerMapping> = linkedSetOf(
+    StateEventContentSerializerMapping(BridgeEventContent.TYPE, BridgeEventContent::class, BridgeEventContent.serializer()),
+    StateEventContentSerializerMapping(LegacyBridgeEventContent.TYPE, LegacyBridgeEventContent::class, LegacyBridgeEventContent.serializer()),
+)
+
+/** Keep every SDK category and call mapping; replace only the stock message dispatcher. */
+val customEventContentSerializerMappings: EventContentSerializerMappings =
+    object : EventContentSerializerMappings by DefaultEventContentSerializerMappings {
+        override val message = (
+            DefaultEventContentSerializerMappings.message.filterNot { it.type == "m.room.message" } +
+                callEventContentSerializerMappings.message.filterNot { it.type == "m.room.message" } +
+                voiceEventContentSerializerMappings.message
+            ).toSet()
+        override val state = DefaultEventContentSerializerMappings.state + bridgeStateEventContentMappings
     }
 
-val bridgeEventContentSerializerMappings = object : EventContentSerializerMappings {
-    override val message = emptySet<MessageEventContentSerializerMapping>()
-    override val state = emptySet<StateEventContentSerializerMapping>()
-    override val ephemeral = emptySet<EventContentSerializerMapping<EphemeralEventContent>>()
-    override val ephemeralDataUnit = emptySet<EventContentSerializerMapping<EphemeralDataUnitContent>>()
-    override val toDevice = emptySet<EventContentSerializerMapping<ToDeviceEventContent>>()
-    override val globalAccountData = emptySet<EventContentSerializerMapping<GlobalAccountDataEventContent>>()
-    override val roomAccountData = setOf(bridgeRoomAccountDataMapping)
-}
-
-/**
- * All custom content mappings of the app (call signaling, bridge info) merged
- * with the trixnity defaults. Registered as a single Koin binding so the
- * MatrixClient picks them up.
- */
+/** One Koin binding registers all content mappings used by MatrixClient and its stores. */
 val customEventContentSerializerMappingsModule: org.koin.core.module.Module = org.koin.dsl.module {
-    single<EventContentSerializerMappings> {
-        DefaultEventContentSerializerMappings +
-            com.matrix.messenger.data.call.callEventContentSerializerMappings +
-            bridgeEventContentSerializerMappings
-    }
+    single<EventContentSerializerMappings> { customEventContentSerializerMappings }
 }

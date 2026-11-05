@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -46,7 +47,7 @@ class CallRepositoryTest {
 
     private class FakeMatrixRepository : MatrixRepository {
         val callEventsFlow = MutableSharedFlow<CallSignalingEvent>(replay = 16)
-        val sentCommands = mutableListOf<Pair<String, CallSignalingCommand>>()
+        val sentCommands = CopyOnWriteArrayList<Pair<String, CallSignalingCommand>>()
 
         override val callEvents: Flow<CallSignalingEvent> = callEventsFlow
 
@@ -67,6 +68,12 @@ class CallRepositoryTest {
         override suspend fun sendPollVote(roomId: String, pollEventId: String, answerIds: List<String>) = Unit
         override val currentUser: Flow<MatrixUser?> = MutableStateFlow(null)
         override val connectionState: Flow<ConnectionState> = MutableStateFlow(ConnectionState.Connected)
+        override suspend fun getMessage(roomId: String, eventId: String): Message? = null
+        override suspend fun backgroundSync(): Result<Unit> = Result.success(Unit)
+        override suspend fun getBackgroundNotifications(roomId: String?, eventId: String?): Result<List<com.matrix.messenger.data.push.BackgroundNotification>> = Result.success(emptyList())
+        override suspend fun setHttpPusher(pushKey: String, gatewayUrl: String, appId: String, deviceDisplayName: String): Result<Unit> = Result.success(Unit)
+        override suspend fun removeHttpPusher(pushKey: String, appId: String): Result<Unit> = Result.success(Unit)
+        override suspend fun setNotificationsEnabled(enabled: Boolean) = Unit
         override suspend fun initialize() = Unit
         override suspend fun login(homeServer: String, username: String, password: String) = LoginResult.Error("test")
         override suspend fun loginWithToken(homeServer: String, userId: String, accessToken: String) = LoginResult.Error("test")
@@ -76,7 +83,7 @@ class CallRepositoryTest {
         override fun getMessagesFlow(roomId: String): Flow<List<Message>> = MutableStateFlow(emptyList())
         override suspend fun loadEarlierMessages(roomId: String) = Unit
         override suspend fun canLoadMoreMessages(roomId: String) = true
-        override suspend fun resolveMediaFile(eventId: String, fileName: String): String? = null
+        override suspend fun resolveMediaFile(eventId: String, fileName: String, roomId: String?): String? = null
         override suspend fun searchUsers(query: String): List<MatrixUser> = emptyList()
         override suspend fun sendTextMessage(roomId: String, text: String, formattedBody: String?) = Unit
         override suspend fun isRoomMuted(roomId: String): Boolean = false
@@ -164,9 +171,9 @@ class CallRepositoryTest {
 
     private class FakeWebRtcEngine : WebRtcEngine {
         val eventsFlow = MutableSharedFlow<WebRtcEvent>(replay = 16)
-        val accepted = mutableListOf<Triple<String, String, Boolean>>()
-        val hangups = mutableListOf<String>()
-        val mutedStates = mutableListOf<Boolean>()
+        val accepted = CopyOnWriteArrayList<Triple<String, String, Boolean>>()
+        val hangups = CopyOnWriteArrayList<String>()
+        val mutedStates = CopyOnWriteArrayList<Boolean>()
 
         override val events: Flow<WebRtcEvent> = eventsFlow
         override val remoteVideoTrack: Flow<Any?> = MutableStateFlow(null)
@@ -207,7 +214,7 @@ override var preferredVideoDevice: String? = null
     fun incomingCallAcceptFlow() = runBlocking {
         val matrix = FakeMatrixRepository()
         val engine = FakeWebRtcEngine()
-        val repository = CallRepository(matrix, engine)
+        val repository = CallRepository(matrix, engine, mediaPreferences = { null to null })
 
         matrix.callEventsFlow.emit(
             CallSignalingEvent.Incoming("!room:test", "call1", "@caller:test", testSdp, isVideo = false)
@@ -227,7 +234,7 @@ override var preferredVideoDevice: String? = null
     fun outgoingCallSendsInvite() = runBlocking {
         val matrix = FakeMatrixRepository()
         val engine = FakeWebRtcEngine()
-        val repository = CallRepository(matrix, engine)
+        val repository = CallRepository(matrix, engine, mediaPreferences = { null to null })
 
         repository.startCall("!room:test", "@peer:test", "Peer", isVideo = false)
         assertTrue(waitFor { repository.callState.value is CallState.Outgoing })
@@ -240,7 +247,7 @@ override var preferredVideoDevice: String? = null
     fun secondIncomingCallWhileBusyIsRejected() = runBlocking {
         val matrix = FakeMatrixRepository()
         val engine = FakeWebRtcEngine()
-        val repository = CallRepository(matrix, engine)
+        val repository = CallRepository(matrix, engine, mediaPreferences = { null to null })
 
         repository.startCall("!room:test", "@peer:test", "Peer", isVideo = false)
         assertTrue(waitFor { repository.callState.value is CallState.Outgoing })
@@ -257,7 +264,7 @@ override var preferredVideoDevice: String? = null
     fun peerHangupResetsToIdle() = runBlocking {
         val matrix = FakeMatrixRepository()
         val engine = FakeWebRtcEngine()
-        val repository = CallRepository(matrix, engine)
+        val repository = CallRepository(matrix, engine, mediaPreferences = { null to null })
 
         matrix.callEventsFlow.emit(
             CallSignalingEvent.Incoming("!room:test", "call1", "@caller:test", testSdp, isVideo = false)
@@ -273,14 +280,14 @@ override var preferredVideoDevice: String? = null
     fun connectionEstablishedMovesToConnected() = runBlocking {
         val matrix = FakeMatrixRepository()
         val engine = FakeWebRtcEngine()
-        val repository = CallRepository(matrix, engine)
+        val repository = CallRepository(matrix, engine, mediaPreferences = { null to null })
 
         matrix.callEventsFlow.emit(
             CallSignalingEvent.Incoming("!room:test", "call1", "@caller:test", testSdp, isVideo = false)
         )
         assertTrue(waitFor { repository.callState.value is CallState.Incoming })
         repository.acceptCall()
-        engine.eventsFlow.emit(WebRtcEvent.ConnectionEstablished)
+        engine.eventsFlow.emit(WebRtcEvent.ConnectionEstablished(repository.getCurrentCallId()!!))
         assertTrue(waitFor { repository.callState.value is CallState.Connected })
     }
 
@@ -288,7 +295,7 @@ override var preferredVideoDevice: String? = null
     fun engineErrorEndsCallWithMessage() = runBlocking {
         val matrix = FakeMatrixRepository()
         val engine = FakeWebRtcEngine()
-        val repository = CallRepository(matrix, engine)
+        val repository = CallRepository(matrix, engine, mediaPreferences = { null to null })
 
         matrix.callEventsFlow.emit(
             CallSignalingEvent.Incoming("!room:test", "call1", "@caller:test", testSdp, isVideo = false)
@@ -305,7 +312,7 @@ override var preferredVideoDevice: String? = null
     fun connectionFailedSendsHangupAndEnds() = runBlocking {
         val matrix = FakeMatrixRepository()
         val engine = FakeWebRtcEngine()
-        val repository = CallRepository(matrix, engine)
+        val repository = CallRepository(matrix, engine, mediaPreferences = { null to null })
 
         repository.startCall("!room:test", "@peer:test", "Peer", isVideo = false)
         assertTrue(waitFor { repository.callState.value is CallState.Outgoing })

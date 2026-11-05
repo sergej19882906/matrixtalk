@@ -27,11 +27,12 @@ data class CallCandidate(
 sealed interface CallSignalingEvent {
     val roomId: String
     val callId: String
+    val fromUserId: String?
 
     data class Incoming(
         override val roomId: String,
         override val callId: String,
-        val fromUserId: String,
+        override val fromUserId: String,
         val offerSdp: String,
         val isVideo: Boolean,
     ) : CallSignalingEvent
@@ -40,22 +41,26 @@ sealed interface CallSignalingEvent {
         override val roomId: String,
         override val callId: String,
         val answerSdp: String,
+        override val fromUserId: String? = null,
     ) : CallSignalingEvent
 
     data class Candidates(
         override val roomId: String,
         override val callId: String,
         val candidates: List<CallCandidate>,
+        override val fromUserId: String? = null,
     ) : CallSignalingEvent
 
     data class Hangup(
         override val roomId: String,
         override val callId: String,
+        override val fromUserId: String? = null,
     ) : CallSignalingEvent
 
     data class Reject(
         override val roomId: String,
         override val callId: String,
+        override val fromUserId: String? = null,
     ) : CallSignalingEvent
 }
 
@@ -103,7 +108,7 @@ fun parseCallEvent(
 
         "m.call.answer" -> {
             val answerSdp = raw["answer"]?.jsonObject?.get("sdp")?.jsonPrimitive?.content ?: return null
-            CallSignalingEvent.Answer(roomId, callId, answerSdp)
+            CallSignalingEvent.Answer(roomId, callId, answerSdp, fromUserId)
         }
 
         "m.call.candidates" -> {
@@ -116,11 +121,11 @@ fun parseCallEvent(
                     sdpMLineIndex = obj["sdpMLineIndex"]?.jsonPrimitive?.intOrNull,
                 )
             } ?: return null
-            CallSignalingEvent.Candidates(roomId, callId, candidates)
+            CallSignalingEvent.Candidates(roomId, callId, candidates, fromUserId)
         }
 
-        "m.call.hangup" -> CallSignalingEvent.Hangup(roomId, callId)
-        "m.call.reject" -> CallSignalingEvent.Reject(roomId, callId)
+        "m.call.hangup" -> CallSignalingEvent.Hangup(roomId, callId, fromUserId)
+        "m.call.reject" -> CallSignalingEvent.Reject(roomId, callId, fromUserId)
         else -> null
     }
 }
@@ -188,7 +193,7 @@ fun parseCallEvent(
             isVideo = isVideo,
         )
 
-        is CallAnswerEventContent -> CallSignalingEvent.Answer(roomId, callId, content.answer.sdp)
+        is CallAnswerEventContent -> CallSignalingEvent.Answer(roomId, callId, content.answer.sdp, fromUserId)
 
         is CallCandidatesEventContent -> CallSignalingEvent.Candidates(
             roomId = roomId,
@@ -196,10 +201,11 @@ fun parseCallEvent(
             candidates = content.candidates.map {
                 CallCandidate(candidate = it.candidate, sdpMid = it.sdpMid, sdpMLineIndex = it.sdpMLineIndex)
             },
+            fromUserId = fromUserId,
         )
 
-        is CallHangupEventContent -> CallSignalingEvent.Hangup(roomId, callId)
-        is CallRejectEventContent -> CallSignalingEvent.Reject(roomId, callId)
+        is CallHangupEventContent -> CallSignalingEvent.Hangup(roomId, callId, fromUserId)
+        is CallRejectEventContent -> CallSignalingEvent.Reject(roomId, callId, fromUserId)
         else -> null
     }
 }

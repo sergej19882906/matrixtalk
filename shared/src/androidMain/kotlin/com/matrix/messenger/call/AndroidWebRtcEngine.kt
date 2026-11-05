@@ -59,6 +59,7 @@ override val eglContext: Any?
     private var videoSource: VideoSource? = null
     private var localVideoTrackInternal: VideoTrack? = null
     private var videoCapturer: VideoCapturer? = null
+    @Volatile
     private var currentCallId: String? = null
     private var remoteDescriptionSet = false
     private val pendingRemoteCandidates = mutableListOf<IceCandidate>()
@@ -85,62 +86,76 @@ override val eglContext: Any?
     }
 
     override suspend fun startCall(callId: String, isVideo: Boolean, screenShareSourceId: Long?) {
-        withContext(Dispatchers.Main) {
+        withContext(Dispatchers.Main) callContext@{
             runCatching {
                 initialize()
                 prepareConnection(callId, isVideo)
                 val pc = peerConnection ?: error("PeerConnection not created")
                 val offer = pc.awaitCreateOffer()
+                if (currentCallId != callId || peerConnection !== pc) return@callContext
                 pc.awaitSetLocalDescription(offer)
+                if (currentCallId != callId || peerConnection !== pc) return@callContext
                 _events.emit(WebRtcEvent.Offer(callId, offer.description))
-            }.onFailure { _events.emit(WebRtcEvent.Error(it.message ?: "Failed to start call")) }
+            }.onFailure {
+                if (currentCallId == callId) _events.emit(WebRtcEvent.Error(it.message ?: "Failed to start call", callId))
+            }
         }
     }
 
     override suspend fun acceptCall(callId: String, offerSdp: String, isVideo: Boolean) {
-        withContext(Dispatchers.Main) {
+        withContext(Dispatchers.Main) callContext@{
             runCatching {
                 initialize()
                 prepareConnection(callId, isVideo)
                 val pc = peerConnection ?: error("PeerConnection not created")
                 val offer = SessionDescription(SessionDescription.Type.OFFER, offerSdp)
                 pc.awaitSetRemoteDescription(offer)
+                if (currentCallId != callId || peerConnection !== pc) return@callContext
                 remoteDescriptionSet = true
                 flushPendingCandidates()
                 val answer = pc.awaitCreateAnswer()
+                if (currentCallId != callId || peerConnection !== pc) return@callContext
                 pc.awaitSetLocalDescription(answer)
+                if (currentCallId != callId || peerConnection !== pc) return@callContext
                 _events.emit(WebRtcEvent.Answer(callId, answer.description))
-            }.onFailure { _events.emit(WebRtcEvent.Error(it.message ?: "Failed to accept call")) }
+            }.onFailure {
+                if (currentCallId == callId) _events.emit(WebRtcEvent.Error(it.message ?: "Failed to accept call", callId))
+            }
         }
     }
 
-    override suspend fun setRemoteAnswer(callId: String, answerSdp: String) =
-        withContext(Dispatchers.Main) {
+    override suspend fun setRemoteAnswer(callId: String, answerSdp: String) {
+        withContext(Dispatchers.Main) callContext@{
+            if (currentCallId != callId) return@callContext
             runCatching {
-                val pc = peerConnection ?: return@withContext
-                pc.awaitSetRemoteDescription(
-                    SessionDescription(SessionDescription.Type.ANSWER, answerSdp)
-                )
+                val pc = peerConnection ?: return@callContext
+                pc.awaitSetRemoteDescription(SessionDescription(SessionDescription.Type.ANSWER, answerSdp))
+                if (currentCallId != callId || peerConnection !== pc) return@callContext
                 remoteDescriptionSet = true
                 flushPendingCandidates()
-            }.onFailure { _events.emit(WebRtcEvent.Error(it.message ?: "Failed to set remote answer")) }
-        }
-
-    override suspend fun addCandidates(callId: String, candidates: List<CallCandidate>) =
-        withContext(Dispatchers.Main) {
-            val pc = peerConnection ?: return@withContext
-            candidates.forEach { candidate ->
-                val iceCandidate = IceCandidate(candidate.sdpMid, candidate.sdpMLineIndex ?: 0, candidate.candidate)
-                if (remoteDescriptionSet) {
-                    pc.addIceCandidate(iceCandidate)
-                } else {
-                    pendingRemoteCandidates.add(iceCandidate)
-                }
+            }.onFailure {
+                if (currentCallId == callId) _events.emit(WebRtcEvent.Error(it.message ?: "Failed to set remote answer", callId))
             }
         }
+    }
 
-    override suspend fun hangup(callId: String) = withContext(Dispatchers.Main) {
-        cleanupCall()
+    override suspend fun addCandidates(callId: String, candidates: List<CallCandidate>) {
+        withContext(Dispatchers.Main) callContext@{
+            if (currentCallId != callId) return@callContext
+            val pc = peerConnection ?: return@callContext
+            candidates.forEach { candidate ->
+                val iceCandidate = IceCandidate(candidate.sdpMid, candidate.sdpMLineIndex ?: 0, candidate.candidate)
+                if (remoteDescriptionSet) pc.addIceCandidate(iceCandidate)
+                else pendingRemoteCandidates.add(iceCandidate)
+            }
+        }
+    }
+
+    override suspend fun hangup(callId: String) {
+        withContext(Dispatchers.Main) callContext@{
+            if (currentCallId != callId) return@callContext
+            cleanupCall()
+        }
     }
 
     override fun setIceServers(servers: List<Triple<String, String?, String?>>) {
@@ -173,6 +188,7 @@ override val eglContext: Any?
     }
 
     override fun release() {
+        cleanupCall()
         val context = appContext ?: return
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         audioManager.mode = AudioManager.MODE_NORMAL
@@ -194,10 +210,10 @@ override val eglContext: Any?
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED,
-                    PeerConnection.IceConnectionState.COMPLETED -> _events.tryEmit(WebRtcEvent.ConnectionEstablished)
+                    PeerConnection.IceConnectionState.COMPLETED -> if (currentCallId == callId) _events.tryEmit(WebRtcEvent.ConnectionEstablished(callId))
 
                     PeerConnection.IceConnectionState.FAILED ->
-                        currentCallId?.let { _events.tryEmit(WebRtcEvent.ConnectionFailed(it)) }
+                        if (currentCallId == callId) _events.tryEmit(WebRtcEvent.ConnectionFailed(callId))
 
                     else -> Unit
                 }
@@ -206,7 +222,7 @@ override val eglContext: Any?
             override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
 
             override fun onIceCandidate(candidate: IceCandidate) {
-                currentCallId?.let { callId ->
+                currentCallId?.takeIf { it == callId }?.let { callId ->
                     _events.tryEmit(
                         WebRtcEvent.IceCandidates(callId, listOf(candidate.toCallCandidate()))
                     )
@@ -288,6 +304,7 @@ override val eglContext: Any?
     }
 
     private fun cleanupCall() {
+        currentCallId = null
         runCatching { videoCapturer?.stopCapture() }
         runCatching { videoCapturer?.dispose() }
         videoCapturer = null

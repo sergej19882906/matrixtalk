@@ -1,10 +1,11 @@
 package com.matrix.messenger.data.poll
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -17,7 +18,7 @@ const val POLL_RESPONSE_UNSTABLE = "org.matrix.msc3381.poll.response"
 const val POLL_START_STABLE = "m.poll.start"
 const val POLL_RESPONSE_STABLE = "m.poll.response"
 const val POLL_END_STABLE = "m.poll.end"
-private const val POLL_END = POLL_END_STABLE
+const val POLL_END_UNSTABLE = "org.matrix.msc3381.poll.end"
 
 data class PollAnswer(val id: String, val text: String)
 
@@ -28,47 +29,69 @@ data class PollInfo(
     val maxSelections: Int
 )
 
-/** A vote: [answers] chosen by a user for poll [pollEventId]. */
+/** A vote: [answers] chosen by a user for poll [pollEventId]. Empty answers withdraw a vote. */
 data class PollResponse(val pollEventId: String, val answers: List<String>)
 
-private fun JsonObject.textValue(): String? =
-    (this["org.matrix.msc3381.text"] ?: this["text"])?.jsonPrimitive?.content
+data class PollEnd(val pollEventId: String)
 
-/** Parses a poll start payload from an m.poll.start event content. */
+private fun JsonObject.string(key: String): String? =
+    (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+
+private fun JsonObject.textValue(): String? = string("org.matrix.msc3381.text")
+    ?: string("m.text") ?: string("text")
+
+/** Parses stable and unstable poll starts, safely ignoring malformed JSON shapes. */
 fun parsePollStart(raw: JsonObject): PollInfo? {
-    val start = raw[POLL_START_STABLE]?.jsonObject
-        ?: raw[POLL_START_UNSTABLE]?.jsonObject
+    val start = raw[POLL_START_STABLE] as? JsonObject
+        ?: raw[POLL_START_UNSTABLE] as? JsonObject
         ?: return null
-    val question = (start["question"]?.jsonObject)?.textValue() ?: return null
-    val answers = (start["answers"]?.jsonArray)?.mapNotNull { element ->
+    val question = (start["question"] as? JsonObject)?.textValue() ?: return null
+    val answers = (start["answers"] as? JsonArray)?.mapNotNull { element ->
         val obj = element as? JsonObject ?: return@mapNotNull null
-        val id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
+        val id = obj.string("id")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
         val text = obj.textValue() ?: return@mapNotNull null
         PollAnswer(id, text)
     }.orEmpty()
-    if (answers.isEmpty()) return null
-    val kind = (start["kind"]?.jsonPrimitive?.content) ?: ""
-    val maxSelections = start["max_selections"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1
+    if (answers.isEmpty() || answers.map { it.id }.distinct().size != answers.size) return null
+    val kind = start.string("kind")
+    val maxSelections = (start["max_selections"] as? JsonPrimitive)?.intOrNull ?: 1
     return PollInfo(
         question = question,
         answers = answers,
-        disclosed = kind.contains("disclosed"),
-        maxSelections = maxSelections.coerceAtLeast(1)
+        disclosed = kind == "m.disclosed" || kind == "org.matrix.msc3381.disclosed",
+        maxSelections = maxSelections.coerceIn(1, answers.size),
     )
 }
 
-/** Parses a poll response (vote) from an m.poll.response event content. */
-fun parsePollResponse(raw: JsonObject): PollResponse? {
-    val response = raw[POLL_RESPONSE_STABLE]?.jsonObject
-        ?: raw[POLL_RESPONSE_UNSTABLE]?.jsonObject
+private fun JsonObject.referenceTarget(): String? {
+    val relation = this["m.relates_to"] as? JsonObject
+        ?: this["relates_to"] as? JsonObject
         ?: return null
-    val answers = (response["answers"]?.jsonArray)?.mapNotNull {
-        (it as? JsonObject)?.get("id")?.jsonPrimitive?.content ?: it.jsonPrimitive.content
-    }.orEmpty()
-    if (answers.isEmpty()) return null
-    val relatesTo = (raw["m.relates_to"] ?: raw["relates_to"])?.jsonObject ?: return null
-    val target = relatesTo["event_id"]?.jsonPrimitive?.content ?: return null
+    if (relation.string("rel_type") != "m.reference") return null
+    return relation.string("event_id")?.takeIf { it.isNotBlank() }
+}
+
+/** Parses a response including empty answers (withdrawal); malformed entries never throw. */
+fun parsePollResponse(raw: JsonObject): PollResponse? {
+    val response = raw[POLL_RESPONSE_STABLE] as? JsonObject
+        ?: raw[POLL_RESPONSE_UNSTABLE] as? JsonObject
+        ?: return null
+    val elements = response["answers"] as? JsonArray ?: return null
+    val answers = elements.map { element ->
+        when (element) {
+            is JsonObject -> element.string("id")
+            is JsonPrimitive -> element.takeIf { it.isString }?.contentOrNull
+            else -> null
+        } ?: return null
+    }
+    val target = raw.referenceTarget() ?: return null
     return PollResponse(pollEventId = target, answers = answers)
+}
+
+/** Only actual end payloads with a reference relation can close a poll. */
+fun parsePollEnd(raw: JsonObject): PollEnd? {
+    if (raw[POLL_END_STABLE] !is JsonObject && raw[POLL_END_UNSTABLE] !is JsonObject) return null
+    return PollEnd(raw.referenceTarget() ?: return null)
 }
 
 fun buildPollStartContent(
@@ -125,14 +148,18 @@ fun buildPollResponseContent(pollEventId: String, answerIds: List<String>): Unkn
         }
     )
 
-/** Builds an m.poll.end event closing the poll with the given start event id. */
-fun buildPollEndContent(pollEventId: String): UnknownEventContent {
+/** Builds a stable or unstable poll end with its required nested object and reference. */
+fun buildPollEndContent(pollEventId: String, unstable: Boolean = false): UnknownEventContent {
+    val type = if (unstable) POLL_END_UNSTABLE else POLL_END_STABLE
     val raw = buildJsonObject {
-        put("m.relates_to", buildJsonObject {
+        putJsonObject(type) {}
+        putJsonObject("m.relates_to") {
             put("rel_type", "m.reference")
             put("event_id", pollEventId)
-        })
+        }
         put("m.text", "Опрос завершён")
+        put("org.matrix.msc1767.text", "Опрос завершён")
+        put("body", "[FALLBACK] Опрос завершён")
     }
-    return UnknownEventContent(raw, POLL_END)
+    return UnknownEventContent(raw, type)
 }

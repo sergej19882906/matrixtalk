@@ -69,6 +69,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
     private var screenCapturer: dev.onvoid.webrtc.media.video.desktop.ScreenCapturer? = null
     private var screenShareSource: dev.onvoid.webrtc.media.video.CustomVideoSource? = null
     private var localVideoTrackInternal: VideoTrack? = null
+    @Volatile
     private var currentCallId: String? = null
     private var remoteDescriptionSet = false
     private var pendingRemoteCandidates = mutableListOf<RTCIceCandidate>()
@@ -126,6 +127,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
 
     override suspend fun setRemoteAnswer(callId: String, answerSdp: String) =
         withContext(Dispatchers.Default) {
+            if (currentCallId != callId) return@withContext
             runCatching {
                 val pc = peerConnection ?: return@withContext
                 pc.awaitSetRemoteDescription(RTCSessionDescription(RTCSdpType.ANSWER, answerSdp))
@@ -136,6 +138,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
 
     override suspend fun addCandidates(callId: String, candidates: List<CallCandidate>) =
         withContext(Dispatchers.Default) {
+            if (currentCallId != callId) return@withContext
             val pc = peerConnection ?: return@withContext
             candidates.forEach { candidate ->
                 val iceCandidate = RTCIceCandidate(candidate.sdpMid, candidate.sdpMLineIndex ?: 0, candidate.candidate)
@@ -148,6 +151,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
         }
 
     override suspend fun hangup(callId: String) = withContext(Dispatchers.Default) {
+            if (currentCallId != callId) return@withContext
         cleanupCall()
     }
 
@@ -176,6 +180,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
     }
 
     override fun release() {
+        cleanupCall()
         runCatching { audioDeviceModule?.dispose() }
         audioDeviceModule = null
         factory = null
@@ -191,7 +196,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
         val config = RTCConfiguration().apply { iceServers = this@DesktopWebRtcEngine.iceServers }
         peerConnection = factory.createPeerConnection(config, object : PeerConnectionObserver {
             override fun onIceCandidate(candidate: RTCIceCandidate) {
-                currentCallId?.let { callId ->
+                currentCallId?.takeIf { it == callId }?.let { callId ->
                     _events.tryEmit(
                         WebRtcEvent.IceCandidates(callId, listOf(candidate.toCallCandidate()))
                     )
@@ -200,8 +205,8 @@ private class DesktopWebRtcEngine : WebRtcEngine {
 
             override fun onConnectionChange(state: RTCPeerConnectionState) {
                 when (state) {
-                    RTCPeerConnectionState.CONNECTED -> _events.tryEmit(WebRtcEvent.ConnectionEstablished)
-                    RTCPeerConnectionState.FAILED -> currentCallId?.let {
+                    RTCPeerConnectionState.CONNECTED -> if (currentCallId == callId) _events.tryEmit(WebRtcEvent.ConnectionEstablished(callId))
+                    RTCPeerConnectionState.FAILED -> currentCallId?.takeIf { it == callId }?.let {
                         _events.tryEmit(WebRtcEvent.ConnectionFailed(it))
                     }
                     else -> Unit
@@ -212,10 +217,10 @@ private class DesktopWebRtcEngine : WebRtcEngine {
                 // Fallback for stacks not reporting the standardized state.
                 when (state) {
                     RTCIceConnectionState.CONNECTED, RTCIceConnectionState.COMPLETED ->
-                        _events.tryEmit(WebRtcEvent.ConnectionEstablished)
+                        if (currentCallId == callId) _events.tryEmit(WebRtcEvent.ConnectionEstablished(callId))
 
                     RTCIceConnectionState.FAILED ->
-                        currentCallId?.let { _events.tryEmit(WebRtcEvent.ConnectionFailed(it)) }
+                        if (currentCallId == callId) _events.tryEmit(WebRtcEvent.ConnectionFailed(callId))
 
                     else -> Unit
                 }
@@ -337,6 +342,7 @@ private class DesktopWebRtcEngine : WebRtcEngine {
     }
 
     private fun cleanupCall() {
+        currentCallId = null
         runCatching { peerConnection?.setAudioRecording(false) }
         runCatching { peerConnection?.setAudioPlayout(false) }
         runCatching { screenCapturer?.dispose() }

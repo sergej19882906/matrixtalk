@@ -7,9 +7,9 @@ sealed interface WebRtcEvent {
     data class Offer(val callId: String, val sdp: String) : WebRtcEvent
     data class Answer(val callId: String, val sdp: String) : WebRtcEvent
     data class IceCandidates(val callId: String, val candidates: List<CallCandidate>) : WebRtcEvent
-    data object ConnectionEstablished : WebRtcEvent
+    data class ConnectionEstablished(val callId: String) : WebRtcEvent
     data class ConnectionFailed(val callId: String) : WebRtcEvent
-    data class Error(val message: String) : WebRtcEvent
+    data class Error(val message: String, val callId: String? = null) : WebRtcEvent
 }
 
 /**

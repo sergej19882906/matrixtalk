@@ -101,12 +101,22 @@ interface MatrixRepository {
 
     fun getMessagesFlow(roomId: String): Flow<List<Message>>
 
+    /** Resolves one event independently of the current timeline page. */
+    suspend fun getMessage(roomId: String, eventId: String): Message?
+
+    /** One repository-owned client is used by foreground and background jobs. */
+    suspend fun backgroundSync(): Result<Unit>
+    suspend fun getBackgroundNotifications(roomId: String?, eventId: String?): Result<List<com.matrix.messenger.data.push.BackgroundNotification>>
+    suspend fun setHttpPusher(pushKey: String, gatewayUrl: String, appId: String, deviceDisplayName: String): Result<Unit>
+    suspend fun removeHttpPusher(pushKey: String, appId: String): Result<Unit>
+    suspend fun setNotificationsEnabled(enabled: Boolean)
+
     suspend fun loadEarlierMessages(roomId: String)
 
     suspend fun canLoadMoreMessages(roomId: String): Boolean
 
     /** Downloads and decrypts an encrypted attachment to a local file; returns its path. */
-    suspend fun resolveMediaFile(eventId: String, fileName: String): String?
+    suspend fun resolveMediaFile(eventId: String, fileName: String, roomId: String? = null): String?
 
     suspend fun sendTextMessage(roomId: String, text: String, formattedBody: String? = null)
 

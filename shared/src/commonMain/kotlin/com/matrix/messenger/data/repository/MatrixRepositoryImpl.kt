@@ -74,7 +74,11 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -99,6 +103,9 @@ import net.folivo.trixnity.client.loginWithPassword
 import net.folivo.trixnity.client.media
 import net.folivo.trixnity.client.media.InMemoryMediaStore
 import net.folivo.trixnity.client.room
+import net.folivo.trixnity.client.room.encrypt
+import net.folivo.trixnity.client.roomEventEncryptionServices
+import net.folivo.trixnity.core.model.events.MessageEventContent
 import net.folivo.trixnity.client.room.getState
 import net.folivo.trixnity.core.model.events.ClientEvent
 import net.folivo.trixnity.client.store.RoomUser
@@ -136,7 +143,6 @@ import net.folivo.trixnity.core.model.keys.KeyAlgorithm
 import net.folivo.trixnity.core.model.RoomId
 import net.folivo.trixnity.core.model.UserId
 import net.folivo.trixnity.core.model.events.RedactedEventContent
-import net.folivo.trixnity.core.model.events.MessageEventContent
 import net.folivo.trixnity.core.model.events.RoomEventContent
 import net.folivo.trixnity.core.model.events.UnknownEventContent
 import net.folivo.trixnity.core.model.events.m.ReactionEventContent
@@ -167,8 +173,6 @@ import net.folivo.trixnity.core.model.events.m.key.verification.VerificationMeth
 import net.folivo.trixnity.crypto.core.encryptAes256Ctr
 import net.folivo.trixnity.crypto.core.sha256
 import net.folivo.trixnity.utils.toByteArray
-import net.folivo.trixnity.crypto.core.encryptAes256Ctr
-import net.folivo.trixnity.crypto.core.sha256
 import net.folivo.trixnity.utils.toByteArrayFlow
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -179,6 +183,8 @@ class MatrixRepositoryImpl : MatrixRepository {
         encodeDefaults = true
     }
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val lifecycleMutex = Mutex()
+    private val clientJobs = mutableListOf<kotlinx.coroutines.Job>()
     private val _clientState = MutableStateFlow<MatrixClient?>(null)
     private var client: MatrixClient? = null
         set(value) {
@@ -190,7 +196,6 @@ class MatrixRepositoryImpl : MatrixRepository {
     private val userNameCache = mutableMapOf<String, String>()
     private val userAvatarCache = mutableMapOf<String, String>()
     private val eventRoomMap = mutableMapOf<String, String>()
-    private val pollEnds = mutableSetOf<String>()
     private val pageSizes = mutableMapOf<String, MutableStateFlow<Int>>()
     private val encryptedFiles = mutableMapOf<String, net.folivo.trixnity.core.model.events.m.room.EncryptedFile>()
     private val mediaMxcCache = mutableMapOf<String, String>()
@@ -310,24 +315,25 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     override suspend fun getSpaceChildren(spaceId: String): List<PublicRoomItem> {
         val c = requireClient()
-        val knownSpaceIds = runCatching {
-            c.room.getAll().flattenValues().first()
-                .filter { it.createEventContent?.type is net.folivo.trixnity.core.model.events.m.room.CreateEventContent.RoomType.Space }
-                .map { it.roomId.full }
-                .toSet()
-        }.getOrDefault(emptySet())
-        val response = c.api.room.getHierarchy(
-            roomId = RoomId(spaceId),
-            from = "",
-            limit = 100,
-            maxDepth = 1
-        ).getOrThrow()
-        return response.rooms
-            .filter { it.roomId.full != spaceId }
-            .map { chunk ->
-                val isSpace = knownSpaceIds.contains(chunk.roomId.full)
-                chunk.toPublicRoomItem().copy(isSpace = isSpace)
+        val joined = c.room.getAll().flattenValues().first().associateBy { it.roomId.full }
+        val result = linkedMapOf<String, PublicRoomItem>()
+        val cursors = mutableSetOf<String>()
+        var cursor: String? = null
+        do {
+            val response = c.api.room.getHierarchy(RoomId(spaceId), from = cursor ?: "", limit = 100, maxDepth = 1).getOrThrow()
+            response.rooms.filter { it.roomId.full != spaceId }.forEach { chunk ->
+                val stored = joined[chunk.roomId.full]
+                val created = stored?.createEventContent
+                result[chunk.roomId.full] = chunk.toPublicRoomItem().copy(
+                    isSpace = created?.type is net.folivo.trixnity.core.model.events.m.room.CreateEventContent.RoomType.Space,
+                    isJoined = stored?.membership == Membership.JOIN,
+                    roomTypeKnown = created != null
+                )
             }
+            cursor = response.nextBatch
+            if (cursor != null) check(cursors.add(cursor!!)) { "Hierarchy pagination returned a repeated cursor" }
+        } while (cursor != null)
+        return result.values.toList()
     }
 
     private fun net.folivo.trixnity.clientserverapi.model.rooms.GetHierarchy.Response.PublicRoomsChunk.toPublicRoomItem() =
@@ -401,7 +407,11 @@ class MatrixRepositoryImpl : MatrixRepository {
         }.getOrDefault(emptyList())
     }
 
-    override suspend fun initialize() {
+    override suspend fun initialize() = lifecycleMutex.withLock {
+        if (client == null) initializeLocked()
+    }
+
+    private suspend fun initializeLocked() {
         if (client != null) return
         // With the persistent store a session survives restarts: restore the client
         // from the local database (fast incremental sync) without any network call.
@@ -476,7 +486,11 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
     }
 
-    override suspend fun login(homeServer: String, username: String, password: String): LoginResult {
+    override suspend fun login(homeServer: String, username: String, password: String): LoginResult = lifecycleMutex.withLock {
+        loginLocked(homeServer, username, password)
+    }
+
+    private suspend fun loginLocked(homeServer: String, username: String, password: String): LoginResult {
         val url = normalizeHomeServer(homeServer)
         return try {
             _connectionState.value = ConnectionState.Connecting
@@ -518,7 +532,11 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
     }
 
-    override suspend fun loginWithToken(homeServer: String, userId: String, accessToken: String): LoginResult {
+    override suspend fun loginWithToken(homeServer: String, userId: String, accessToken: String): LoginResult = lifecycleMutex.withLock {
+        loginWithTokenLocked(homeServer, userId, accessToken)
+    }
+
+    private suspend fun loginWithTokenLocked(homeServer: String, userId: String, accessToken: String): LoginResult {
         val url = normalizeHomeServer(homeServer)
         return try {
             _connectionState.value = ConnectionState.Connecting
@@ -580,23 +598,37 @@ class MatrixRepositoryImpl : MatrixRepository {
     }
 
     override suspend fun logout() {
-        val c = client
-        client = null
-        _currentUser.value = null
-        userNameCache.clear()
-        userAvatarCache.clear()
-        mediaMxcCache.clear()
-        MediaBytesProvider.resolver = null
-        MediaBytesProvider.mxcResolver = null
-        SessionStore.clear()
-        if (c != null) {
-            try {
-                c.logout()
-            } catch (e: Exception) {
-                // best effort
+        com.matrix.messenger.platform.stopPushNotifications()
+        lifecycleMutex.withLock {
+            val c = client
+            if (c != null) {
+                val result = c.logout()
+                if (result.isFailure) {
+                    c.startSync()
+                    result.getOrThrow()
+                }
             }
+            SessionStore.clearSession()
+            clientJobs.forEach { it.cancel() }
+            clientJobs.clear()
+            client = null
+            _currentUser.value = null
+            eventRoomMap.clear()
+            encryptedFiles.clear()
+            mediaMxcCache.clear()
+            userNameCache.clear()
+            userAvatarCache.clear()
+            pageSizes.clear()
+            historyHasMore.clear()
+            roomTagsCache.clear()
+            knownRoomIds.clear()
+            defaultLevelApplied = false
+            MediaBytesProvider.resolver = null
+            MediaBytesProvider.mxcResolver = null
+            com.matrix.messenger.platform.VoicePlayback.stop()
+            com.matrix.messenger.ui.settings.AppLockManager.resetAfterLogout()
+            _connectionState.value = ConnectionState.Disconnected("Logged out")
         }
-        _connectionState.value = ConnectionState.Disconnected("Logged out")
     }
 
     override fun getRoomsFlow(): Flow<List<ChatRoom>> =
@@ -657,18 +689,18 @@ class MatrixRepositoryImpl : MatrixRepository {
             c.room.getLastTimelineEvents(rId)
                 .toFlowList(pageSizeFor(roomId))
                 .mapLatest { eventFlows ->
+                    historyHasMore.getOrPut(roomId) { MutableStateFlow(false) }.value = eventFlows.size >= pageSizeFor(roomId).value
                     if (eventFlows.isEmpty()) {
                         flowOf(emptyList())
                     } else {
                         combine(eventFlows) { events -> events.toList() }
                             .mapLatest { events ->
-                                pollEnds.clear()
                                 val reactions = aggregateReactions(events)
                                 val polls = aggregatePolls(events, c.userId)
                                 events.mapNotNull { it.toMessageOrNull(c) }
                                     .map { message ->
                                         val entry = reactions[message.eventId]
-                                        val pollEnded = message.eventId in pollEnds
+                                        val pollEnded = polls[message.eventId]?.ended == true
                                         val withReactions = if (entry.isNullOrEmpty()) message
                                         else message.copy(
                                             reactions = entry.mapValues { it.value.first },
@@ -679,7 +711,8 @@ class MatrixRepositoryImpl : MatrixRepository {
                                             withReactions.copy(
                                                 pollVotes = pollSummary.votes,
                                                 pollTotalVoters = pollSummary.totalVoters,
-                                                pollMyAnswers = pollSummary.myAnswers
+                                                pollMyAnswers = pollSummary.myAnswers,
+                                                pollEnded = pollEnded
                                             )
                                         } else withReactions.copy(pollEnded = pollEnded)
                                     }
@@ -694,35 +727,142 @@ class MatrixRepositoryImpl : MatrixRepository {
         pageSizeFor(roomId).value += MESSAGE_PAGE_SIZE
     }
 
-    override suspend fun canLoadMoreMessages(roomId: String): Boolean = true
+    private val historyHasMore = mutableMapOf<String, MutableStateFlow<Boolean>>()
 
-    override suspend fun resolveMediaFile(eventId: String, fileName: String): String? {
-        val c = client ?: return null
-        val safeName = fileName.replace('/', '_').replace('\\', '_')
-        val path = "${attachmentsDir()}/${eventId.removePrefix("$")}_$safeName"
-        // Fast path: in-memory caches filled while mapping the timeline.
-        var encrypted = encryptedFiles[eventId]
-        var mxc = mediaMxcCache[eventId]
-        // Fallback: caches are memory-only (empty after restart or for history
-        // not yet mapped) — pull the event from the persistent store.
-        if (encrypted == null && mxc == null) {
-            val roomId = eventRoomMap[eventId]
-            if (roomId != null) {
-                val event = withTimeoutOrNull(RESOLVE_TIMEOUT_MS) {
-                    c.room.getTimelineEvent(RoomId(roomId), EventId(eventId)).firstOrNull()
+    override suspend fun canLoadMoreMessages(roomId: String): Boolean = historyHasMore[roomId]?.value ?: false
+
+    override suspend fun getMessage(roomId: String, eventId: String): Message? {
+        val c = requireClient()
+        return withTimeoutOrNull(10_000) {
+            c.room.getTimelineEvent(RoomId(roomId), EventId(eventId)).filterNotNull()
+                .first { it.content?.isSuccess == true }.toMessageOrNull(c)
+        }
+    }
+
+    // Serialize workers without creating another MatrixClient/Realm instance.
+    private val backgroundWorkMutex = Mutex()
+
+    private suspend fun <T : Any> withBackgroundClient(block: suspend (MatrixClient) -> T): Result<T> = try {
+        val value = withTimeoutOrNull(45_000) {
+            backgroundWorkMutex.withLock {
+                // initialize owns lifecycleMutex; do not recursively acquire it.
+                initialize()
+                lifecycleMutex.withLock { block(requireClient()) }
+            }
+        } ?: error("Background operation timed out")
+        Result.success(value)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        Result.failure(failure)
+    }
+
+    override suspend fun backgroundSync(): Result<Unit> = withBackgroundClient { c ->
+        val resumeSync = c.syncState.value != SyncState.STOPPED
+        try {
+            // Drain foreground sync before the one-shot sync uses its store/token.
+            if (resumeSync) c.stopSync(wait = true)
+            c.syncOnce(presence = null, timeout = 10.seconds).getOrThrow()
+        } finally {
+            if (resumeSync && client === c) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    // Do not advertise ONLINE just because a background job woke up.
+                    c.startSync(presence = null)
                 }
-                val fileContent = event?.content?.getOrNull() as? RoomMessageEventContent.FileBased
-                encrypted = fileContent?.file
-                mxc = fileContent?.url
-                if (encrypted != null) encryptedFiles[eventId] = encrypted
-                if (mxc != null) mediaMxcCache[eventId] = mxc
             }
         }
-        val bytes = encrypted?.let { file ->
-            c.media.getEncryptedMedia(file).getOrThrow().toByteArray()
-        } ?: mxc?.let { uri ->
-            c.media.getMedia(uri).getOrThrow().toByteArray()
-        } ?: return null
+    }
+
+    override suspend fun getBackgroundNotifications(
+        roomId: String?,
+        eventId: String?,
+    ): Result<List<com.matrix.messenger.data.push.BackgroundNotification>> = withBackgroundClient { c ->
+        val notifications = c.api.push.getNotifications(limit = 50).getOrThrow().notifications
+            .filter { notification ->
+                (roomId == null || notification.roomId.full == roomId) &&
+                    (eventId == null || notification.event.id.full == eventId)
+            }
+        if (eventId != null) check(notifications.isNotEmpty()) {
+            "Target notification is not available yet"
+        }
+        val result = mutableListOf<com.matrix.messenger.data.push.BackgroundNotification>()
+        for (notification in notifications) {
+            if (notification.read || notification.event.sender == c.userId ||
+                notification.actions.none { it is PushAction.Notify }) continue
+            val sourceEventId = notification.event.id.full
+            val message = getMessage(notification.roomId.full, sourceEventId)
+                ?: error("Notification message is not decrypted yet")
+            if (message.isDeleted || message.messageType in setOf(
+                    MessageType.UNKNOWN, MessageType.SYSTEM, MessageType.CALL,
+                    MessageType.VERIFICATION_REQUEST,
+                )) continue
+            result += com.matrix.messenger.data.push.BackgroundNotification(
+                roomId = notification.roomId.full,
+                // Keep source identity even when the timeline projects an edit.
+                eventId = sourceEventId,
+                senderId = notification.event.sender.full,
+                title = message.senderName ?: notification.event.sender.full,
+                body = message.body,
+                isRead = notification.read,
+                isHighlight = notification.actions.any {
+                    it is PushAction.SetHighlightTweak && it.value
+                },
+            )
+        }
+        result
+    }
+
+    override suspend fun setHttpPusher(
+        pushKey: String,
+        gatewayUrl: String,
+        appId: String,
+        deviceDisplayName: String,
+    ): Result<Unit> = withBackgroundClient { c ->
+        c.api.push.setPushers(com.matrix.messenger.data.push.httpPusherRequest(
+            pushKey = pushKey, gatewayUrl = gatewayUrl, appId = appId,
+            deviceDisplayName = deviceDisplayName,
+        )).getOrThrow()
+    }
+
+    override suspend fun removeHttpPusher(pushKey: String, appId: String): Result<Unit> = withBackgroundClient { c ->
+        c.api.push.setPushers(com.matrix.messenger.data.push.httpPusherRequest(
+            pushKey = pushKey, gatewayUrl = "", appId = appId,
+            deviceDisplayName = "", remove = true,
+        )).getOrThrow()
+    }
+
+    override suspend fun setNotificationsEnabled(enabled: Boolean) {
+        SessionStore.saveNotificationsEnabled(enabled)
+        // Reconciliation can call removeHttpPusher; hold neither repository mutex here.
+        com.matrix.messenger.platform.reconcilePushRegistration()
+    }
+
+    override suspend fun resolveMediaFile(eventId: String, fileName: String, roomId: String?): String? {
+        val c = client ?: return null
+        var encrypted = encryptedFiles[eventId]
+        var mxc = mediaMxcCache[eventId]
+        var mime: String? = null
+        val targetRoom = roomId ?: eventRoomMap[eventId]
+        if (targetRoom != null) {
+            val event = withTimeoutOrNull(10_000) {
+                c.room.getTimelineEvent(RoomId(targetRoom), EventId(eventId)).filterNotNull()
+                    .first { it.content?.isSuccess == true }
+            }
+            event?.content?.getOrNull()?.mediaReference()?.let {
+                encrypted = it.file
+                mxc = it.url
+                mime = it.mimeType
+            }
+        }
+        val bytes = encrypted?.let { c.media.getEncryptedMedia(it).getOrThrow().toByteArray() }
+            ?: mxc?.let { c.media.getMedia(it).getOrThrow().toByteArray() } ?: return null
+        encrypted?.let { encryptedFiles[eventId] = it }
+        mxc?.let { mediaMxcCache[eventId] = it }
+        val safeName = fileName.filter { it.isLetterOrDigit() || it in "._ -" }.take(120).ifBlank { "attachment" }
+        val suffix = mediaSuffix(mime)
+        val name = if (suffix != null && !safeName.endsWith(".$suffix", true)) "$safeName.$suffix" else safeName
+        val safeId = eventId.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(120)
+        val path = "${attachmentsDir()}/${safeId}_$name"
         writeFileBytes(path, bytes)
         return path
     }
@@ -748,26 +888,29 @@ class MatrixRepositoryImpl : MatrixRepository {
     private data class PollSummary(
         val votes: Map<String, Int>,
         val totalVoters: Int,
-        val myAnswers: List<String>
+        val myAnswers: List<String>,
+        val ended: Boolean
     )
 
-    /** Aggregates MSC3381 poll responses: one vote per user per poll (latest wins). */
     private fun aggregatePolls(events: List<TimelineEvent>, myUserId: UserId): Map<String, PollSummary> {
-        val votesByPoll = mutableMapOf<String, MutableMap<String, List<String>>>()
-        events.forEach { timelineEvent ->
-            val content = timelineEvent.content?.getOrNull() as? UnknownEventContent ?: return@forEach
-            val response = com.matrix.messenger.data.poll.parsePollResponse(content.raw) ?: return@forEach
-            val byUser = votesByPoll.getOrPut(response.pollEventId) { mutableMapOf() }
-            byUser[timelineEvent.sender.full] = response.answers
+        val responses = mutableListOf<com.matrix.messenger.data.poll.PollResponseEvent>()
+        val ends = mutableListOf<com.matrix.messenger.data.poll.PollEndEvent>()
+        val starts = mutableListOf<Pair<TimelineEvent, com.matrix.messenger.data.poll.PollInfo>>()
+        events.forEach { event ->
+            val content = event.content?.getOrNull() as? UnknownEventContent ?: return@forEach
+            com.matrix.messenger.data.poll.parsePollStart(content.raw)?.let { starts += event to it }
+            com.matrix.messenger.data.poll.parsePollResponse(content.raw)?.let {
+                responses += com.matrix.messenger.data.poll.PollResponseEvent(event.eventId.full, event.sender.full, event.originTimestamp, it)
+            }
+            com.matrix.messenger.data.poll.parsePollEnd(content.raw)?.let {
+                ends += com.matrix.messenger.data.poll.PollEndEvent(event.eventId.full, event.sender.full, event.originTimestamp, it)
+            }
         }
-        return votesByPoll.mapValues { (_, byUser) ->
-            val counts = mutableMapOf<String, Int>()
-            byUser.values.forEach { answers -> answers.forEach { counts[it] = (counts[it] ?: 0) + 1 } }
-            PollSummary(
-                votes = counts,
-                totalVoters = byUser.size,
-                myAnswers = byUser[myUserId.full].orEmpty()
+        return starts.associate { (event, poll) ->
+            val result = com.matrix.messenger.data.poll.aggregatePoll(
+                event.eventId.full, event.sender.full, poll, responses, ends, myUserId.full
             )
+            event.eventId.full to PollSummary(result.votes, result.totalVoters, result.myVotes.toList(), result.ended)
         }
     }
 
@@ -828,9 +971,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
         val contentType = runCatching { ContentType.parse(mime) }
             .getOrElse { ContentType.Application.OctetStream }
-        val isEncryptedRoom = runCatching {
-            c.room.getById(rId).firstOrNull()?.encrypted == true
-        }.getOrDefault(false)
+        val isEncryptedRoom = requireJoinedRoom(c, rId).encrypted
         var fileInfo: EncryptedFile? = null
         if (isEncryptedRoom) {
             val (info, encryptedBytes) = encryptMediaBytes(bytes)
@@ -839,25 +980,13 @@ class MatrixRepositoryImpl : MatrixRepository {
         }
         val mxc = uploadBytes(c, bytes, contentType)
         fileInfo = fileInfo?.copy(url = mxc)
-        val raw = kotlinx.serialization.json.buildJsonObject {
-            put("body", kotlinx.serialization.json.JsonPrimitive("Голосовое сообщение"))
-            put("msgtype", kotlinx.serialization.json.JsonPrimitive("m.audio"))
-            if (fileInfo != null) {
-                put("file", kotlinx.serialization.json.Json.encodeToJsonElement(EncryptedFile.serializer(), fileInfo))
-            } else {
-                put("url", kotlinx.serialization.json.JsonPrimitive(mxc))
-            }
-            put("info", kotlinx.serialization.json.buildJsonObject {
-                put("mimetype", kotlinx.serialization.json.JsonPrimitive(mime))
-                durationMs?.let { put("duration", kotlinx.serialization.json.JsonPrimitive(it)) }
-                put("size", kotlinx.serialization.json.JsonPrimitive(bytes.size.toLong()))
-            })
-            put(
-                "org.matrix.msc3245.waveform",
-                kotlinx.serialization.json.JsonArray(waveform.map { kotlinx.serialization.json.JsonPrimitive(it) })
-            )
-        }
-        c.api.room.sendMessageEvent(rId, UnknownEventContent(raw, "m.audio")).getOrThrow()
+        val audio = RoomMessageEventContent.FileBased.Audio(
+            body = "Голосовое сообщение",
+            info = AudioInfo(mimeType = mime, size = bytes.size.toLong(), duration = durationMs),
+            url = if (fileInfo == null) mxc else null,
+            file = fileInfo
+        )
+        sendRoomEvent(c, rId, com.matrix.messenger.data.voice.VoiceAudioContent.fromAudio(audio, durationMs, waveform))
     }
 
     override suspend fun sendEmoteMessage(roomId: String, text: String) {
@@ -868,9 +997,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         val c = requireClient()
         val rId = RoomId(roomId)
         var bytes = readFileBytes(filePath)
-        val isEncryptedRoom = runCatching {
-            c.room.getById(rId).firstOrNull()?.encrypted == true
-        }.getOrDefault(false)
+        val isEncryptedRoom = requireJoinedRoom(c, rId).encrypted
         var fileInfo: EncryptedFile? = null
         if (isEncryptedRoom) {
             val (info, encryptedBytes) = encryptMediaBytes(bytes)
@@ -890,7 +1017,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 RoomMessageEventContent.FileBased.Image(
                     body = fileName,
                     info = ImageInfo(mimeType = infoMime, size = size),
-                    url = fileInfo?.let { null } ?: mxc,
+                    url = if (fileInfo == null) mxc else null,
                     file = fileInfo
                 )
 
@@ -898,7 +1025,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 RoomMessageEventContent.FileBased.Video(
                     body = fileName,
                     info = VideoInfo(mimeType = infoMime, size = size),
-                    url = fileInfo?.let { null } ?: mxc,
+                    url = if (fileInfo == null) mxc else null,
                     file = fileInfo
                 )
 
@@ -906,7 +1033,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 RoomMessageEventContent.FileBased.Audio(
                     body = fileName,
                     info = AudioInfo(mimeType = infoMime, size = size),
-                    url = fileInfo?.let { null } ?: mxc,
+                    url = if (fileInfo == null) mxc else null,
                     file = fileInfo
                 )
 
@@ -914,7 +1041,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                 RoomMessageEventContent.FileBased.File(
                     body = fileName,
                     info = FileInfo(mimeType = infoMime, size = size),
-                    url = fileInfo?.let { null } ?: mxc,
+                    url = if (fileInfo == null) mxc else null,
                     file = fileInfo
                 )
         }
@@ -923,8 +1050,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         // valid mxc://) and crashes its retry loop on it, silently stalling every
         // later message in the queue. The media is already uploaded above, so a
         // straight send is both correct and observable (errors reach the snackbar).
-        c.api.room.sendMessageEvent(RoomId(roomId), messageContent)
-            .getOrThrow()
+        sendRoomEvent(c, rId, messageContent)
     }
 
     override suspend fun getRoomInfo(roomId: String): ChatRoom? {
@@ -1128,9 +1254,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         require(bytes.isNotEmpty()) { "Выбранный файл пуст" }
         val contentType = runCatching { ContentType.parse(mimeType) }
             .getOrElse { ContentType.Application.OctetStream }
-        val isEncryptedRoom = runCatching {
-            c.room.getById(rId).firstOrNull()?.encrypted == true
-        }.getOrDefault(false)
+        val isEncryptedRoom = requireJoinedRoom(c, rId).encrypted
         var fileInfo: EncryptedFile? = null
         if (isEncryptedRoom) {
             val (info, encryptedBytes) = encryptMediaBytes(bytes)
@@ -1151,19 +1275,20 @@ class MatrixRepositoryImpl : MatrixRepository {
                 put("size", kotlinx.serialization.json.JsonPrimitive(bytes.size.toLong()))
             })
         }
-        c.api.room.sendMessageEvent(rId, UnknownEventContent(stickerJson, "m.sticker")).getOrThrow()
+        sendRoomEvent(c, rId, UnknownEventContent(stickerJson, "m.sticker"))
     }
 
     override suspend fun sendLocation(roomId: String, latitude: Double, longitude: Double, accuracyMeters: Double?) {
         val c = requireClient()
         val location = com.matrix.messenger.data.model.GeoLocation(latitude, longitude, accuracyMeters)
-        requireClient().api.room.sendMessageEvent(
-            RoomId(roomId),
+        require(latitude.isFinite() && latitude in -90.0..90.0 && longitude.isFinite() && longitude in -180.0..180.0)
+        sendRoomEvent(
+            c, RoomId(roomId),
             RoomMessageEventContent.Location(
                 body = com.matrix.messenger.data.model.GeoUri.format(location),
                 geoUri = com.matrix.messenger.data.model.GeoUri.toGeoUri(location)
             )
-        ).getOrThrow()
+        )
     }
 
     override fun getReadReceiptsFlow(roomId: String): Flow<Map<String, List<ReadReceipt>>> = _clientState.flatMapLatest { c ->
@@ -1255,22 +1380,6 @@ class MatrixRepositoryImpl : MatrixRepository {
     override suspend fun isRoomMuted(roomId: String): Boolean = _mutedRooms.value.contains(roomId)
 
     override suspend fun setRoomMuted(roomId: String, muted: Boolean) {
-        val c = requireClient()
-        val ruleId = RoomId(roomId).full
-        if (muted) {
-            c.api.push.setPushRule(
-                scope = "global",
-                kind = PushRuleKind.ROOM,
-                ruleId = ruleId,
-                pushRule = SetPushRule.Request(actions = emptySet())
-            ).getOrThrow()
-        } else {
-            c.api.push.deletePushRule(scope = "global", kind = PushRuleKind.ROOM, ruleId = ruleId).getOrThrow()
-        }
-        val mutedRooms = SessionStore.readMutedRooms().toMutableList()
-        if (muted) mutedRooms.add(roomId) else mutedRooms.remove(roomId)
-        SessionStore.saveMutedRooms(mutedRooms)
-        _mutedRooms.value = mutedRooms.toSet()
         setRoomNotificationLevel(roomId, if (muted) RoomNotificationLevel.MUTE else RoomNotificationLevel.ALL_MESSAGES)
     }
 
@@ -1302,31 +1411,16 @@ class MatrixRepositoryImpl : MatrixRepository {
     }
 
     override suspend fun getRoomNotificationLevel(roomId: String): RoomNotificationLevel {
-        // Server push rule wins; local cache is the offline fallback.
-        val serverLevel = runCatching {
-            val rule = requireClient().api.push.getPushRule(
-                scope = "global",
-                kind = PushRuleKind.ROOM,
-                ruleId = RoomId(roomId).full
-            ).getOrNull() ?: return RoomNotificationLevel.ALL_MESSAGES
-            when {
-                rule.actions.isEmpty() -> RoomNotificationLevel.MUTE
-                rule.actions.any { it is PushAction.Notify || it is PushAction.SetHighlightTweak } ->
-                    RoomNotificationLevel.ALL_MESSAGES
-                else -> RoomNotificationLevel.MENTIONS_ONLY
-            }
-        }.getOrNull()
-        if (serverLevel != null && serverLevel != RoomNotificationLevel.ALL_MESSAGES) {
-            persistNotificationLevel(roomId, serverLevel)
-            return serverLevel
+        val api = requireClient().api.push
+        val rule = api.getPushRules().getOrThrow().global.room.orEmpty().firstOrNull { it.ruleId == roomId && it.enabled }
+        val level = when {
+            rule == null -> RoomNotificationLevel.ALL_MESSAGES
+            rule.actions.isEmpty() -> RoomNotificationLevel.MUTE
+            rule.actions.any { it is PushAction.Notify } -> RoomNotificationLevel.ALL_MESSAGES
+            else -> RoomNotificationLevel.MENTIONS_ONLY
         }
-        if (serverLevel != null) {
-            persistNotificationLevel(roomId, serverLevel)
-            return serverLevel
-        }
-        return RoomNotificationLevel.fromStored(
-            SessionStore.readRoomNotificationLevels()[roomId]
-        )
+        persistNotificationLevel(roomId, level)
+        return level
     }
 
     private suspend fun persistNotificationLevel(roomId: String, level: RoomNotificationLevel) {
@@ -1340,9 +1434,8 @@ class MatrixRepositoryImpl : MatrixRepository {
         val ruleId = RoomId(roomId).full
         when (level) {
             RoomNotificationLevel.ALL_MESSAGES -> {
-                runCatching {
-                    c.api.push.deletePushRule(scope = "global", kind = PushRuleKind.ROOM, ruleId = ruleId)
-                }
+                val exists = c.api.push.getPushRules().getOrThrow().global.room.orEmpty().any { it.ruleId == ruleId }
+                if (exists) c.api.push.deletePushRule(scope = "global", kind = PushRuleKind.ROOM, ruleId = ruleId).getOrThrow()
             }
             RoomNotificationLevel.MENTIONS_ONLY -> {
                 c.api.push.setPushRule(
@@ -1366,6 +1459,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         persistNotificationLevel(roomId, level)
         _mutedRooms.value = SessionStore.readRoomNotificationLevels()
             .filterValues { it == RoomNotificationLevel.MUTE.name }.keys
+        SessionStore.saveMutedRooms(_mutedRooms.value.toList())
     }
 
     override fun getRoomTrustFlow(roomId: String): Flow<RoomTrust> = _clientState.flatMapLatest { c ->
@@ -1832,6 +1926,24 @@ class MatrixRepositoryImpl : MatrixRepository {
         else -> VerificationUiState.Waiting
     }
 
+    private suspend fun requireJoinedRoom(c: MatrixClient, roomId: RoomId): Room =
+        withTimeout(STATE_FETCH_TIMEOUT_MS) {
+            c.room.getById(roomId).filterNotNull().first().also {
+                check(it.membership == Membership.JOIN) { "You must join the room before sending" }
+            }
+        }
+
+    private suspend fun sendRoomEvent(c: MatrixClient, roomId: RoomId, content: MessageEventContent) {
+        val room = requireJoinedRoom(c, roomId)
+        withTimeout(60_000) {
+            sendUploadedRoomEvent(
+                roomId, content, room.encrypted,
+                encrypt = { body, id -> c.roomEventEncryptionServices.encrypt(body, id) },
+                send = { id, body -> c.api.room.sendMessageEvent(id, body).getOrThrow() }
+            )
+        }
+    }
+
     private fun requireClient(): MatrixClient = client ?: error("Не выполнен вход")
 
     private fun mimeTypeForFile(filePath: String): String =
@@ -1878,6 +1990,8 @@ class MatrixRepositoryImpl : MatrixRepository {
     }
 
     private suspend fun attachClient(c: MatrixClient, url: String) {
+        clientJobs.forEach { it.cancel() }
+        clientJobs.clear()
         client?.let { old ->
             try {
                 old.stopSync()
@@ -1889,7 +2003,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         userAvatarCache.clear()
         baseUrl = url.trimEnd('/')
         client = c
-        purgeUnsendableOutbox(c)
+        // Keep sendable messages: routine startup must not discard the outbox.
         MediaBytesProvider.resolver = { file ->
             c.media.getEncryptedMedia(file).getOrThrow().toByteArray()
         }
@@ -1903,7 +2017,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             displayName = c.displayName.value,
             avatarUrl = c.avatarUrl.value
         )
-        repositoryScope.launch {
+        clientJobs += repositoryScope.launch {
             combine(c.displayName, c.avatarUrl) { name, avatar -> name to avatar }
                 .collect { (name, avatar) ->
                     _currentUser.value = _currentUser.value?.copy(
@@ -1912,7 +2026,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                     )
                 }
         }
-        repositoryScope.launch {
+        clientJobs += repositoryScope.launch {
             c.syncState.collect { state ->
                 _connectionState.value = when (state) {
                     SyncState.INITIAL_SYNC, SyncState.STARTED -> ConnectionState.Connecting
@@ -1923,14 +2037,14 @@ class MatrixRepositoryImpl : MatrixRepository {
                 }
             }
         }
-        repositoryScope.launch {
+        clientJobs += repositoryScope.launch {
             TokenInvalidationDetector.triggered.collect { invalid ->
                 if (invalid) {
                     forceLogout("Сессия истекла — сервер отклонил токен (M_UNKNOWN_TOKEN). Войдите заново.")
                 }
             }
         }
-        repositoryScope.launch {
+        clientJobs += repositoryScope.launch {
             // Element shows "Неизвестное устройство" for sessions without a display name.
             runCatching {
                 val device = c.api.devices.getDevice(c.deviceId).getOrNull()
@@ -1943,6 +2057,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             }
         }
         c.startSync()
+        clientJobs += repositoryScope.launch { com.matrix.messenger.platform.reconcilePushRegistration() }
     }
 
     private suspend fun persistSession(c: MatrixClient, url: String) {
@@ -2007,24 +2122,24 @@ class MatrixRepositoryImpl : MatrixRepository {
     override suspend fun sendPoll(roomId: String, question: String, answers: List<String>) {
         if (answers.size < 2) error("Нужно минимум 2 варианта ответа")
         // m.poll.* is UnknownEventContent -> same outbox limitation as call signaling.
-        requireClient().api.room.sendMessageEvent(
-            RoomId(roomId),
+        sendRoomEvent(
+            requireClient(), RoomId(roomId),
             com.matrix.messenger.data.poll.buildPollStartContent(question, answers)
-        ).getOrThrow()
+        )
     }
 
     override suspend fun sendPollVote(roomId: String, pollEventId: String, answerIds: List<String>) {
-        requireClient().api.room.sendMessageEvent(
-            RoomId(roomId),
+        sendRoomEvent(
+            requireClient(), RoomId(roomId),
             com.matrix.messenger.data.poll.buildPollResponseContent(pollEventId, answerIds)
-        ).getOrThrow()
+        )
     }
 
     override suspend fun sendPollEnd(roomId: String, pollEventId: String) {
-        requireClient().api.room.sendMessageEvent(
-            RoomId(roomId),
+        sendRoomEvent(
+            requireClient(), RoomId(roomId),
             com.matrix.messenger.data.poll.buildPollEndContent(pollEventId)
-        ).getOrThrow()
+        )
     }
 
     override suspend fun getRoomShareLink(roomId: String): String? {
@@ -2066,11 +2181,12 @@ class MatrixRepositoryImpl : MatrixRepository {
             isLowPriority = LOW_PRIORITY_TAG in tags,
             isEncrypted = encrypted,
             isMarkedUnread = markedUnread,
-            bridge = runCatching {
-                c.room.getAccountData(
-                    roomId, com.matrix.messenger.data.bridge.BridgeEventContent::class
-                ).firstOrNull()?.displayName
-            }.getOrNull()
+            bridge = withTimeoutOrNull(STATE_FETCH_TIMEOUT_MS) {
+                val modern = c.room.getAllState(roomId, com.matrix.messenger.data.bridge.BridgeEventContent::class).first()
+                modern.values.mapNotNull { it.first()?.content?.displayName }.firstOrNull()
+                    ?: c.room.getAllState(roomId, com.matrix.messenger.data.bridge.LegacyBridgeEventContent::class).first()
+                        .values.mapNotNull { it.first()?.content?.displayName }.firstOrNull()
+            }
         )
     }
 
@@ -2103,20 +2219,34 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     private suspend fun TimelineEvent.toMessageOrNull(c: MatrixClient): Message? {
         val rawContent = content ?: return null
-        val eventContent = rawContent.getOrNull() ?: return null
+        val originalContent = rawContent.getOrNull() ?: return null
+        val voice = originalContent as? com.matrix.messenger.data.voice.VoiceAudioContent
+        val eventContent = voice?.stockAudio ?: originalContent
+        eventRoomMap[eventId.full] = roomId.full
+        originalContent.mediaReference()?.let { media ->
+            media.file?.let { encryptedFiles[eventId.full] = it }
+            media.url?.let { mediaMxcCache[eventId.full] = it }
+        }
         if (eventContent is CallInviteEventContent) {
             val isMine = sender == c.userId
+            val isVideo = eventContent.offer.sdp.lines().any { it.startsWith("m=video") }
             return Message(
                 eventId = eventId.full,
                 senderId = sender.full,
                 senderName = c.resolveSenderName(roomId, sender),
                 senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
-                body = if (isMine) "Исходящий звонок" else "Входящий звонок",
+                body = when {
+                    isMine && isVideo -> "Исходящий видеозвонок"
+                    isMine -> "Исходящий голосовой звонок"
+                    isVideo -> "Входящий видеозвонок"
+                    else -> "Входящий голосовой звонок"
+                },
                 timestamp = originTimestamp,
                 messageType = MessageType.CALL,
                 isMine = isMine,
                 isEdited = false,
-                isDeleted = false
+                isDeleted = false,
+                callIsVideo = isVideo
             )
         }
         if (eventContent is UnknownEventContent) {
@@ -2223,16 +2353,6 @@ class MatrixRepositoryImpl : MatrixRepository {
         val messageContent = eventContent as? RoomMessageEventContent
         if (messageContent?.relatesTo is RelatesTo.Replace) return null
 
-        // Poll end references: mark the corresponding poll as closed.
-        if (eventContent is UnknownEventContent && eventContent.eventType == "m.poll.end") {
-            val ref = eventContent.raw["m.relates_to"]?.let {
-                (it as? kotlinx.serialization.json.JsonObject)?.get("event_id")?.let { id ->
-                    (id as? kotlinx.serialization.json.JsonPrimitive)?.content
-                }
-            }
-            if (ref != null) pollEnds.add(ref)
-            return null
-        }
         if (eventContent is TombstoneEventContent) {
             return Message(
                 eventId = eventId.full,
@@ -2346,7 +2466,8 @@ class MatrixRepositoryImpl : MatrixRepository {
             location = location,
             videoThumbnailUrl = videoInfo?.thumbnailUrl,
             videoThumbnailFile = videoInfo?.thumbnailFile,
-            mediaDurationMs = videoInfo?.duration ?: audioInfo?.duration,
+            mediaDurationMs = voice?.duration ?: videoInfo?.duration ?: audioInfo?.duration,
+            voiceWaveform = voice?.waveform,
             replyTo = replyTo,
             formattedBody = (messageContent as? RoomMessageEventContent.TextBased)?.formattedBody,
             threadRootId = (messageContent?.relatesTo as? RelatesTo.Thread)?.eventId?.full
@@ -2440,22 +2561,15 @@ class MatrixRepositoryImpl : MatrixRepository {
 }
 
     override suspend fun setAccountNotificationMode(mode: AccountNotificationMode) {
-    val api = requireClient().api.push
-    // Master on => everything suppressed.
-    api.setPushRuleEnabled(
-        scope = "global", kind = PushRuleKind.OVERRIDE,
-        ruleId = PushRulesConstants.MASTER_RULE_ID,
-        enabled = mode == AccountNotificationMode.OFF
-    ).getOrThrow()
-    if (mode != AccountNotificationMode.OFF) {
-        // Mentions-only: suppress the default "notify on any message" underride.
-        api.setPushRuleEnabled(
-            scope = "global", kind = PushRuleKind.UNDERRIDE,
-            ruleId = PushRulesConstants.ROOM_MESSAGE_RULE_ID,
-            enabled = mode == AccountNotificationMode.ALL_MESSAGES
-        ).getOrThrow()
+        val api = requireClient().api.push
+        val available = api.getPushRules().getOrThrow().global.underride.orEmpty().map { it.ruleId }.toSet()
+        if (mode != AccountNotificationMode.OFF) {
+            PushRulesConstants.MESSAGE_RULE_IDS.filter { it in available }.forEach { id ->
+                api.setPushRuleEnabled("global", PushRuleKind.UNDERRIDE, id, mode == AccountNotificationMode.ALL_MESSAGES).getOrThrow()
+            }
+        }
+        api.setPushRuleEnabled("global", PushRuleKind.OVERRIDE, PushRulesConstants.MASTER_RULE_ID, mode == AccountNotificationMode.OFF).getOrThrow()
     }
-}
 
     override suspend fun getKeywords(): List<PushRule.Content> =
     requireClient().api.push.getPushRules().getOrThrow().global.content
@@ -2463,7 +2577,7 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     override suspend fun addKeyword(keyword: String) {
     val api = requireClient().api.push
-    val ruleId = "matrixtalk_keyword_${keyword.trim().lowercase().replace(Regex("[^a-z0-9]"), "_")}"
+    val ruleId = "matrixtalk_keyword_" + java.security.MessageDigest.getInstance("SHA-256").digest(keyword.trim().lowercase().encodeToByteArray()).joinToString("") { "%02x".format(it) }
     api.setPushRule(
         scope = "global",
         kind = PushRuleKind.CONTENT,
@@ -2553,8 +2667,8 @@ enum class AccountNotificationMode {
         fun fromRules(rules: PushRuleSet): AccountNotificationMode {
             val master = rules.override.orEmpty().firstOrNull { it.ruleId == PushRulesConstants.MASTER_RULE_ID }
             if (master?.enabled == true) return OFF
-            val roomMessage = rules.underride.orEmpty().firstOrNull { it.ruleId == PushRulesConstants.ROOM_MESSAGE_RULE_ID }
-            if (roomMessage?.enabled == false) return MENTIONS_ONLY
+            val messageRules = rules.underride.orEmpty().filter { it.ruleId in PushRulesConstants.MESSAGE_RULE_IDS }
+            if (messageRules.isNotEmpty() && messageRules.none { it.enabled }) return MENTIONS_ONLY
             return ALL_MESSAGES
         }
     }
@@ -2562,7 +2676,8 @@ enum class AccountNotificationMode {
 
 object PushRulesConstants {
     const val MASTER_RULE_ID = ".m.rule.master"
-    const val ROOM_MESSAGE_RULE_ID = ".m.rule.room_message"
+    const val ROOM_MESSAGE_RULE_ID = ".m.rule.message"
+    val MESSAGE_RULE_IDS = setOf(".m.rule.message", ".m.rule.room_one_to_one", ".m.rule.encrypted", ".m.rule.encrypted_room_one_to_one")
 }
 
 /** Flattened rule for the debug list. */

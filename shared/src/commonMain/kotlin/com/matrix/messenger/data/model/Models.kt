@@ -24,7 +24,7 @@ data class ChatRoom(
     val isEncrypted: Boolean = false,
     /** Room manually marked unread via account data (m.marked_unread). */
     val isMarkedUnread: Boolean = false,
-    /** Bridged network name (m.bridge account data): "Telegram", "Discord", … */
+    /** Bridged network name from m.bridge room state. */
     val bridge: String? = null
 )
 
@@ -250,7 +250,11 @@ data class PublicRoomItem(
     val joinedMembers: Long,
     val joinRule: String,
     /** True when this child is itself a space (MSC1772 room type). */
-    val isSpace: Boolean = false
+    val isSpace: Boolean = false,
+    /** Membership known to the repository; previews must join before opening a chat. */
+    val isJoined: Boolean = false,
+    /** True only when the room type has actually been resolved. */
+    val roomTypeKnown: Boolean = false
 )
 
 sealed class LoginResult {
