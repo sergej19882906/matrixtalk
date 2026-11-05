@@ -29,7 +29,8 @@ def release_fixture():
                 {"os": "macos-15-intel", "task": "packageDmg", "format": "dmg"},
             ]}}, "steps": [
                 {"name": "Prepare macOS signing", "run": "python -I scripts/mac-release.py prepare"},
-                {"run": './gradlew verifyReleaseMetadata -PreleaseTag="$RELEASE_TAG" ":desktop-app:$PACKAGE_TASK"'},
+                {"run": './gradlew verifyReleaseMetadata -PreleaseTag="$RELEASE_TAG" :desktop-app:createDistributable ":desktop-app:$PACKAGE_TASK"'},
+                {"name": "Smoke test packaged app", "run": "bash scripts/smoke-desktop.sh"},
                 {"name": "Prepare artifact", "run": "cp desktop-app/build/compose/binaries/main/msi/*.msi release-assets/"},
                 {"uses": "actions/upload-artifact@v4", "with": {"path": "release-assets/*", "if-no-files-found": "error"}},
             ]},
@@ -126,13 +127,28 @@ class WorkflowTests(unittest.TestCase):
         for text in ("cp app/build/outputs/apk/release/app-release.apk release-assets/", "./gradlew :app:assembleDebug",
                      "python -I scripts/android-release.py prepare"):
             workflow = release_fixture()
-            workflow["jobs"]["desktop"]["steps"][2]["run"] = text
+            workflow["jobs"]["desktop"]["steps"][3]["run"] = text
             with self.subTest(text=text), self.assertRaises(validator.WorkflowValidationError):
                 validator.validate_release(workflow)
         workflow = release_fixture()
         workflow["jobs"]["desktop"]["steps"][-1]["with"]["path"] = "app/build/outputs/apk/**/*.apk"
         with self.assertRaisesRegex(validator.WorkflowValidationError, "Android"):
             validator.validate_release(workflow)
+
+    def test_desktop_package_must_create_launcher_before_portable_smoke(self):
+        for mutation in ("no-distributable", "smoke-before-package", "missing-smoke", "ignored-smoke"):
+            workflow = release_fixture()
+            steps = workflow["jobs"]["desktop"]["steps"]
+            if mutation == "no-distributable":
+                steps[1]["run"] = steps[1]["run"].replace(":desktop-app:createDistributable", "")
+            elif mutation == "smoke-before-package":
+                steps[1], steps[2] = steps[2], steps[1]
+            elif mutation == "missing-smoke":
+                steps[2]["run"] = "true"
+            else:
+                steps[2]["continue-on-error"] = "true"
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(validator.WorkflowValidationError, "desktop"):
+                validator.validate_release(workflow)
 
     def test_publish_validation_order_and_ignored_failures(self):
         for mutation in ("late", "missing", "ignored", "conditional"):
