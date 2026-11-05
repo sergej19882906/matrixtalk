@@ -143,7 +143,8 @@
 ## Сборка и запуск
 
 ### Требования
-- JDK 17
+- JDK 21 для Gradle и desktop-упаковки (Android/JVM-код компилируется для Java 17)
+- Python 3 для проверок релизных метаданных; на Windows команда `python`, на Linux/macOS — `python3`. При необходимости задайте полный путь переменной `PYTHON`.
 - Android Studio Ladybug (2024.2.1) или новее — для Android
 - Android SDK 36 — для Android
 
@@ -181,21 +182,39 @@ chmod +x gradlew
 
 GitHub Actions:
 
-- **CI** (push/PR в `main`) — сборка Android APK, компиляция Desktop и юнит-тесты, валидация docker-compose.
-- **Release** (тег `v*`) — подписанный Android APK + инсталляторы MSI/DEB/DMG (со smoke-тестами упакованных сборок), публикация [GitHub Release](https://github.com/sergej19882906/matrixtalk/releases) с заметками из `RELEASE_NOTES.md`.
-- **Linux AppImage** (после публикации релиза) — AppImage прикрепляется к релизу.
+- **CI** (push/PR в `main`) — проверка релизных метаданных и workflow, сборка Android APK, компиляция Desktop и юнит-тесты, валидация docker-compose.
+- **Release** (тег `vX.Y.Z` или ручной запуск с существующим тегом) — проверка «тег = версия», Android APK + MSI/DEB/DMG со smoke-тестами и сверкой метаданных. Публикация [GitHub Release](https://github.com/sergej19882906/matrixtalk/releases) только при полном наборе четырёх пакетов; незавершённый черновик можно продолжить повторным запуском. Уже опубликованные пакеты автоматически не заменяются.
+- **macOS** — поддерживаемый Intel-раннер `macos-15-intel`. Если сертификаты настроены, подпись выполняется штатным механизмом Compose **до упаковки**, затем проверяются содержимое DMG, notarization и stapling.
+- **Linux AppImage** — отдельная сборка после публикации основного релиза. Её успех проверяется отдельно; наличие APK/MSI/DEB/DMG не означает, что AppImage готов.
 - **Docker** (push в `main`, теги) — сборка и пуш образов сервера и мостов в ghcr.io (`linux/amd64` + `linux/arm64`).
 
-Секреты подписи (все опциональны — без них пакеты собираются неподписанными):
-- Android: `KEYSTORE_BASE64`, `KEYSTORE_ALIAS`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD`
-- Windows MSI (Authenticode): `WIN_PFX_BASE64`, `WIN_PFX_PASSWORD`
-- macOS DMG (codesign + нотаризация): `MAC_CERTIFICATE_BASE64`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_SPECIFIC_PASSWORD`
+Секреты подписи:
+- Android: `KEYSTORE_BASE64`, `KEYSTORE_ALIAS`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD`. Если ни один секрет не настроен, строится явно помеченный debug APK (подписан debug-ключом, не release-ключом); частичный набор — ошибка.
+- Windows MSI (Authenticode): `WIN_PFX_BASE64`, `WIN_PFX_PASSWORD`. Без обоих секретов пакет неподписанный; частичный набор — ошибка.
+- macOS DMG (codesign + нотаризация): `MAC_CERTIFICATE_BASE64`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_SPECIFIC_PASSWORD`. Без сертификатов пакет неподписанный; если настройка начата, требуется полный набор. Секреты в журналы не выводятся.
 
-Чтобы выпустить версию: обновите `versionCode`/`versionName` (`app/build.gradle.kts`) и `packageVersion` (`desktop-app/build.gradle.kts`), добавьте секцию в `RELEASE_NOTES.md`, затем:
+### Выпуск версии
+
+Единый источник версии — корневой `gradle.properties`:
+
+```properties
+releaseVersion=1.42.1
+androidVersionCode=63
+```
+
+Android `versionName`, Desktop `packageVersion` и встроенная версия для «О приложении» берутся из `releaseVersion`; `versionCode` должен увеличиваться при каждом Android-релизе. Не редактируйте номера в нескольких Gradle-файлах.
+
+Добавьте точный заголовок `## 1.42.1` в `RELEASE_NOTES.md`, обновите README и проверьте изменения перед коммитом/публикацией:
 
 ```bash
-git tag v1.37.0 && git push origin v1.37.0
+python -I -m unittest discover -s scripts -p 'test_*.py'
+./gradlew verifyReleaseMetadata -PreleaseTag=v1.42.1
+# После проверки и коммита:
+git tag -a v1.42.1 -m "MatrixTalk 1.42.1"
+git push origin v1.42.1
 ```
+
+В исходных тегах v1.40.0–v1.42.0 ошибочно остались метаданные **1.39.0 / versionCode 59**, а публикация ожидала отключённый `macos-13`. Исправления подготовлены для **v1.42.1 / 63**; старые теги не перемещаются. Для восстановления старой версии ручной Release принимает `tag` и `source_ref`: исходники — отдельный потомок исходного тега с исправленной сборкой и номером этой версии. Точный SHA записывается в release notes; AppImage использует тот же SHA. Фактическую публикацию и содержимое пакетов проверяйте в GitHub Releases, а не только по имени тега.
 
 ## История версий
 

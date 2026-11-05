@@ -93,7 +93,7 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Dmg)
 
             packageName = "MatrixTalk"
-            packageVersion = "1.39.0"
+            packageVersion = providers.gradleProperty("releaseVersion").get()
 
             windows {
                 menuGroup = "Matrix Talk"
@@ -109,9 +109,15 @@ compose.desktop {
             }
 
             macOS {
+                packageBuildVersion = providers.gradleProperty("releaseVersion").get()
                 bundleID = "com.matrix.messenger"
                 dockName = "MatrixTalk"
                 iconFile.set(project.file("icons/macos.icns"))
+                signing {
+                    sign.set(providers.environmentVariable("MATRIX_MAC_SIGN").map { it.toBooleanStrict() }.orElse(false))
+                    identity.set(providers.environmentVariable("MATRIX_MAC_IDENTITY"))
+                    keychain.set(providers.environmentVariable("MATRIX_MAC_KEYCHAIN"))
+                }
             }
         }
     }
