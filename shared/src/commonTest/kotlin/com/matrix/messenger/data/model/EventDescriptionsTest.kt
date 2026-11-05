@@ -9,16 +9,23 @@ class EventDescriptionsTest {
     fun selfJoin() {
         assertEquals(
             "Аня присоединился к чату",
-            EventDescriptions.member("join", "Аня", "Аня", null)
+            EventDescriptions.member("join", "Аня", "Аня", null, previousMembership = "invite")
         )
     }
 
     @Test
     fun selfJoinWithNewName() {
         assertEquals(
-            "Аня присоединился к чату (теперь: Анна)",
-            EventDescriptions.member("join", "Аня", "Аня", "Анна")
+            "Аня изменил отображаемое имя на «Анна»",
+            EventDescriptions.member("join", "Аня", "Аня", "Анна", "join", "Аня")
         )
+    }
+
+    @Test
+    fun unknownPreviousMembershipDoesNotInventAJoin() {
+        assertEquals("Аня обновил сведения об участнике Аня", EventDescriptions.member("join", "Аня", "Аня", "Анна"))
+        assertEquals("Аня обновил профиль участника", EventDescriptions.member("join", "Аня", "Аня", "Аня", "join", "Аня"))
+        assertEquals("Аня удалил отображаемое имя", EventDescriptions.member("join", "Аня", "Аня", null, "join", "Аня"))
     }
 
     @Test

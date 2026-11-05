@@ -2,6 +2,9 @@ package com.matrix.messenger.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -119,6 +122,12 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
+internal fun unreadMessageIndex(messages: List<Message>, eventId: String?): Int =
+    if (eventId == null) -1 else messages.indexOfFirst { it.eventId == eventId }
+
+internal fun timelineListIndex(timelineIndex: Int, leadingRows: Int): Int =
+    if (timelineIndex < 0) -1 else timelineIndex + leadingRows
+
 /** Quick reactions shown at the top of the message context menu (Element X). */
 private val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
 
@@ -185,8 +194,33 @@ fun ChatScreen(
         locationDraft = point
         showLocationDialog = true
     }
-    val captureVideo = rememberVideoRecorder { path ->
-        if (path != null) viewModel.sendVideoMessage(path)
+    var videoDraft by remember(roomId) { mutableStateOf<String?>(null) }
+    val captureVideo = rememberVideoRecorder(onError = { error ->
+        coroutineScope.launch { snackbarHostState.showSnackbar(error) }
+    }) { path ->
+        videoDraft = path
+    }
+    videoDraft?.let { path ->
+        AlertDialog(
+            onDismissRequest = { videoDraft = null },
+            title = { Text("Отправить видео?") },
+            text = {
+                Column {
+                    Text("Видео записано. Просмотрите его перед отправкой.")
+                    TextButton(onClick = { com.matrix.messenger.platform.openLocalFile(path) }) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                        Text("Просмотреть")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    videoDraft = null
+                    viewModel.sendVideoMessage(path)
+                }) { Text("Отправить") }
+            },
+            dismissButton = { TextButton(onClick = { videoDraft = null }) { Text("Отмена") } }
+        )
     }
     val callRepository: CallRepository = koinInject()
     val matrixRepository: MatrixRepository = koinInject()
@@ -230,16 +264,14 @@ fun ChatScreen(
     }
 
     // In-chat search state.
-    var chatSearchActive by remember { mutableStateOf(false) }
-    var chatSearchQuery by remember { mutableStateOf("") }
+    var chatSearchActive by remember(roomId) { mutableStateOf(false) }
+    var chatSearchQuery by remember(roomId) { mutableStateOf("") }
 
     // Date headers + sender grouping projected once per message-list change.
     // The unread divider is inserted before the first unread message snapshot.
-    val firstUnreadMessageIndex = if (uiState.initialUnreadCount > 0 && uiState.messages.isNotEmpty()) {
-        (uiState.messages.size - uiState.initialUnreadCount).coerceIn(0, uiState.messages.size - 1)
-    } else {
-        -1
-    }
+    val firstUnreadMessageIndex = if (!chatSearchActive) {
+        unreadMessageIndex(uiState.messages, uiState.initialUnreadEventId)
+    } else -1
     val searchQuery = chatSearchQuery.trim()
     val searchMatches = remember(uiState.messages, searchQuery) {
         if (searchQuery.isEmpty()) null
@@ -257,23 +289,25 @@ fun ChatScreen(
     val timeline = remember(searchFilteredMessages, firstUnreadMessageIndex) {
         buildTimeline(searchFilteredMessages, firstUnreadMessageIndex)
     }
+    val historyRowCount = if (!chatSearchActive && uiState.canLoadMore) 1 else 0
     var scrolledToUnread by remember(roomId) { mutableStateOf(false) }
-    LaunchedEffect(timeline.size, uiState.initialUnreadCount) {
-        if (!scrolledToUnread && firstUnreadMessageIndex >= 0 && uiState.messages.isNotEmpty()) {
+    LaunchedEffect(timeline.size, uiState.initialUnreadEventId, chatSearchActive, historyRowCount) {
+        if (!chatSearchActive && !scrolledToUnread && firstUnreadMessageIndex >= 0) {
             val dividerIndex = timeline.indexOfFirst { it is TimelineItem.UnreadDivider }
             if (dividerIndex >= 0) {
-                listState.scrollToItem(dividerIndex)
+                listState.scrollToItem(timelineListIndex(dividerIndex, historyRowCount))
                 scrolledToUnread = true
             }
         }
     }
 
-    LaunchedEffect(uiState.messages.lastOrNull()?.eventId, uiState.messages.lastOrNull()?.isMine) {
-        // Auto-scroll only for newly sent own messages or incoming messages while near the bottom;
-        // loading earlier history must not jump to the bottom.
+    var previousLastEventId by remember(roomId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(uiState.messages.lastOrNull()?.eventId, chatSearchActive) {
         val last = uiState.messages.lastOrNull() ?: return@LaunchedEffect
-        if (last.isMine) {
-            listState.animateScrollToItem(timeline.size - 1)
+        val isNew = previousLastEventId != null && previousLastEventId != last.eventId
+        previousLastEventId = last.eventId
+        if (!chatSearchActive && isNew && last.isMine && timeline.isNotEmpty()) {
+            listState.animateScrollToItem(timelineListIndex(timeline.lastIndex, historyRowCount))
         }
     }
 
@@ -384,9 +418,9 @@ fun ChatScreen(
                                             presence.presence == "online" -> "в сети"
                                             presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 1 -> "был(а) только что"
                                             presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 60 ->
-                                                "был(а) \${presence.lastActiveAgoMinutes} мин назад"
+                                                "был(а) ${presence.lastActiveAgoMinutes} мин назад"
                                             presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 1440 ->
-                                                "был(а) \${presence.lastActiveAgoMinutes / 60} ч назад"
+                                                "был(а) ${presence.lastActiveAgoMinutes / 60} ч назад"
                                             else -> "не в сети"
                                         },
                                         style = MaterialTheme.typography.bodySmall,
@@ -525,6 +559,7 @@ fun ChatScreen(
             )
         }
     ) { paddingValues ->
+        Column(Modifier.fillMaxSize().padding(paddingValues)) {
         if (chatSearchActive) {
             Row(
                 modifier = Modifier
@@ -558,8 +593,8 @@ fun ChatScreen(
         }
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
+                .fillMaxWidth()
+                .weight(1f)
         ) {
             when {
                 uiState.isLoading -> {
@@ -584,11 +619,11 @@ fun ChatScreen(
                         }
                         LazyColumn(
                             state = listState,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxWidth().weight(1f),
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (uiState.canLoadMore) {
+                            if (!chatSearchActive && uiState.canLoadMore) {
                                 item(key = "load_earlier") {
                                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                         if (uiState.isLoadingMore) {
@@ -647,6 +682,7 @@ fun ChatScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -895,6 +931,7 @@ fun ChatScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun MessageItem(
     message: Message,
@@ -908,21 +945,34 @@ internal fun MessageItem(
     readers: List<ReadReceipt> = emptyList(),
     threadReplyCount: Int = 0,
     voicePlayback: com.matrix.messenger.platform.VoicePlaybackState? = null,
-    onSeekVoice: (Float) -> Unit = {},
-    onReaction: (String) -> Unit = {},
-    onEdit: () -> Unit = {},
-    onDelete: () -> Unit = {},
-    onOpenAttachment: () -> Unit = {},
-    onOpenImage: () -> Unit = {},
-    onOpenThread: () -> Unit = {},
-    onReply: () -> Unit = {},
-    onTogglePin: () -> Unit = {},
-    onPlayAudio: () -> Unit = {},
-    onVotePoll: (List<String>) -> Unit = {},
-    onEndPoll: () -> Unit = {}
+    onSeekVoice: ((Float) -> Unit)? = null,
+    onReaction: ((String) -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
+    onOpenAttachment: (() -> Unit)? = null,
+    onOpenImage: (() -> Unit)? = null,
+    onOpenThread: (() -> Unit)? = null,
+    onReply: (() -> Unit)? = null,
+    onTogglePin: (() -> Unit)? = null,
+    onPlayAudio: (() -> Unit)? = null,
+    onVotePoll: ((List<String>) -> Unit)? = null,
+    onEndPoll: (() -> Unit)? = null
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
-    var showReactionPicker by remember { mutableStateOf(false) }
+    if (message.messageType == MessageType.SYSTEM) {
+        Text(
+            text = message.body,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        return
+    }
+    val hasActions = !message.isDeleted && listOf(onReaction, onReply, onOpenThread, onTogglePin, onEdit, onDelete, onEndPoll).any { it != null }
+    var menuExpanded by remember(message.eventId) { mutableStateOf(false) }
+    var showReactionPicker by remember(message.eventId) { mutableStateOf(false) }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    val messageWidth = (maxWidth - 44.dp).coerceAtLeast(1.dp).coerceAtMost(560.dp)
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start
@@ -943,11 +993,14 @@ internal fun MessageItem(
                     Spacer(modifier = Modifier.width(36.dp))
                 }
             }
-            Column {
+            Column(Modifier.widthIn(max = messageWidth)) {
                 if (!message.isMine && isGroupStart) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = message.senderName?.substringBefore(":") ?: "Unknown",
+                            text = message.senderName?.substringBefore(":") ?: message.senderId,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = senderAccentColor(message.senderName, message.isMine)
@@ -959,6 +1012,7 @@ internal fun MessageItem(
                     }
                 }
                 Box {
+                Column(Modifier.widthIn(max = messageWidth)) {
                     // Element X: text-like messages live in a bubble, media is borderless.
                     val isMediaOnly = message.messageType in setOf(
                         MessageType.IMAGE, MessageType.STICKER, MessageType.LOCATION
@@ -966,7 +1020,7 @@ internal fun MessageItem(
 
                     if (isMediaOnly) {
                         Column(
-                            modifier = Modifier.clickable { menuExpanded = true },
+                            modifier = Modifier.clickable(enabled = hasActions) { menuExpanded = true },
                             horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start
                         ) {
                             when {
@@ -982,11 +1036,11 @@ internal fun MessageItem(
                                         MessageType.STICKER -> Modifier
                                             .widthIn(max = 160.dp)
                                             .clip(RoundedCornerShape(12.dp))
-                                            .clickable { onOpenImage() }
+                                            .clickable(enabled = onOpenImage != null) { onOpenImage?.invoke() }
                                         else -> Modifier
                                             .widthIn(max = 280.dp)
                                             .clip(RoundedCornerShape(12.dp))
-                                            .clickable { onOpenImage() }
+                                            .clickable(enabled = onOpenImage != null) { onOpenImage?.invoke() }
                                     }
                                     AsyncImage(
                                         model = MatrixMedia(message.mediaUrl, message.encryptedFile),
@@ -1028,7 +1082,7 @@ internal fun MessageItem(
                             } else {
                                 MaterialTheme.colorScheme.surfaceContainerHigh
                             },
-                            modifier = Modifier.clickable { menuExpanded = true }
+                            modifier = Modifier.clickable(enabled = hasActions) { menuExpanded = true }
                         ) {
                             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                                 val replyTo = message.replyTo
@@ -1063,9 +1117,14 @@ internal fun MessageItem(
                                 } else {
                                     val poll = message.poll
                                     when {
+                                        poll != null && onVotePoll == null -> Column {
+                                            Text(poll.question)
+                                            poll.answers.forEach { Text(it.text) }
+                                            Text("Голосование недоступно", style = MaterialTheme.typography.labelSmall)
+                                        }
                                         poll != null -> PollContent(
                                             message = message,
-                                            onVote = onVotePoll,
+                                            onVote = { onVotePoll?.invoke(it) },
                                             ended = message.pollEnded
                                         )
 
@@ -1122,7 +1181,7 @@ internal fun MessageItem(
                                             (message.mediaUrl != null || message.encryptedFile != null) -> {
                                             val hasThumb = message.videoThumbnailUrl != null || message.videoThumbnailFile != null
                                             Box(
-                                                modifier = Modifier.clickable { onOpenAttachment() }
+                                                modifier = Modifier.clickable(enabled = onOpenAttachment != null) { onOpenAttachment?.invoke() }
                                             ) {
                                                 if (hasThumb) {
                                                     AsyncImage(
@@ -1188,17 +1247,19 @@ internal fun MessageItem(
                                         }
 
                                         message.mediaUrl != null || message.encryptedFile != null -> {
-                                            if (message.messageType == MessageType.AUDIO) {
+                                            if (message.messageType == MessageType.AUDIO && onPlayAudio == null) {
+                                                Text("Аудио: ${message.body} · воспроизведение недоступно")
+                                            } else if (message.messageType == MessageType.AUDIO) {
                                                 VoiceMessageRow(
                                                     message = message,
                                                     playback = voicePlayback,
-                                                    onToggle = onPlayAudio,
-                                                    onSeek = onSeekVoice
+                                                    onToggle = { onPlayAudio?.invoke() },
+                                                    onSeek = { onSeekVoice?.invoke(it) }
                                                 )
                                             } else {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.clickable { onOpenAttachment() }
+                                                    modifier = Modifier.clickable(enabled = onOpenAttachment != null) { onOpenAttachment?.invoke() }
                                                 ) {
                                                     Icon(
                                                         Icons.Default.AttachFile,
@@ -1259,13 +1320,13 @@ internal fun MessageItem(
                     }
 
                     // Element X: thread summary chip under the root message.
-                    if (message.threadRootId == null && threadReplyCount > 0) {
+                    if (message.threadRootId == null && threadReplyCount > 0 && onOpenThread != null) {
                         Surface(
                             shape = MaterialTheme.shapes.extraLarge,
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
                             modifier = Modifier
                                 .padding(top = 4.dp)
-                                .clickable { onOpenThread() }
+                                .clickable { onOpenThread?.invoke() }
                         ) {
                             Text(
                                 text = "💬 В ветке: $threadReplyCount",
@@ -1308,8 +1369,9 @@ internal fun MessageItem(
                         }
                     }
                     if (message.reactions.isNotEmpty()) {
-                        Row(
+                        FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier.padding(top = 4.dp)
                         ) {
                             message.reactions.forEach { (emoji, count) ->
@@ -1318,7 +1380,7 @@ internal fun MessageItem(
                                     shape = MaterialTheme.shapes.extraLarge,
                                     color = if (isMine) MaterialTheme.colorScheme.primaryContainer
                                     else MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    modifier = Modifier.clickable { onReaction(emoji) }
+                                    modifier = Modifier.clickable(enabled = onReaction != null) { onReaction?.invoke(emoji) }
                                 ) {
                                     Text(
                                         text = "$emoji $count",
@@ -1334,9 +1396,10 @@ internal fun MessageItem(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false }
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly
+                        if (onReaction != null) FlowRow(
+                            modifier = Modifier.widthIn(max = 280.dp).padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             QuickReactions.forEach { emoji ->
                                 Text(
@@ -1346,7 +1409,7 @@ internal fun MessageItem(
                                         .clip(MaterialTheme.shapes.small)
                                         .clickable {
                                             menuExpanded = false
-                                            onReaction(emoji)
+                                            onReaction?.invoke(emoji)
                                         }
                                         .padding(4.dp)
                                 )
@@ -1363,72 +1426,74 @@ internal fun MessageItem(
                                     .padding(4.dp)
                             )
                         }
-                        HorizontalDivider()
+                        if (onReaction != null) HorizontalDivider()
                         if (!message.isDeleted) {
-                            DropdownMenuItem(
+                            if (onReply != null) DropdownMenuItem(
                                 text = { Text("Ответить") },
                                 onClick = {
                                     menuExpanded = false
-                                    onReply()
+                                    onReply?.invoke()
                                 }
                             )
-                            DropdownMenuItem(
+                            if (onOpenThread != null) DropdownMenuItem(
                                 text = { Text(if (message.threadRootId != null) "Открыть ветку" else "Ответить в ветке") },
                                 leadingIcon = { Icon(Icons.Default.Forum, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
-                                    onOpenThread()
+                                    onOpenThread?.invoke()
                                 }
                             )
-                            DropdownMenuItem(
+                            if (onTogglePin != null) DropdownMenuItem(
                                 text = { Text(if (isPinned) "Открепить" else "Закрепить") },
                                 leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
-                                    onTogglePin()
+                                    onTogglePin?.invoke()
                                 }
                             )
                         }
                         if (message.isMine && !message.isDeleted) {
-                            DropdownMenuItem(
+                            if (onEdit != null && message.messageType in setOf(MessageType.TEXT, MessageType.EMOTE) && message.poll == null) DropdownMenuItem(
                                 text = { Text("Редактировать") },
                                 onClick = {
                                     menuExpanded = false
-                                    onEdit()
+                                    onEdit?.invoke()
                                 }
                             )
-                            DropdownMenuItem(
+                            if (onDelete != null) DropdownMenuItem(
                                 text = { Text("Удалить") },
                                 leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
-                                    onDelete()
+                                    onDelete?.invoke()
                                 }
                             )
-                            if (message.poll != null && message.isMine && !message.pollEnded) {
+                            if (message.poll != null && message.isMine && !message.pollEnded && onEndPoll != null) {
                                 DropdownMenuItem(
                                     text = { Text("Завершить опрос") },
                                     leadingIcon = { Icon(Icons.Default.HowToVote, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
-                                        onEndPoll()
+                                        onEndPoll?.invoke()
                                     }
                                 )
                             }
                         }
                     }
-                    ReactionPicker(
+                    if (onReaction != null) ReactionPicker(
                         expanded = showReactionPicker,
                         myReactions = message.myReactions,
                         recentReactions = recentReactions,
                         onDismiss = { showReactionPicker = false },
                         onSelect = onReaction
                     )
+                }
             }
             if (message.isMine) {
                 Spacer(modifier = Modifier.width(36.dp))
             }
         }
+    }
     }
 }
 

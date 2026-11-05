@@ -3,9 +3,15 @@ package com.matrix.messenger.platform
 import androidx.compose.runtime.Composable
 
 /**
- * Launches video capture for a "video message". On Android the system camera
- * records an mp4; on desktop a video file picker opens instead. [onDone]
- * receives the recorded file path (null when cancelled).
+ * Launches video capture. Android requests CAMERA before launching the system
+ * camera; desktop opens a video file picker. [onDone] receives a non-empty file
+ * path for preview/send, or null on cancellation. Permission denial, launch
+ * failure and a successful capture with missing/empty output call [onError]
+ * instead; no successful [onDone] is emitted on those paths. The caller owns
+ * preview, sending and deletion of successfully returned files.
  */
 @Composable
-expect fun rememberVideoRecorder(onDone: (path: String?) -> Unit): () -> Unit
+expect fun rememberVideoRecorder(
+    onError: (String) -> Unit = {},
+    onDone: (path: String?) -> Unit
+): () -> Unit

@@ -6,7 +6,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 
@@ -16,10 +19,18 @@ actual fun rememberCallPermissionRequester(
 ): (isVideo: Boolean) -> Unit {
     val context = LocalContext.current
     val currentOnResult by rememberUpdatedState(onResult)
+    var pendingRequired by remember {
+        mutableStateOf<List<String>?>(null)
+    }
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        currentOnResult(grants[Manifest.permission.RECORD_AUDIO] == true)
+    ) {
+        val required = pendingRequired
+        pendingRequired = null
+        // Callback maps contain only requested permissions, not pregranted ones.
+        currentOnResult(required != null && required.all {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        })
     }
     return { isVideo ->
         val required = buildList {
@@ -29,10 +40,16 @@ actual fun rememberCallPermissionRequester(
         val missing = required.filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (missing.isEmpty()) {
-            currentOnResult(true)
-        } else {
-            launcher.launch(missing.toTypedArray())
+        if (pendingRequired == null) {
+            if (missing.isEmpty()) {
+                currentOnResult(true)
+            } else {
+                pendingRequired = required
+                runCatching { launcher.launch(missing.toTypedArray()) }.onFailure {
+                    pendingRequired = null
+                    currentOnResult(false)
+                }
+            }
         }
     }
 }

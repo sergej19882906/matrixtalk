@@ -11,6 +11,10 @@ import com.matrix.messenger.data.model.UiState
 import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.data.repository.SessionStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -21,6 +25,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
 data class ChatUiState(
@@ -44,6 +50,8 @@ data class ChatUiState(
     val markdownEnabled: Boolean = false,
     /** Unread messages at the moment the room was opened (for jump-to-unread). */
     val initialUnreadCount: Int = 0,
+    val unreadSnapshotLoaded: Boolean = false,
+    val initialUnreadEventId: String? = null,
     /** Event id of the image currently opened in the fullscreen viewer, null = closed. */
     val imageViewerMessageId: String? = null,
     /** Presence of the direct-chat peer, polled while the chat is open. */
@@ -60,7 +68,7 @@ class ChatViewModel(
     private val _uiStateSealed = MutableStateFlow<UiState<List<Message>>>(UiState.Loading)
     val uiStateSealed: StateFlow<UiState<List<Message>>> = _uiStateSealed.asStateFlow()
 
-    private val _events = Channel<UiEvent>()
+    private val _events = Channel<UiEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
 
     /** SAS verification state (in-chat verification of the requesting device). */
@@ -71,68 +79,98 @@ class ChatViewModel(
     private val _readReceipts = MutableStateFlow<Map<String, List<ReadReceipt>>>(emptyMap())
     val readReceipts: StateFlow<Map<String, List<ReadReceipt>>> = _readReceipts.asStateFlow()
 
+    private fun launchRoomAction(error: String, block: suspend () -> Unit): Job? = roomScope?.launch {
+        try { block() }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { _events.send(UiEvent.ShowSnackbar("$error: ${e.message ?: "неизвестная ошибка"}")) }
+    }
+
     fun confirmVerification(matches: Boolean) {
-        viewModelScope.launch { matrixRepository.confirmVerification(matches) }
+        launchRoomAction("Ошибка верификации") { matrixRepository.confirmVerification(matches) }
     }
 
     fun cancelVerification() {
-        viewModelScope.launch { matrixRepository.cancelVerification() }
+        launchRoomAction("Ошибка отмены верификации") { matrixRepository.cancelVerification() }
     }
+
+    private var roomScope: CoroutineScope? = null
 
     fun setRoomId(roomId: String) {
         if (_uiState.value.roomId != roomId) {
-            _uiState.value = _uiState.value.copy(roomId = roomId, peerPresence = null)
+            roomScope?.cancel()
+            recordingTimerJob?.cancel()
+            voiceRecorder?.cancel()
+            voiceRecorder = null
+            _uiState.value = ChatUiState(roomId = roomId)
+            _uiStateSealed.value = UiState.Loading
             _readReceipts.value = emptyMap()
+            roomScope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
             observeMessages(roomId)
             observePeerPresence(roomId)
             if (!presencePublished) {
                 presencePublished = true
-                viewModelScope.launch { runCatching { matrixRepository.setOwnPresence(true) } }
+                roomScope?.launch { runCatching { matrixRepository.setOwnPresence(true) } }
             }
         }
     }
 
+    private fun unreadAnchor(state: ChatUiState): String? = state.initialUnreadEventId
+        ?: state.messages.takeIf { state.unreadSnapshotLoaded && state.initialUnreadCount > 0 && it.isNotEmpty() }
+            ?.let { it[(it.size - state.initialUnreadCount).coerceAtLeast(0)].eventId }
+
     private fun observeMessages(roomId: String) {
-        viewModelScope.launch {
-            matrixRepository.getMessagesFlow(roomId).flowOn(Dispatchers.Default).collect { messages ->
-                _uiState.value = _uiState.value.copy(
-                    messages = messages.sortedBy { it.timestamp },
-                    isLoading = false,
-                    isLoadingMore = false,
-                    canLoadMore = matrixRepository.canLoadMoreMessages(roomId)
-                )
-                _uiStateSealed.value = UiState.Success(messages)
+        roomScope?.launch {
+            try {
+                matrixRepository.getMessagesFlow(roomId).flowOn(Dispatchers.Default).collect { messages ->
+                    val state = _uiState.value.copy(
+                        messages = messages.sortedBy { it.timestamp },
+                        isLoading = false,
+                        canLoadMore = matrixRepository.canLoadMoreMessages(roomId)
+                    )
+                    _uiState.value = state.copy(initialUnreadEventId = unreadAnchor(state))
+                    _uiStateSealed.value = UiState.Success(messages)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isLoading = false, error = e.message ?: "Не удалось загрузить сообщения")
+                _events.send(UiEvent.ShowSnackbar("Не удалось загрузить сообщения: ${e.message}"))
             }
         }
 
-        viewModelScope.launch {
-            val roomInfo = matrixRepository.getRoomInfo(roomId)
-            _uiState.value = _uiState.value.copy(
-                roomName = roomInfo?.name,
-                roomAvatarUrl = roomInfo?.avatarUrl,
-                initialUnreadCount = roomInfo?.unreadCount ?: 0
-            )
+        roomScope?.launch {
+            try {
+                val roomInfo = matrixRepository.getRoomInfo(roomId)
+                val state = _uiState.value.copy(
+                    roomName = roomInfo?.name,
+                    roomAvatarUrl = roomInfo?.avatarUrl,
+                    initialUnreadCount = roomInfo?.unreadCount ?: 0,
+                    unreadSnapshotLoaded = true
+                )
+                _uiState.value = state.copy(initialUnreadEventId = unreadAnchor(state))
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _events.send(UiEvent.ShowSnackbar("Не удалось загрузить сведения комнаты: ${e.message}")) }
         }
 
-        viewModelScope.launch {
+        launchRoomAction("Не удалось загрузить доверие комнаты") {
             matrixRepository.getRoomTrustFlow(roomId).flowOn(Dispatchers.Default).collect { trust ->
                 _uiState.value = _uiState.value.copy(roomTrust = trust)
             }
         }
 
-        viewModelScope.launch {
+        launchRoomAction("Не удалось загрузить отметки прочтения") {
             matrixRepository.getReadReceiptsFlow(roomId).flowOn(Dispatchers.Default).collect { receipts ->
                 _readReceipts.value = receipts
             }
         }
 
-        viewModelScope.launch {
+        launchRoomAction("Не удалось загрузить статус набора") {
             matrixRepository.getTypingUsersFlow(roomId).flowOn(Dispatchers.Default).collect { users ->
                 _uiState.value = _uiState.value.copy(typingUsers = users)
             }
         }
 
-        viewModelScope.launch {
+        launchRoomAction("Не удалось загрузить закреплённые сообщения") {
             matrixRepository.getPinnedMessagesFlow(roomId).flowOn(Dispatchers.Default).collect { pinned ->
                 _uiState.value = _uiState.value.copy(pinnedMessages = pinned)
             }
@@ -142,9 +180,11 @@ class ChatViewModel(
     fun togglePin(message: Message) {
         val roomId = _uiState.value.roomId
         val pinned = _uiState.value.pinnedMessages.any { it.eventId == message.eventId }
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.setPinnedMessage(roomId, message.eventId, pinned = !pinned)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Не удалось изменить закреп: ${e.message}"))
             }
@@ -155,12 +195,17 @@ class ChatViewModel(
         val roomId = _uiState.value.roomId
         if (roomId.isBlank() || _uiState.value.isLoadingMore) return
         _uiState.value = _uiState.value.copy(isLoadingMore = true)
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.loadEarlierMessages(roomId)
+                _uiState.value = _uiState.value.copy(canLoadMore = matrixRepository.canLoadMoreMessages(roomId))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoadingMore = false)
                 _events.send(UiEvent.ShowSnackbar("Ошибка загрузки: ${e.message}"))
+            } finally {
+                _uiState.value = _uiState.value.copy(isLoadingMore = false)
             }
         }
     }
@@ -171,7 +216,7 @@ class ChatViewModel(
             isTyping = input.isNotBlank()
         )
 
-        viewModelScope.launch {
+        launchRoomAction("Не удалось отправить статус набора") {
             matrixRepository.sendTypingNotification(
                 _uiState.value.roomId,
                 input.isNotBlank()
@@ -225,25 +270,24 @@ class ChatViewModel(
             "help" -> _events.send(
                 UiEvent.ShowSnackbar("/me /join #alias /leave /invite @user /kick @user /ban @user [причина] /unban @user")
             )
-            else -> {
-                _events.send(UiEvent.ShowSnackbar("Неизвестная команда: /$command. /help — список"))
-            }
+            else -> throw IllegalArgumentException("Неизвестная команда: /$command. /help — список")
         }
         return true
     }
 
     fun sendMessage() {
-        viewModelScope.launch {
+        roomScope?.launch {
             val state = _uiState.value
             val message = state.messageInput.trim()
             if (message.isBlank()) return@launch
 
-            if (handleSlashCommand(message)) {
-                _uiState.value = _uiState.value.copy(messageInput = "", isTyping = false)
-                return@launch
-            }
-
             try {
+                if (handleSlashCommand(message)) {
+                    if (_uiState.value.messageInput == state.messageInput) {
+                        _uiState.value = _uiState.value.copy(messageInput = "", isTyping = false)
+                    }
+                    return@launch
+                }
                 val replyingTo = state.replyingTo
                 if (replyingTo != null) {
                     matrixRepository.replyToMessage(
@@ -264,12 +308,16 @@ class ChatViewModel(
                         message
                     )
                 }
-                _uiState.value = _uiState.value.copy(
-                    messageInput = "",
-                    isTyping = false,
-                    replyingTo = null
-                )
+                if (_uiState.value.messageInput == state.messageInput) {
+                    _uiState.value = _uiState.value.copy(
+                        messageInput = "",
+                        isTyping = false,
+                        replyingTo = null
+                    )
+                }
                 matrixRepository.sendTypingNotification(_uiState.value.roomId, false)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки: ${e.message}"))
             }
@@ -279,11 +327,13 @@ class ChatViewModel(
     private var presencePublished = false
 
     private fun observePeerPresence(roomId: String) {
-        viewModelScope.launch {
+        roomScope?.launch {
             val peer = runCatching { matrixRepository.resolveDirectChatPeerId(roomId) }.getOrNull()
                 ?: return@launch
             while (_uiState.value.roomId == roomId) {
                 val presence = runCatching { matrixRepository.getPresence(peer) }.getOrNull()
+                currentCoroutineContext().ensureActive()
+                if (_uiState.value.roomId != roomId) return@launch
                 _uiState.value = _uiState.value.copy(peerPresence = presence)
                 kotlinx.coroutines.delay(60_000)
             }
@@ -295,9 +345,11 @@ class ChatViewModel(
     }
 
     fun sendVideoMessage(path: String) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.sendFileMessage(_uiState.value.roomId, path, "video/mp4")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки видео: ${e.message}"))
             }
@@ -305,9 +357,11 @@ class ChatViewModel(
     }
 
     fun sendSticker(filePath: String, mimeType: String) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.sendSticker(_uiState.value.roomId, filePath, mimeType)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки стикера: ${e.message}"))
             }
@@ -315,11 +369,13 @@ class ChatViewModel(
     }
 
     fun sendLocation(latitude: Double, longitude: Double, accuracyMeters: Double? = null) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.sendLocation(_uiState.value.roomId, latitude, longitude, accuracyMeters)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _events.send(UiEvent.ShowSnackbar("Ошибка отправки геолокации: \${e.message}"))
+                _events.send(UiEvent.ShowSnackbar("Ошибка отправки геолокации: ${e.message}"))
             }
         }
     }
@@ -352,10 +408,12 @@ class ChatViewModel(
     }
 
     fun sendReaction(eventId: String, reaction: String) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.sendReaction(eventId, reaction)
                 rememberReaction(reaction)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки реакции: ${e.message}"))
             }
@@ -364,7 +422,7 @@ class ChatViewModel(
 
     /** Toggles a reaction: adds it, or removes it when the user already reacted with it. */
     fun toggleReaction(message: Message, reaction: String) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 if (reaction in message.myReactions) {
                     matrixRepository.unreact(_uiState.value.roomId, message.eventId, reaction)
@@ -372,6 +430,8 @@ class ChatViewModel(
                     matrixRepository.sendReaction(message.eventId, reaction)
                     rememberReaction(reaction)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка реакции: ${e.message}"))
             }
@@ -387,13 +447,15 @@ class ChatViewModel(
     }
 
     fun editMessage(eventId: String, newText: String) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.editMessage(
                     eventId = eventId,
                     roomId = _uiState.value.roomId,
                     newText = newText
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка редактирования: ${e.message}"))
             }
@@ -401,12 +463,14 @@ class ChatViewModel(
     }
 
     fun deleteMessage(eventId: String) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.deleteMessage(
                     eventId = eventId,
                     roomId = _uiState.value.roomId
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка удаления: ${e.message}"))
             }
@@ -414,13 +478,15 @@ class ChatViewModel(
     }
 
     fun sendFile(filePath: String, mimeType: String?) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.sendFileMessage(
                     roomId = _uiState.value.roomId,
                     filePath = filePath,
                     mimeType = mimeType.orEmpty()
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 com.matrix.messenger.platform.logError("Chat", "File send failed ($filePath)", e)
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки файла: ${e.message}"))
@@ -437,14 +503,14 @@ class ChatViewModel(
         if (_uiState.value.isRecordingVoice) return
         val recorder = com.matrix.messenger.platform.createVoiceRecorder()
         if (!recorder.start()) {
-            viewModelScope.launch {
+            roomScope?.launch {
                 _events.send(UiEvent.ShowSnackbar("Не удалось начать запись — проверьте микрофон"))
             }
             return
         }
         voiceRecorder = recorder
         _uiState.value = _uiState.value.copy(isRecordingVoice = true, recordingSeconds = 0)
-        recordingTimerJob = viewModelScope.launch {
+        recordingTimerJob = roomScope?.launch {
             while (true) {
                 kotlinx.coroutines.delay(1000)
                 _uiState.value = _uiState.value.copy(recordingSeconds = _uiState.value.recordingSeconds + 1)
@@ -462,7 +528,7 @@ class ChatViewModel(
             recorder.cancel()
             return
         }
-        viewModelScope.launch {
+        roomScope?.launch {
             val path = recorder.stop()
             if (path == null) {
                 _events.send(UiEvent.ShowSnackbar("Запись не сохранилась"))
@@ -475,6 +541,8 @@ class ChatViewModel(
                     durationMs = null,
                     waveform = recorder.waveform
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки голосового: ${e.message}"))
             }
@@ -484,16 +552,18 @@ class ChatViewModel(
     val voicePlayback = com.matrix.messenger.platform.VoicePlayback.state
 
     fun playAudioMessage(message: Message) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 // Both encrypted and plain media resolve to a local file through
                 // the authenticated media client.
-                val source = matrixRepository.resolveMediaFile(message.eventId, message.body)
+                val source = matrixRepository.resolveMediaFile(message.eventId, message.body, _uiState.value.roomId)
                 if (source != null) {
                     com.matrix.messenger.platform.VoicePlayback.toggle(message.eventId, source)
                 } else {
                     _events.send(UiEvent.ShowSnackbar("Не удалось открыть аудио"))
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка воспроизведения: ${e.message}"))
             }
@@ -501,9 +571,9 @@ class ChatViewModel(
     }
 
     fun openAttachment(message: Message) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
-                val path = matrixRepository.resolveMediaFile(message.eventId, message.body)
+                val path = matrixRepository.resolveMediaFile(message.eventId, message.body, _uiState.value.roomId)
                 if (path != null) {
                     com.matrix.messenger.platform.openLocalFile(path)
                 } else {
@@ -516,6 +586,8 @@ class ChatViewModel(
                     )
                     _events.send(UiEvent.ShowSnackbar("Не удалось открыть файл"))
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 com.matrix.messenger.platform.logError(
                     "Chat",
@@ -528,10 +600,12 @@ class ChatViewModel(
     }
 
     fun leaveRoom() {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.leaveRoom(_uiState.value.roomId)
                 _events.send(UiEvent.NavigateBack)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка выхода из комнаты: ${e.message}"))
             }
@@ -541,15 +615,17 @@ class ChatViewModel(
     fun inviteUser(userId: String) {
         val target = userId.trim()
         if (target.isBlank() || !target.startsWith("@")) {
-            viewModelScope.launch {
+            roomScope?.launch {
                 _events.send(UiEvent.ShowSnackbar("Введите user ID вида @user:server"))
             }
             return
         }
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.inviteUserToRoom(_uiState.value.roomId, target)
                 _events.send(UiEvent.ShowSnackbar("Приглашение отправлено"))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Не удалось пригласить: ${e.message}"))
             }
@@ -557,9 +633,11 @@ class ChatViewModel(
     }
 
     fun createPoll(question: String, answers: List<String>) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.sendPoll(_uiState.value.roomId, question.trim(), answers.map { it.trim() })
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Не удалось создать опрос: ${e.message}"))
             }
@@ -567,9 +645,11 @@ class ChatViewModel(
     }
 
     fun endPoll(pollEventId: String) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.sendPollEnd(_uiState.value.roomId, pollEventId)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Не удалось завершить опрос: ${e.message}"))
             }
@@ -577,9 +657,11 @@ class ChatViewModel(
     }
 
     fun votePoll(message: Message, answerIds: List<String>) {
-        viewModelScope.launch {
+        roomScope?.launch {
             try {
                 matrixRepository.sendPollVote(_uiState.value.roomId, message.eventId, answerIds)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Не удалось проголосовать: ${e.message}"))
             }
@@ -592,9 +674,7 @@ class ChatViewModel(
         recordingTimerJob = null
         voiceRecorder?.cancel()
         voiceRecorder = null
+        roomScope?.cancel()
         super.onCleared()
-        viewModelScope.launch {
-            matrixRepository.sendTypingNotification(_uiState.value.roomId, false)
-        }
     }
 }

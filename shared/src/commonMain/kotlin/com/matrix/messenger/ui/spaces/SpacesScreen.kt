@@ -53,9 +53,13 @@ fun SpacesScreen(
     val spaces by viewModel.spaces.collectAsState()
     val childrenCounts by viewModel.childrenCounts.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val error by viewModel.error.collectAsState()
+    val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
+    androidx.compose.runtime.LaunchedEffect(error) { error?.let { snackbar.showSnackbar(it) } }
     var leaving by remember { mutableStateOf<ChatRoom?>(null) }
 
     Scaffold(
+        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text("Пространства") },
@@ -75,6 +79,11 @@ fun SpacesScreen(
             if (isLoading && spaces.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
+                }
+            } else if (error != null && spaces.isEmpty()) {
+                Column(Modifier.align(Alignment.Center).padding(24.dp)) {
+                    Text(error!!)
+                    TextButton(onClick = viewModel::reload) { Text("Повторить") }
                 }
             } else if (spaces.isEmpty()) {
                 Column(
@@ -118,7 +127,7 @@ fun SpacesScreen(
                                 Text(
                                     text = when (count) {
                                         null -> "…"
-                                        else -> "$count комнат"
+                                        else -> "Загружено: $count"
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant

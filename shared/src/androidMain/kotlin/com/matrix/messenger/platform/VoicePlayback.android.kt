@@ -3,6 +3,7 @@ package com.matrix.messenger.platform
 import android.media.MediaPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,91 +13,133 @@ import kotlinx.coroutines.launch
 
 actual object VoicePlayback {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow<VoicePlaybackState?>(null)
     actual val state: StateFlow<VoicePlaybackState?> = _state.asStateFlow()
 
     private var player: MediaPlayer? = null
     private var currentSourceId: String? = null
-    private var currentSource: String? = null
+    private var generation = 0L
+    private var prepared = false
+    private var playWhenPrepared = true
+    private var pollJob: Job? = null
 
-    private fun pollLoop() {
-        scope.launch {
-            while (player != null) {
-                val p = player
-                if (p != null && p.isPlaying) {
-                    _state.value = VoicePlaybackState(
-                        sourceId = currentSourceId ?: return@launch,
-                        positionMs = p.currentPosition.toLong(),
-                        durationMs = p.duration.toLong(),
-                        playing = true
-                    )
-                }
+    private fun isCurrent(p: MediaPlayer, token: Long): Boolean = player === p && generation == token
+
+    private fun releasePlayer(p: MediaPlayer, token: Long) {
+        if (isCurrent(p, token)) {
+            generation++
+            pollJob?.cancel()
+            pollJob = null
+            player = null
+            currentSourceId = null
+            prepared = false
+            _state.value = null
+        }
+        // Stale callbacks may only release their own instance, never the replacement.
+        runCatching { p.release() }
+    }
+
+    private fun stopNow() {
+        generation++
+        pollJob?.cancel()
+        pollJob = null
+        val old = player
+        player = null
+        currentSourceId = null
+        prepared = false
+        _state.value = null
+        runCatching { old?.release() }
+    }
+
+    private fun publish(p: MediaPlayer, token: Long, sourceId: String) {
+        if (!isCurrent(p, token) || !prepared) return
+        _state.value = VoicePlaybackState(
+            sourceId = sourceId,
+            positionMs = p.currentPosition.toLong(),
+            durationMs = p.duration.toLong(),
+            playing = p.isPlaying
+        )
+    }
+
+    private fun pollLoop(p: MediaPlayer, token: Long, sourceId: String) {
+        pollJob?.cancel()
+        pollJob = scope.launch {
+            while (isCurrent(p, token) && prepared) {
+                runCatching { publish(p, token, sourceId) }.onFailure { releasePlayer(p, token) }
                 delay(200)
             }
         }
     }
 
     actual fun toggle(sourceId: String, source: String) {
-        val current = _state.value
-        if (current?.sourceId == sourceId) {
-            val p = player ?: return
-            if (p.isPlaying) {
-                p.pause()
-                _state.value = current.copy(playing = false)
-            } else {
-                p.start()
-                _state.value = current.copy(playing = true)
+        scope.launch {
+            val existing = player
+            if (existing != null && currentSourceId == sourceId) {
+                val token = generation
+                if (!prepared) {
+                    playWhenPrepared = !playWhenPrepared
+                    return@launch
+                }
+                runCatching {
+                    if (existing.isPlaying) existing.pause() else existing.start()
+                    publish(existing, token, sourceId)
+                }.onFailure { releasePlayer(existing, token) }
+                return@launch
             }
-            return
-        }
-        stop()
-        runCatching {
-            val p = MediaPlayer()
-            p.setDataSource(source)
-            p.setOnPreparedListener {
-                it.start()
+            stopNow()
+            val token = generation
+            var created: MediaPlayer? = null
+            runCatching {
+                val p = MediaPlayer()
+                created = p
+                // Retain before setDataSource/prepareAsync, including the preparing phase.
+                player = p
                 currentSourceId = sourceId
-                currentSource = source
-                player = it
-                _state.value = VoicePlaybackState(
-                    sourceId = sourceId,
-                    positionMs = 0,
-                    durationMs = it.duration.toLong(),
-                    playing = true
-                )
-                pollLoop()
+                playWhenPrepared = true
+                p.setDataSource(source)
+                p.setOnPreparedListener { callback ->
+                    scope.launch {
+                        if (!isCurrent(callback, token)) {
+                            runCatching { callback.release() }
+                            return@launch
+                        }
+                        runCatching {
+                            prepared = true
+                            if (playWhenPrepared) callback.start()
+                            publish(callback, token, sourceId)
+                            pollLoop(callback, token, sourceId)
+                        }.onFailure { releasePlayer(callback, token) }
+                    }
+                }
+                p.setOnCompletionListener { callback ->
+                    scope.launch { releasePlayer(callback, token) }
+                }
+                p.setOnErrorListener { callback, _, _ ->
+                    scope.launch { releasePlayer(callback, token) }
+                    true
+                }
+                p.prepareAsync()
+            }.onFailure {
+                created?.let { releasePlayer(it, token) }
             }
-            p.setOnCompletionListener {
-                _state.value = null
-                releasePlayer()
-            }
-            p.setOnErrorListener { mp, _, _ ->
-                releasePlayer()
-                _state.value = null
-                true
-            }
-            p.prepareAsync()
         }
     }
 
     actual fun seekTo(fraction: Float) {
-        val p = player ?: return
-        val duration = p.duration
-        if (duration > 0) {
-            p.seekTo((fraction.coerceIn(0f, 1f) * duration).toInt())
+        if (!fraction.isFinite()) return
+        scope.launch {
+            val p = player ?: return@launch
+            val token = generation
+            if (!prepared) return@launch
+            runCatching {
+                val duration = p.duration
+                if (duration > 0) p.seekTo((fraction.coerceIn(0f, 1f) * duration).toInt())
+            }.onFailure { releasePlayer(p, token) }
         }
     }
 
     actual fun stop() {
-        releasePlayer()
-        _state.value = null
-    }
-
-    private fun releasePlayer() {
-        runCatching { player?.release() }
-        player = null
-        currentSourceId = null
-        currentSource = null
+        scope.launch { stopNow() }
     }
 }

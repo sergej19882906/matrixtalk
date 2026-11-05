@@ -6,15 +6,23 @@ package com.matrix.messenger.data.model
  */
 object EventDescriptions {
 
-    fun member(membership: String, sender: String, subject: String, newDisplayName: String?): String =
-        when (membership) {
-            "join" ->
-                if (sender == subject) {
-                    val name = newDisplayName?.let { " (теперь: $it)" } ?: ""
-                    "$sender присоединился к чату$name"
-                } else {
-                    "$sender добавил $subject в чат"
-                }
+    fun member(
+        membership: String,
+        sender: String,
+        subject: String,
+        newDisplayName: String?,
+        previousMembership: String? = null,
+        previousDisplayName: String? = null
+    ): String = when (membership) {
+            "join" -> when {
+                previousMembership == "join" && previousDisplayName != newDisplayName ->
+                    if (newDisplayName.isNullOrBlank()) "$subject удалил отображаемое имя"
+                    else "$subject изменил отображаемое имя на «$newDisplayName»"
+                previousMembership == "join" -> "$subject обновил профиль участника"
+                previousMembership == null -> "$sender обновил сведения об участнике $subject"
+                sender == subject -> "$sender присоединился к чату"
+                else -> "$sender добавил $subject в чат"
+            }
             "invite" -> "$sender пригласил $subject"
             "ban" -> "$sender забанил $subject"
             "leave" ->

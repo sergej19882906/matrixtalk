@@ -12,8 +12,11 @@ data class VoicePlaybackState(
 
 /**
  * Single-voice playback controller. Toggle switches between play / pause /
- * switching to another message. Desktop falls back to the system player
- * (state stays null there).
+ * switching to another message. Commands are serialized by each platform and
+ * asynchronous preparation/desktop IO never retains a retired playback session.
+ * Position tracks consumed audio rather than bytes queued to the output device.
+ * Desktop falls back to the system player for unsupported containers such as
+ * M4A/AAC (state stays null there, after stopping the previous in-app session).
  */
 expect object VoicePlayback {
     val state: StateFlow<VoicePlaybackState?>

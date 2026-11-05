@@ -65,11 +65,15 @@ fun SpaceDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var leaving by remember { mutableStateOf(false) }
 
+    var preview by remember(spaceId) { mutableStateOf<PublicRoomItem?>(null) }
+    val openChild: (PublicRoomItem) -> Unit = { child ->
+        if (child.isJoined) {
+            if (child.isSpace) onOpenNestedSpace(child.roomId, child.name) else onOpenRoom(child.roomId)
+        } else preview = child
+    }
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-    LaunchedEffect(Unit) {
-        if (shareLink != null) {
-            // nothing; link fetched on init
-        }
+    LaunchedEffect(uiState.error) {
+        uiState.error?.let { snackbarHostState.showSnackbar(it) }
     }
 
     Scaffold(
@@ -111,6 +115,12 @@ fun SpaceDetailScreen(
             modifier = Modifier.fillMaxSize().padding(paddingValues),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp)
         ) {
+            if (uiState.error != null) {
+                item(key = "load_error") {
+                    Text(uiState.error!!, color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = viewModel::reload) { Text("Повторить загрузку") }
+                }
+            }
             item(key = "header") {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -138,7 +148,7 @@ fun SpaceDetailScreen(
                         )
                     }
                     Text(
-                        text = "${uiState.membersCount} участн. · ${uiState.rooms.size} комнат",
+                        text = "${uiState.membersCount} участн. · загружено комнат: ${uiState.rooms.size}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -156,9 +166,7 @@ fun SpaceDetailScreen(
                     Spacer(Modifier.height(4.dp))
                 }
                 items(uiState.childSpaces, key = { "space_${it.roomId}" }) { child ->
-                    SpaceChildRow(child = child, onOpen = {
-                        onOpenNestedSpace(child.roomId, child.name)
-                    })
+                    SpaceChildRow(child = child, onOpen = { openChild(child) })
                 }
                 item(key = "rooms_header_gap") { Spacer(Modifier.height(12.dp)) }
             }
@@ -172,7 +180,7 @@ fun SpaceDetailScreen(
                 Spacer(Modifier.height(4.dp))
             }
             items(uiState.rooms, key = { it.roomId }) { child ->
-                SpaceChildRow(child = child, onOpen = { onOpenRoom(child.roomId) })
+                SpaceChildRow(child = child, onOpen = { openChild(child) })
             }
             if (uiState.rooms.isEmpty()) {
                 item(key = "rooms_empty") {
@@ -227,6 +235,30 @@ fun SpaceDetailScreen(
                 }
             }
         }
+    }
+
+    preview?.let { child ->
+        AlertDialog(
+            onDismissRequest = { if (!uiState.isWorking) preview = null },
+            title = { Text(child.name ?: child.roomId) },
+            text = {
+                Column {
+                    Text(child.topic ?: "Описание отсутствует")
+                    Text("${child.joinedMembers} участн. · ${child.joinRule}")
+                    if (!child.roomTypeKnown) Text("Тип комнаты не определён сервером.")
+                    uiState.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !uiState.isWorking, onClick = {
+                    viewModel.joinChild(child) { joinedId ->
+                        preview = null
+                        if (child.isSpace) onOpenNestedSpace(joinedId, child.name) else onOpenRoom(joinedId)
+                    }
+                }) { Text(if (uiState.isWorking) "Присоединение…" else "Присоединиться") }
+            },
+            dismissButton = { TextButton(enabled = !uiState.isWorking, onClick = { preview = null }) { Text("Отмена") } }
+        )
     }
 
     if (leaving) {
