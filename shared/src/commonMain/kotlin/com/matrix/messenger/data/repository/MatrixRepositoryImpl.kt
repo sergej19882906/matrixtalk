@@ -215,6 +215,9 @@ class MatrixRepositoryImpl : MatrixRepository {
     private val encryptedFiles = mutableMapOf<String, net.folivo.trixnity.core.model.events.m.room.EncryptedFile>()
     private val mediaMxcCache = mutableMapOf<String, String>()
 
+    /** Original media MIME per event id (best-effort; forwarded media keeps its type). */
+    private val mediaMimeCache = mutableMapOf<String, String>()
+
     private val _currentUser = MutableStateFlow<MatrixUser?>(null)
     override val currentUser: Flow<MatrixUser?> = _currentUser.asStateFlow()
 
@@ -631,6 +634,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             eventRoomMap.clear()
             encryptedFiles.clear()
             mediaMxcCache.clear()
+            mediaMimeCache.clear()
             userNameCache.clear()
             userAvatarCache.clear()
             pageSizes.clear()
@@ -1412,16 +1416,20 @@ class MatrixRepositoryImpl : MatrixRepository {
     override suspend fun forwardMessages(targetRoomId: String, messages: List<com.matrix.messenger.data.model.Message>): Int {
         var forwarded = 0
         messages.forEach { message ->
-            when (message.messageType) {
-                com.matrix.messenger.data.model.MessageType.TEXT ->
+            when {
+                // Polls are recreated as a fresh poll in the target room (votes do not carry).
+                message.poll != null -> sendPoll(
+                    targetRoomId,
+                    message.poll.question,
+                    message.poll.answers.map { it.text },
+                )
+                message.messageType == com.matrix.messenger.data.model.MessageType.TEXT ->
                     sendTextMessage(targetRoomId, message.body)
-                com.matrix.messenger.data.model.MessageType.EMOTE ->
+                message.messageType == com.matrix.messenger.data.model.MessageType.EMOTE ->
                     sendEmoteMessage(targetRoomId, message.body)
-                com.matrix.messenger.data.model.MessageType.STICKER -> {
+                message.messageType == com.matrix.messenger.data.model.MessageType.STICKER -> {
                     val mxc = message.mediaUrl ?: return@forEach
-                    val mime = message.encryptedFile?.let { null }
-                        ?: "image/png"
-                    sendStickerUrl(targetRoomId, mxc, message.body, mime)
+                    sendStickerUrl(targetRoomId, mxc, message.body, "image/png")
                 }
                 else -> {
                     // Media: download (decrypt if needed), park in a temp file, resend per type.
@@ -1429,7 +1437,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                         message.encryptedFile?.let { requireClient().media.getEncryptedMedia(it).getOrThrow().toByteArray() }
                             ?: message.mediaUrl?.let { requireClient().media.getMedia(it).getOrThrow().toByteArray() }
                     } ?: return@forEach
-                    val mime = "application/octet-stream"
+                    val mime = mediaMimeCache[message.eventId] ?: "application/octet-stream"
                     val suffix = com.matrix.messenger.data.repository.mediaSuffix(mime) ?: "bin"
                     val tempPath = "${attachmentsDir()}/forward-${kotlin.random.Random.nextLong(1_000_000_000L)}.$suffix"
                     writeFileBytes(tempPath, bytes)
@@ -2435,6 +2443,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         originalContent.mediaReference()?.let { media ->
             media.file?.let { encryptedFiles[eventId.full] = it }
             media.url?.let { mediaMxcCache[eventId.full] = it }
+            media.mimeType?.let { mediaMimeCache[eventId.full] = it }
         }
         if (eventContent is CallInviteEventContent) {
             val isMine = sender == c.userId
