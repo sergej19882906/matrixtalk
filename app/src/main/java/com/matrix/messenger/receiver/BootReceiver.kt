@@ -4,6 +4,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.matrix.messenger.platform.reconcilePushRegistration
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class BootReceiver : BroadcastReceiver() {
 
@@ -17,6 +21,10 @@ class BootReceiver : BroadcastReceiver() {
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 Log.d(TAG, "Received: ${intent.action}")
                 NotificationChannels.createAll(context)
+                val pending = goAsync()
+                CoroutineScope(Dispatchers.IO).launch {
+                    try { reconcilePushRegistration() } finally { pending.finish() }
+                }
             }
         }
     }

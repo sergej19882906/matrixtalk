@@ -1,97 +1,84 @@
 package com.matrix.messenger.service
 
 import android.content.Context
-import androidx.core.app.NotificationManagerCompat
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.matrix.messenger.data.push.AndroidPushStateStore
+import com.matrix.messenger.data.push.MATRIX_PUSH_APP_ID
+import com.matrix.messenger.data.push.PushRegistrationStatus
+import com.matrix.messenger.data.push.ntfyGateway
+import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.data.repository.SessionStore
-import com.matrix.messenger.platform.createTrixnityRepositoriesModule
-import io.ktor.http.Url
-import kotlinx.coroutines.flow.first
-import net.folivo.trixnity.client.MatrixClient
-import net.folivo.trixnity.client.loginWith
-import net.folivo.trixnity.client.media.InMemoryMediaStore
-import net.folivo.trixnity.clientserverapi.model.push.PusherData
-import net.folivo.trixnity.clientserverapi.model.push.SetPushers
-import net.folivo.trixnity.core.model.UserId
+import com.matrix.messenger.platform.configuredNtfyBaseUrl
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.withLock
+import org.koin.core.context.GlobalContext
 
-/**
- * Registers this device as an HTTP pusher on the homeserver with the
- * UnifiedPush endpoint as the gateway URL, so Synapse delivers message
- * pushes straight to the distributor (ntfy / NextPush).
- */
-class RegisterPusherWorker(
-    context: Context,
-    params: WorkerParameters
-) : CoroutineWorker(context, params) {
+const val REGISTER_PUSHER_WORK = "register_pusher"
 
-    override suspend fun doWork(): Result {
-        val session = SessionStore.read() ?: return Result.success()
-        val endpoint = inputData.getString(KEY_ENDPOINT)
-            ?: applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_ENDPOINT, null)
-            ?: return Result.success()
-        if (!NotificationManagerCompat.from(applicationContext).areNotificationsEnabled()) {
-            // notifications disabled: a pusher would only drain the battery
-            return Result.success()
-        }
-        val proxy = runCatching { SessionStore.readProxySettings() }.getOrNull()
-        val client = try {
-            MatrixClient.loginWith(
-                baseUrl = Url(session.homeServer),
-                repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
-                mediaStoreFactory = { InMemoryMediaStore() },
-                getLoginInfo = {
-                    kotlin.Result.success(
-                        MatrixClient.LoginInfo(
-                            userId = UserId(session.userId),
-                            deviceId = session.deviceId,
-                            accessToken = session.accessToken
-                        )
-                    )
-                },
-                configuration = {
-                    httpClientFactory = com.matrix.messenger.data.repository.createProxyHttpClientFactory(proxy)
-                },
-            ).getOrThrow()
-        } catch (e: Exception) {
-            return if (runAttemptCount < 3) Result.retry() else Result.success()
-        }
-        return try {
-            client.api.push.setPushers(
-                SetPushers.Request(
-                    APP_ID,
-                    endpoint,
-                    true, // HTTP pusher
-                    PusherData(url = endpoint, format = null),
-                    APP_DISPLAY_NAME,
-                    DEVICE_DISPLAY_NAME,
-                    "ru",
-                    PROFILE_TAG,
-                    "false" // append=false: replace any previous pusher for this profile
-                )
-            ).getOrThrow()
-            Result.success()
-        } catch (e: Exception) {
-            if (runAttemptCount < 3) Result.retry() else Result.success()
-        } finally {
-            try {
-                client.cancelSync()
-            } catch (e: Exception) {
+/** Uses the Koin repository's sole Matrix client; stale generations cannot re-enable push. */
+class RegisterPusherWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result = AndroidPushStateStore.mutex.withLock {
+        var state = AndroidPushStateStore.read(applicationContext)
+        if (state.generation != inputData.getLong(KEY_GENERATION, -1)) return@withLock Result.success()
+        val session = SessionStore.read() ?: return@withLock Result.success()
+        if (state.ownerUserId != session.userId) return@withLock Result.success()
+        try {
+            val repository = GlobalContext.get().get<MatrixRepository>()
+            for (endpoint in state.removals) {
+                repository.removeHttpPusher(endpoint, MATRIX_PUSH_APP_ID).getOrThrow()
+                state = state.copy(removals = state.removals - endpoint,
+                    activeEndpoint = state.activeEndpoint?.takeUnless { it == endpoint })
+                AndroidPushStateStore.save(applicationContext, state)
             }
+            val endpoint = state.endpoint
+            val gateway = endpoint?.let { ntfyGateway(it, configuredNtfyBaseUrl(applicationContext)) }
+            val allowed = notificationsAllowed(applicationContext)
+            if (!allowed || gateway == null) {
+                state.activeEndpoint?.let { active ->
+                    state = state.copy(removals = (state.removals + active).distinct())
+                    AndroidPushStateStore.save(applicationContext, state)
+                    repository.removeHttpPusher(active, MATRIX_PUSH_APP_ID).getOrThrow()
+                    state = state.copy(activeEndpoint = null, removals = state.removals - active)
+                }
+                AndroidPushStateStore.save(applicationContext, state.copy(
+                    status = if (!allowed) PushRegistrationStatus.DISABLED
+                    else if (state.status == PushRegistrationStatus.PENDING || state.status == PushRegistrationStatus.ACTIVE)
+                        PushRegistrationStatus.UNAVAILABLE else state.status))
+                return@withLock Result.success()
+            }
+            repository.setHttpPusher(endpoint, gateway, MATRIX_PUSH_APP_ID, DEVICE_DISPLAY_NAME).getOrThrow()
+            AndroidPushStateStore.save(applicationContext, state.copy(
+                activeEndpoint = endpoint, status = PushRegistrationStatus.ACTIVE, reason = null))
+            Result.success()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            AndroidPushStateStore.save(applicationContext, state.copy(
+                status = PushRegistrationStatus.FAILED, reason = "server_registration_failed"))
+            if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }
 
     companion object {
-        const val KEY_ENDPOINT = "endpoint"
-        const val PREFS = "unified_push"
-
-        fun endpoint(context: Context): String? =
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_ENDPOINT, null)
-        const val APP_ID = "com.matrix.messenger"
-        const val APP_DISPLAY_NAME = "MatrixTalk"
+        const val KEY_GENERATION = "generation"
         const val DEVICE_DISPLAY_NAME = "MatrixTalk Android"
-        const val PROFILE_TAG = "mtrxtlk_1"
+        // Compatibility for callers that previously read an unconfirmed endpoint.
+        const val PREFS = "unified_push"
+        const val KEY_ENDPOINT = "endpoint"
+        fun endpoint(context: Context): String? = null
     }
+}
+
+fun enqueuePusherRegistration(context: Context, generation: Long) {
+    val request = OneTimeWorkRequestBuilder<RegisterPusherWorker>()
+        .setInputData(Data.Builder().putLong(RegisterPusherWorker.KEY_GENERATION, generation).build())
+        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
+    WorkManager.getInstance(context).enqueueUniqueWork(REGISTER_PUSHER_WORK, ExistingWorkPolicy.REPLACE, request)
 }

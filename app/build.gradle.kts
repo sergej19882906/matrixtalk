@@ -30,6 +30,7 @@ android {
 
     defaultConfig {
         applicationId = "com.matrix.messenger"
+        manifestPlaceholders["ntfyBaseUrl"] = providers.gradleProperty("ntfyBaseUrl").getOrElse("")
         minSdk = 24
         targetSdk = 36
         versionCode = providers.gradleProperty("androidVersionCode").get().toInt()

@@ -41,6 +41,14 @@
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <!-- Package visibility for SDK distributor validation on Android 11+. -->
+    <queries>
+        <intent>
+            <action android:name="org.unifiedpush.android.distributor.REGISTER" />
+        </intent>
+        <package android:name="io.heckel.ntfy" />
+    </queries>
+
     <application
         android:name=".MatrixMessengerApp"
         android:allowBackup="false"
@@ -53,7 +61,10 @@
         android:theme="@style/Theme.MatrixMessenger"
         tools:targetApi="36">
 
-        <!-- Disable default WorkManager initializer — Matrix SDK initializes it manually -->
+        <!-- Empty disables instant push. Configure an audited HTTPS ntfy origin at deployment. -->
+        <meta-data android:name="com.matrix.messenger.NTFY_BASE_URL" android:value="${ntfyBaseUrl}" />
+
+        <!-- Disable default WorkManager initializer — Application provides configuration -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
@@ -121,12 +132,13 @@
         <!-- UnifiedPush: distributor delivers push events here -->
         <receiver
             android:name=".push.MatrixtalkPushReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="org.unifiedpush.android.connector.MESSAGE" />
                 <action android:name="org.unifiedpush.android.connector.NEW_ENDPOINT" />
                 <action android:name="org.unifiedpush.android.connector.UNREGISTERED" />
                 <action android:name="org.unifiedpush.android.connector.REGISTRATION_FAILED" />
+                <action android:name="org.unifiedpush.android.connector.REGISTRATION_REFUSED" />
             </intent-filter>
         </receiver>
 

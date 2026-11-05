@@ -9,6 +9,8 @@ import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 actual class PlatformContext(val context: Context)
 
@@ -26,19 +28,13 @@ actual fun rememberFilePicker(
 }
 
 actual suspend fun pushServiceStatusText(): String? {
-    val context = appContext ?: return null
-    val distributor = runCatching {
-        org.unifiedpush.android.connector.UnifiedPush.getAckDistributor(context)
-            ?: org.unifiedpush.android.connector.UnifiedPush.getSavedDistributor(context)
-    }.getOrNull()
-    val endpoint = com.matrix.messenger.service.RegisterPusherWorker.endpoint(context)
-    return when {
-        distributor != null && endpoint != null ->
-            "Мгновенный push через UnifiedPush ($distributor)"
-        distributor != null ->
-            "UnifiedPush: $distributor подключён, endpoint ожидается"
-        else ->
-            "Без push-дистрибьютора: проверка сообщений раз в 15 минут"
+    val status = com.matrix.messenger.platform.observePushRegistration().first()
+    return when (status.status) {
+        com.matrix.messenger.data.push.PushRegistrationStatus.ACTIVE -> "Push зарегистрирован на сервере (ntfy)"
+        com.matrix.messenger.data.push.PushRegistrationStatus.PENDING -> "Регистрация push ожидает подтверждения сервера"
+        com.matrix.messenger.data.push.PushRegistrationStatus.FAILED -> "Ошибка регистрации push: ${status.reason ?: "неизвестная причина"}"
+        com.matrix.messenger.data.push.PushRegistrationStatus.DISABLED -> "Уведомления отключены"
+        com.matrix.messenger.data.push.PushRegistrationStatus.UNAVAILABLE -> "Мгновенный push не настроен; фоновая проверка с ограничениями Android"
     }
 }
 
@@ -46,7 +42,8 @@ actual fun platformLabel(): String =
     "Android · ${android.os.Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${android.os.Build.MODEL}".trim()
 
 actual fun openUrl(url: String) {
-    // Requires Android Context — handled via PlatformContext in Android module
+    val context = appContext ?: error("Application context is not initialized")
+    openUrlWith(context, url)
 }
 
 actual fun openLocalFile(path: String) {
@@ -178,14 +175,8 @@ actual fun appVersionName(): String = runCatching {
 }.getOrDefault(com.matrix.messenger.build.BuildVersion.NAME)
 
 actual fun setMessageNotificationsEnabled(enabled: Boolean) {
-    val context = appContext ?: return
-    runCatching {
-        if (enabled) {
-            enqueueMessageNotifications(context)
-        } else {
-            androidx.work.WorkManager.getInstance(context)
-                .cancelUniqueWork("message_notifications")
-        }
+    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
+        if (enabled) reconcilePushRegistration() else stopPushNotifications()
     }
 }
 

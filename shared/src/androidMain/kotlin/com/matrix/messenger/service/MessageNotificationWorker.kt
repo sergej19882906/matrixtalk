@@ -2,152 +2,121 @@ package com.matrix.messenger.service
 
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.matrix.messenger.data.model.RoomNotificationLevel
+import com.matrix.messenger.data.push.AndroidPushStateStore
+import com.matrix.messenger.data.push.PushTarget
+import com.matrix.messenger.data.push.shouldNotify
+import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.data.repository.SessionStore
-import com.matrix.messenger.platform.createTrixnityRepositoriesModule
-import io.ktor.http.Url
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
-import net.folivo.trixnity.client.MatrixClient
-import net.folivo.trixnity.client.flattenValues
-import net.folivo.trixnity.client.loginWith
-import net.folivo.trixnity.client.media.InMemoryMediaStore
-import net.folivo.trixnity.client.room
-import net.folivo.trixnity.client.store.sender
-import net.folivo.trixnity.core.model.UserId
-import net.folivo.trixnity.core.model.events.m.room.Membership
-import net.folivo.trixnity.core.model.events.m.room.RoomMessageEventContent
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.withLock
+import org.koin.core.context.GlobalContext
 import java.util.concurrent.TimeUnit
 
-private const val PREFS = "message_notifications"
 private const val CHANNEL_MESSAGES = "message_channel"
+const val MESSAGE_SYNC_WORK = "push_background_sync"
+private const val PERIODIC_WORK = "message_notifications"
 
-class MessageNotificationWorker(
-    context: Context,
-    params: WorkerParameters
-) : CoroutineWorker(context, params) {
-
+class MessageNotificationWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        if (!NotificationManagerCompat.from(applicationContext).areNotificationsEnabled()) {
+        // Periodic work only feeds the same unique chain as UnifiedPush; it never opens a client.
+        if (inputData.getBoolean(KEY_TICK, false)) {
+            enqueueMessageSync(applicationContext)
             return Result.success()
         }
-        val prefs = applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val session = SessionStore.read() ?: return Result.success()
-        val proxy = runCatching { SessionStore.readProxySettings() }.getOrNull()
-        val client = try {
-            MatrixClient.loginWith(
-                baseUrl = Url(session.homeServer),
-                repositoriesModuleFactory = { createTrixnityRepositoriesModule() },
-                mediaStoreFactory = { InMemoryMediaStore() },
-                getLoginInfo = {
-                    kotlin.Result.success(
-                        MatrixClient.LoginInfo(
-                            userId = UserId(session.userId),
-                            deviceId = session.deviceId,
-                            accessToken = session.accessToken
-                        )
-                    )
-                },
-                configuration = {
-                    httpClientFactory = com.matrix.messenger.data.repository.createProxyHttpClientFactory(proxy)
-                },
-            ).getOrThrow()
-        } catch (e: Exception) {
-            return if (runAttemptCount < 3) Result.retry() else Result.success()
-        }
         try {
-            client.syncOnce()
-            val rooms = client.room.getAll().flattenValues().first()
-            rooms
-                .filter { it.membership == Membership.JOIN && it.unreadMessageCount > 0 }
-                .forEach { room ->
-                    val lastTimestamp =
-                        room.lastRelevantEventTimestamp?.toEpochMilliseconds() ?: return@forEach
-                    val roomKey = room.roomId.full
-                    if (lastTimestamp <= prefs.getLong(roomKey, 0L)) return@forEach
-
-                    val event = withTimeoutOrNull(EVENT_RESOLVE_TIMEOUT_MS) {
-                        room.lastRelevantEventId?.let { eventId ->
-                            client.room.getTimelineEvent(room.roomId, eventId).first()
-                        }
-                    } ?: return@forEach
-
-                    if (event.sender == client.userId) {
-                        prefs.edit().putLong(roomKey, lastTimestamp).apply()
-                        return@forEach
-                    }
-                    val content = event.content?.getOrNull() as? RoomMessageEventContent
-                    prefs.edit().putLong(roomKey, lastTimestamp).apply()
-                    if (content != null) {
-                        showNotification(
-                            id = roomKey.hashCode(),
-                            title = room.name?.explicitName ?: room.roomId.full,
-                            body = content.body
-                        )
-                    }
+            if (!notificationsAllowed(applicationContext)) return Result.success()
+            val session = SessionStore.read() ?: return Result.success()
+            val roomId = inputData.getString(KEY_ROOM)
+            val eventId = inputData.getString(KEY_EVENT)
+            val target = if (roomId != null && eventId != null) PushTarget(roomId, eventId) else null
+            val repository = GlobalContext.get().get<MatrixRepository>()
+            repository.backgroundSync().getOrThrow()
+            val events = repository.getBackgroundNotifications(roomId, eventId).getOrThrow()
+            val muted = SessionStore.readMutedRooms().toSet()
+            val levels = SessionStore.readRoomNotificationLevels()
+            val defaultLevel = SessionStore.readDefaultNotificationLevel()
+            for (event in events) {
+                val level = RoomNotificationLevel.fromStored(levels[event.roomId] ?: defaultLevel)
+                if (!shouldNotify(event, session.userId, notificationsAllowed(applicationContext), level,
+                        event.roomId in muted, target)) continue
+                AndroidPushStateStore.mutex.withLock {
+                    if (SessionStore.read()?.userId != session.userId || !notificationsAllowed(applicationContext)) return@withLock
+                    val currentLevel = RoomNotificationLevel.fromStored(
+                        SessionStore.readRoomNotificationLevels()[event.roomId] ?: SessionStore.readDefaultNotificationLevel())
+                    if (!shouldNotify(event, session.userId, true, currentLevel,
+                            event.roomId in SessionStore.readMutedRooms(), target)) return@withLock
+                    val state = AndroidPushStateStore.read(applicationContext)
+                    val dedupKey = "${session.userId}|${event.roomId}|${event.eventId}"
+                    if (dedupKey in state.delivered) return@withLock
+                    val id = event.roomId.hashCode()
+                    val launchIntent = applicationContext.packageManager
+                        .getLaunchIntentForPackage(applicationContext.packageName) ?: return@withLock
+                    launchIntent.putExtra(KEY_ROOM, event.roomId)
+                    val pendingIntent = PendingIntent.getActivity(applicationContext, id, launchIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                    val notification = NotificationCompat.Builder(applicationContext, CHANNEL_MESSAGES)
+                        .setSmallIcon(android.R.drawable.ic_dialog_email)
+                        .setContentTitle(event.title).setContentText(event.body)
+                        .setContentIntent(pendingIntent).setAutoCancel(true)
+                        .setPriority(NotificationCompat.PRIORITY_HIGH).build()
+                    // Do not advance dedup on decryption/fetch/permission/notify failure.
+                    NotificationManagerCompat.from(applicationContext).notify(event.roomId, id, notification)
+                    AndroidPushStateStore.save(applicationContext, state.copy(
+                        delivered = (state.delivered + dedupKey).takeLast(512)))
                 }
-        } catch (e: Exception) {
-            return if (runAttemptCount < 3) Result.retry() else Result.success()
-        } finally {
-            try {
-                client.cancelSync()
-            } catch (e: Exception) {
-                // best effort
             }
-        }
-        return Result.success()
-    }
-
-    private fun showNotification(id: Int, title: String, body: String) {
-        val launchIntent: Intent? =
-            applicationContext.packageManager.getLaunchIntentForPackage(applicationContext.packageName)
-        val pendingIntent = PendingIntent.getActivity(
-            applicationContext,
-            id,
-            launchIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_MESSAGES)
-            .setSmallIcon(android.R.drawable.ic_dialog_email)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
-        try {
-            NotificationManagerCompat.from(applicationContext).notify(id, notification)
-        } catch (e: SecurityException) {
-            // POST_NOTIFICATIONS not granted
+            return Result.success()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: SecurityException) {
+            return Result.success()
+        } catch (_: Exception) {
+            return if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }
 
-    private companion object {
-        const val EVENT_RESOLVE_TIMEOUT_MS = 1500L
+    companion object {
+        const val KEY_ROOM = "room_id"
+        const val KEY_EVENT = "event_id"
+        private const val KEY_TICK = "periodic_tick"
+        fun tickData(): Data = Data.Builder().putBoolean(KEY_TICK, true).build()
     }
+}
+
+suspend fun notificationsAllowed(context: Context): Boolean =
+    (SessionStore.readNotificationsEnabled() ?: true) &&
+        NotificationManagerCompat.from(context).areNotificationsEnabled()
+
+fun enqueueMessageSync(context: Context, target: PushTarget? = null) {
+    val request = OneTimeWorkRequestBuilder<MessageNotificationWorker>()
+        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+        .setInputData(Data.Builder().putString(MessageNotificationWorker.KEY_ROOM, target?.roomId)
+            .putString(MessageNotificationWorker.KEY_EVENT, target?.eventId).build()).build()
+    WorkManager.getInstance(context).enqueueUniqueWork(MESSAGE_SYNC_WORK, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
 }
 
 fun enqueueMessageNotifications(context: Context) {
     val request = PeriodicWorkRequestBuilder<MessageNotificationWorker>(15, TimeUnit.MINUTES)
-        .setConstraints(
-            Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build()
-        )
-        .build()
-    WorkManager.getInstance(context)
-        .enqueueUniquePeriodicWork(
-            "message_notifications",
-            ExistingPeriodicWorkPolicy.KEEP,
-            request
-        )
+        .setInputData(MessageNotificationWorker.tickData())
+        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
+    WorkManager.getInstance(context).enqueueUniquePeriodicWork(PERIODIC_WORK, ExistingPeriodicWorkPolicy.UPDATE, request)
+}
+
+fun cancelMessageNotifications(context: Context) {
+    WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_WORK)
+    WorkManager.getInstance(context).cancelUniqueWork(MESSAGE_SYNC_WORK)
+    NotificationManagerCompat.from(context).cancelAll()
 }
