@@ -171,11 +171,11 @@ actual fun startIncomingCallRingtone(): () -> Unit {
 }
 
 actual fun appVersionName(): String = runCatching {
-    val context = appContext ?: return "1.14.6"
+    val context = appContext ?: return com.matrix.messenger.build.BuildVersion.NAME
     val info = context.packageManager.getPackageInfo(context.packageName, 0)
     @Suppress("DEPRECATION")
-    info.versionName ?: "1.9.0"
-}.getOrDefault("1.9.0")
+    info.versionName ?: com.matrix.messenger.build.BuildVersion.NAME
+}.getOrDefault(com.matrix.messenger.build.BuildVersion.NAME)
 
 actual fun setMessageNotificationsEnabled(enabled: Boolean) {
     val context = appContext ?: return
