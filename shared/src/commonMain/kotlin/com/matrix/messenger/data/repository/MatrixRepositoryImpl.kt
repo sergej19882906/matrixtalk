@@ -159,6 +159,8 @@ import com.matrix.messenger.data.location.BeaconInfoEventContent
 import com.matrix.messenger.data.sticker.StickerEventContent
 import com.matrix.messenger.platform.deleteFileIfExists
 import com.matrix.messenger.platform.getCurrentLocation
+import com.matrix.messenger.platform.startLiveLocationForeground
+import com.matrix.messenger.platform.stopLiveLocationForeground
 import net.folivo.trixnity.core.model.events.InitialStateEvent
 import net.folivo.trixnity.core.model.events.m.room.AudioInfo
 import net.folivo.trixnity.core.model.events.m.room.EncryptedFile
@@ -1516,23 +1518,29 @@ class MatrixRepositoryImpl : MatrixRepository {
             BeaconInfoEventContent(description = description, timeout = durationMs, live = true, ts = now),
             stateKey = c.userId.full,
         ).getOrThrow().full
+        startLiveLocationForeground(durationMs, description)
         liveLocationJob?.cancel()
         liveLocationJob = repositoryScope.launch {
             val deadline = now + durationMs
-            while (isActive && kotlinx.datetime.Clock.System.now().toEpochMilliseconds() < deadline) {
-                getCurrentLocation()?.let { loc ->
-                    runCatching {
-                        sendRoomEvent(
-                            c, rId,
-                            BeaconEventContent(
-                                location = BeaconEventContent.BeaconLocation(com.matrix.messenger.data.model.GeoUri.toGeoUri(loc)),
-                                ts = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
-                                relatesTo = RelatesTo.Reference(EventId(infoId)),
+            try {
+                while (isActive && kotlinx.datetime.Clock.System.now().toEpochMilliseconds() < deadline) {
+                    getCurrentLocation()?.let { loc ->
+                        runCatching {
+                            sendRoomEvent(
+                                c, rId,
+                                BeaconEventContent(
+                                    location = BeaconEventContent.BeaconLocation(com.matrix.messenger.data.model.GeoUri.toGeoUri(loc)),
+                                    ts = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
+                                    relatesTo = RelatesTo.Reference(EventId(infoId)),
+                                )
                             )
-                        )
-                    }.onFailure { logError("LiveLocation", "beacon send failed", it) }
+                        }.onFailure { logError("LiveLocation", "beacon send failed", it) }
+                    }
+                    delay(LIVE_LOCATION_BEACON_INTERVAL_MS)
                 }
-                delay(LIVE_LOCATION_BEACON_INTERVAL_MS)
+            } finally {
+                // Share expired on its own: drop the foreground service too.
+                stopLiveLocationForeground()
             }
         }
     }
@@ -1540,6 +1548,7 @@ class MatrixRepositoryImpl : MatrixRepository {
     override suspend fun stopLiveLocationShare(roomId: String) {
         liveLocationJob?.cancel()
         liveLocationJob = null
+        stopLiveLocationForeground()
         val c = requireClient()
         val rId = RoomId(roomId)
         val current = runCatching {

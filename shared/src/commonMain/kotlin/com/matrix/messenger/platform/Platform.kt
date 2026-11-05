@@ -58,3 +58,12 @@ expect fun appVersionName(): String
 
 /** Enables/disables periodic background message notifications. No-op where unsupported. */
 expect fun setMessageNotificationsEnabled(enabled: Boolean)
+
+/**
+ * Keeps MSC3488 live location beacons flowing while the app is backgrounded:
+ * a type=location foreground service with a stop action on Android; no-op on desktop.
+ */
+expect fun startLiveLocationForeground(durationMs: Long, description: String?)
+
+/** Ends the live location foreground state (user stop or share expiry). */
+expect fun stopLiveLocationForeground()

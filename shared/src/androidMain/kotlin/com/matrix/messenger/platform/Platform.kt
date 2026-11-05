@@ -214,3 +214,13 @@ fun resolveFileInfo(context: Context, uri: Uri): FileResult? {
 
     return FileResult(path = uri.toString(), name = name, size = size, mimeType = mimeType)
 }
+
+actual fun startLiveLocationForeground(durationMs: Long, description: String?) {
+    val context = appContext ?: return
+    com.matrix.messenger.service.LiveLocationService.start(context, durationMs, description)
+}
+
+actual fun stopLiveLocationForeground() {
+    val context = appContext ?: return
+    com.matrix.messenger.service.LiveLocationService.stop(context)
+}

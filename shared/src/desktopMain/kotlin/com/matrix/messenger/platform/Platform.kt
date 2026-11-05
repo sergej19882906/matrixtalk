@@ -190,3 +190,8 @@ actual suspend fun listScreenSources(): List<ScreenSource> = runCatching {
         runCatching { capturer.dispose() }
     }
 }.getOrDefault(emptyList())
+
+// Desktop has no background service concept and cannot broadcast location anyway.
+actual fun startLiveLocationForeground(durationMs: Long, description: String?) = Unit
+
+actual fun stopLiveLocationForeground() = Unit

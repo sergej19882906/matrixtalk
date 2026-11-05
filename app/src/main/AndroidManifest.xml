@@ -31,6 +31,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- MSC3488 live location broadcast while backgrounded (type=location FGS). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
 
     <!-- 🆕 Bluetooth для гарнитур -->
@@ -118,6 +120,12 @@
             android:name=".service.CallService"
             android:exported="false"
             android:foregroundServiceType="camera|microphone|phoneCall" />
+
+        <!-- MSC3488 live location broadcaster: keeps beacons flowing in background. -->
+        <service
+            android:name=".service.LiveLocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <!-- 🆕 Telecom-интеграция: звонки в системном UI Android -->
         <service
