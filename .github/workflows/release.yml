@@ -146,36 +146,14 @@ jobs:
         shell: bash
         env:
           PACKAGE_TASK: ${{ matrix.task }}
-        run: ./gradlew verifyReleaseMetadata -PreleaseTag="$RELEASE_TAG" ":desktop-app:$PACKAGE_TASK"
+        run: ./gradlew verifyReleaseMetadata -PreleaseTag="$RELEASE_TAG" :desktop-app:createDistributable ":desktop-app:$PACKAGE_TASK"
+      - name: Install virtual display for Linux smoke test
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
       - name: Smoke test packaged app
         shell: bash
         timeout-minutes: 5
-        run: |
-          set -euo pipefail
-          dir="desktop-app/build/compose/binaries/main/app/MatrixTalk"
-          runner=()
-          case "$RUNNER_OS" in
-            Windows) bin="$dir/MatrixTalk.exe" ;;
-            Linux)
-              bin="$dir/bin/MatrixTalk"
-              sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
-              runner=(xvfb-run -a)
-              ;;
-            macOS) bin="${dir}.app/Contents/MacOS/MatrixTalk" ;;
-          esac
-          test -f "$bin"
-          out=$(mktemp)
-          "${runner[@]}" "$bin" >"$out" 2>&1 &
-          pid=$!
-          trap 'kill "$pid" 2>/dev/null || true; rm -f "$out"' EXIT
-          sleep 30
-          if ! kill -0 "$pid" 2>/dev/null; then
-            printf 'Packaged app exited early:\n'; cat "$out"; exit 1
-          fi
-          if grep -qE 'Exception in thread|InstanceCreationException|NoDefinitionFoundException|NoClassDefFoundError|UnsatisfiedLinkError|Could not create instance' "$out"; then
-            cat "$out"; exit 1
-          fi
-          printf 'Packaged app smoke test OK\n'
+        run: bash scripts/smoke-desktop.sh
       - name: Store check without sun.misc.Unsafe
         shell: bash
         run: ./gradlew :desktop-app:loginSmokeTestNoUnsafe

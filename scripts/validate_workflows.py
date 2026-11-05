@@ -152,6 +152,18 @@ def validate_release(workflow):
             require(not re.search(r"(?<![\w-])app[/\\]+build|:app:|\.apk\b|android-release\.py|assemble(?:Release|Debug)", contents, re.IGNORECASE),
                     "desktop prepare/upload must not reference Android paths or APKs")
 
+    desktop_steps = steps["desktop"]
+    smoke = [index for index, step in enumerate(desktop_steps)
+             if re.search(r"\bbash\s+scripts/smoke-desktop\.sh\b", step.get("run", ""))]
+    require(len(smoke) == 1, "desktop must run the portable smoke-desktop.sh helper exactly once")
+    package_steps = [index for index, step in enumerate(desktop_steps)
+                     if re.search(r"package(?:Msi|Dmg|Deb)|\$PACKAGE_TASK|\$\{PACKAGE_TASK\}", step.get("run", ""))]
+    require(package_steps and all(index < smoke[0] and ":desktop-app:createDistributable" in desktop_steps[index]["run"]
+                                  and "if" not in desktop_steps[index] for index in package_steps),
+            "desktop package command must explicitly include :desktop-app:createDistributable before smoke")
+    require("if" not in desktop_steps[smoke[0]] and desktop_steps[smoke[0]].get("continue-on-error") not in (True, "true"),
+            "desktop smoke test must be unconditional and fail closed")
+
     publish_steps = steps["publish"]
     publication = [index for index, step in enumerate(publish_steps) if "scripts/publish-release.py" in step.get("run", "")]
     validation = [index for index, step in enumerate(publish_steps)
