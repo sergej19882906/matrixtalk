@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LockOpen
@@ -30,6 +32,7 @@ import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material3.AlertDialog
@@ -84,6 +87,7 @@ fun RoomSettingsScreen(
     roomId: String,
     onNavigateBack: () -> Unit,
     onLeftRoom: () -> Unit = {},
+    onOpenMedia: () -> Unit = {},
     viewModel: RoomSettingsViewModel = koinViewModel { parametersOf(roomId) }
 ) {
     val settings by viewModel.settings.collectAsState()
@@ -91,6 +95,7 @@ fun RoomSettingsScreen(
     val notificationLevel by viewModel.notificationLevel.collectAsState()
     val busy by viewModel.busy.collectAsState()
     val message by viewModel.message.collectAsState()
+    val ignoredUsers by viewModel.ignoredUsers.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val pickAvatar = rememberFilePicker(listOf("image/*")) { file ->
@@ -102,6 +107,8 @@ fun RoomSettingsScreen(
     var editingTopic by remember { mutableStateOf(false) }
     var inviting by remember { mutableStateOf(false) }
     var selectedMember by remember { mutableStateOf<RoomMemberInfo?>(null) }
+    var reportingMember by remember { mutableStateOf<RoomMemberInfo?>(null) }
+    var reportUserReason by remember { mutableStateOf("") }
     var confirmLeave by remember { mutableStateOf(false) }
     var memberSearch by remember { mutableStateOf("") }
 
@@ -302,6 +309,38 @@ fun RoomSettingsScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
             }
 
+            // Media & files panel (Element X «Файлы и медиа»)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenMedia)
+                    .padding(vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.PhotoLibrary,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Файлы и медиа", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = "Медиа и файлы этой комнаты",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    Icons.Default.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+
             Spacer(Modifier.height(20.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -437,6 +476,7 @@ fun RoomSettingsScreen(
             member = member,
             info = info,
             busy = busy,
+            isIgnored = member.userId in ignoredUsers,
             onDismiss = { selectedMember = null },
             onKick = {
                 viewModel.kickUser(member.userId)
@@ -453,9 +493,48 @@ fun RoomSettingsScreen(
             onPowerLevel = { level ->
                 viewModel.setUserPowerLevel(member.userId, level)
                 selectedMember = null
+            },
+            onToggleIgnore = {
+                if (member.userId in ignoredUsers) {
+                    viewModel.unignoreUser(member.userId)
+                } else {
+                    viewModel.ignoreUser(member.userId)
+                }
+                selectedMember = null
+            },
+            onReport = {
+                reportingMember = member
+                selectedMember = null
             }
         )
         }
+    }
+
+    // Report a user to the homeserver administrators.
+    reportingMember?.let { member ->
+        AlertDialog(
+            onDismissRequest = { reportingMember = null },
+            title = { Text("Пожаловаться на пользователя") },
+            text = {
+                OutlinedTextField(
+                    value = reportUserReason,
+                    onValueChange = { reportUserReason = it },
+                    label = { Text("Причина (необязательно)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.reportUser(member.userId, reportUserReason)
+                    reportingMember = null
+                    reportUserReason = ""
+                }) { Text("Отправить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { reportingMember = null }) { Text("Отмена") }
+            }
+        )
     }
 
     // Leave confirmation
@@ -590,11 +669,14 @@ private fun MemberCardSheet(
     member: RoomMemberInfo,
     info: RoomSettingsInfo,
     busy: Boolean,
+    isIgnored: Boolean,
     onDismiss: () -> Unit,
     onKick: () -> Unit,
     onBan: () -> Unit,
     onUnban: () -> Unit,
-    onPowerLevel: (Long) -> Unit
+    onPowerLevel: (Long) -> Unit,
+    onToggleIgnore: () -> Unit,
+    onReport: () -> Unit
 ) {
     val canModerateTarget = !member.isSelf && member.powerLevel < info.myPowerLevel
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -648,6 +730,21 @@ private fun MemberCardSheet(
                     enabled = !busy,
                     onClick = onKick,
                     destructive = true
+                )
+            }
+            if (!member.isSelf) {
+                SheetAction(
+                    text = if (isIgnored) "Разблокировать" else "Заблокировать",
+                    icon = Icons.Default.Block,
+                    enabled = !busy,
+                    onClick = onToggleIgnore,
+                    destructive = !isIgnored
+                )
+                SheetAction(
+                    text = "Пожаловаться на пользователя",
+                    icon = Icons.Default.Flag,
+                    enabled = !busy,
+                    onClick = onReport
                 )
             }
             if (info.canChangePowerLevels && !member.isSelf) {

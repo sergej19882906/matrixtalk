@@ -64,7 +64,7 @@ class CallRepositoryTest {
         override suspend fun getRoomTags(roomId: String): Set<String> = emptySet()
         override suspend fun toggleFavorite(roomId: String): Boolean = false
         override suspend fun inviteUserToRoom(roomId: String, userId: String) = Unit
-        override suspend fun sendPoll(roomId: String, question: String, answers: List<String>) = Unit
+        override suspend fun sendPoll(roomId: String, question: String, answers: List<String>, disclosed: Boolean, maxSelections: Int) = Unit
         override suspend fun sendPollVote(roomId: String, pollEventId: String, answerIds: List<String>) = Unit
         override val currentUser: Flow<MatrixUser?> = MutableStateFlow(null)
         override val connectionState: Flow<ConnectionState> = MutableStateFlow(ConnectionState.Connected)
@@ -166,6 +166,18 @@ class CallRepositoryTest {
         override suspend fun deactivateAccount(eraseData: Boolean, passwordProvider: suspend () -> String?) = Unit
         override suspend fun startLiveLocationShare(roomId: String, durationMs: Long, description: String?) = Unit
         override suspend fun stopLiveLocationShare(roomId: String) = Unit
+        override suspend fun reportUser(userId: String, reason: String?) = Unit
+        override suspend fun ignoreUser(userId: String) = Unit
+        override suspend fun unignoreUser(userId: String) = Unit
+        override fun getIgnoredUsersFlow(): Flow<Set<String>> = MutableStateFlow(emptySet())
+        override suspend fun changePassword(newPassword: String, currentPasswordProvider: suspend () -> String?, logoutDevices: Boolean) = Unit
+        override suspend fun getThirdPartyIdentifiers(): List<com.matrix.messenger.data.model.ThirdPartyId> = emptyList()
+        override suspend fun removeThirdPartyIdentifier(address: String): Boolean = false
+        override suspend fun getRoomMediaPage(roomId: String, from: String?): com.matrix.messenger.data.model.RoomMediaPage = com.matrix.messenger.data.model.RoomMediaPage(emptyList(), null)
+        override suspend fun getSpaceChildStates(spaceId: String): List<com.matrix.messenger.data.model.SpaceChildState> = emptyList()
+        override suspend fun updateSpaceChild(spaceId: String, childRoomId: String, order: String?, suggested: Boolean) = Unit
+        override suspend fun removeSpaceChild(spaceId: String, childRoomId: String) = Unit
+        override suspend fun reorderSpaceChildren(spaceId: String, orderedChildRoomIds: List<String>) = Unit
         override suspend fun uploadAvatar(filePath: String, mimeType: String) = Unit
         override suspend fun setDisplayName(name: String) = Unit
         override suspend fun getDevices(): List<DeviceInfo> = emptyList()

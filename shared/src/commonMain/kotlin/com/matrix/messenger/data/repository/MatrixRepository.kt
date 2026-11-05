@@ -67,7 +67,7 @@ interface MatrixRepository {
     suspend fun inviteUserToRoom(roomId: String, userId: String)
 
     /** Creates an MSC3381 poll in the room. */
-    suspend fun sendPoll(roomId: String, question: String, answers: List<String>)
+    suspend fun sendPoll(roomId: String, question: String, answers: List<String>, disclosed: Boolean = true, maxSelections: Int = 1)
 
     /** Votes in a poll (replaces the previous vote of this device/user). */
     suspend fun sendPollVote(roomId: String, pollEventId: String, answerIds: List<String>)
@@ -207,6 +207,42 @@ interface MatrixRepository {
 
     /** Reports a message to the homeserver administrators (spec report endpoint). */
     suspend fun reportMessage(roomId: String, eventId: String, reason: String?, score: Int? = null)
+
+    /** Reports a user to the homeserver administrators (spec user report endpoint). */
+    suspend fun reportUser(userId: String, reason: String?)
+
+    /** Adds a user to the ignore list (m.ignored_user_list): their messages hide everywhere. */
+    suspend fun ignoreUser(userId: String)
+
+    /** Removes a user from the ignore list. */
+    suspend fun unignoreUser(userId: String)
+
+    /** Current ignore list (reactive). */
+    fun getIgnoredUsersFlow(): Flow<Set<String>>
+
+    /** Changes the account password; UIA confirms with the CURRENT password. */
+    suspend fun changePassword(newPassword: String, currentPasswordProvider: suspend () -> String?, logoutDevices: Boolean = false)
+
+    /** Lists the account's third-party identifiers (emails / phone numbers). */
+    suspend fun getThirdPartyIdentifiers(): List<com.matrix.messenger.data.model.ThirdPartyId>
+
+    /** Removes a third-party identifier by address; returns false when not found. */
+    suspend fun removeThirdPartyIdentifier(address: String): Boolean
+
+    /** One page of the room media panel; [from] = continuation token (null = live edge). */
+    suspend fun getRoomMediaPage(roomId: String, from: String?): com.matrix.messenger.data.model.RoomMediaPage
+
+    /** m.space.child states of a space (for ordering/suggested editing). */
+    suspend fun getSpaceChildStates(spaceId: String): List<com.matrix.messenger.data.model.SpaceChildState>
+
+    /** Creates/updates an m.space.child state (order/suggested; joins via own server when new). */
+    suspend fun updateSpaceChild(spaceId: String, childRoomId: String, order: String?, suggested: Boolean)
+
+    /** Removes a child from the space (empty m.space.child content). */
+    suspend fun removeSpaceChild(spaceId: String, childRoomId: String)
+
+    /** Writes normalized lexicographic orders (zero-padded indices) for the given child sequence. */
+    suspend fun reorderSpaceChildren(spaceId: String, orderedChildRoomIds: List<String>)
 
     /** Batch redacts several own messages (multi-select delete). Fails fast on first error. */
     suspend fun deleteMessages(roomId: String, eventIds: List<String>)

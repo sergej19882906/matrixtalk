@@ -150,12 +150,18 @@ import net.folivo.trixnity.core.model.events.RoomEventContent
 import net.folivo.trixnity.core.model.events.UnknownEventContent
 import net.folivo.trixnity.core.model.events.m.ReactionEventContent
 import net.folivo.trixnity.core.model.events.m.RelatesTo
+import net.folivo.trixnity.core.model.events.m.IgnoredUserListEventContent
+import net.folivo.trixnity.core.model.events.m.space.ChildEventContent
 import net.folivo.trixnity.clientserverapi.client.getAccountData
+import net.folivo.trixnity.clientserverapi.model.authentication.ThirdPartyIdentifier
+import net.folivo.trixnity.clientserverapi.model.authentication.ThirdPartyIdentifier.Medium
+import net.folivo.trixnity.clientserverapi.model.rooms.GetEvents
 import com.matrix.messenger.data.emote.EmoteRoomsEventContent
 import com.matrix.messenger.data.emote.RoomEmotesEventContent
 import com.matrix.messenger.data.emote.UserEmotesEventContent
 import com.matrix.messenger.data.location.BeaconEventContent
 import com.matrix.messenger.data.location.BeaconInfoEventContent
+import com.matrix.messenger.data.location.PinLocationEventContent
 import com.matrix.messenger.data.sticker.StickerEventContent
 import com.matrix.messenger.platform.deleteFileIfExists
 import com.matrix.messenger.platform.getCurrentLocation
@@ -200,6 +206,9 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     /** MSC3488 live location broadcaster for the current user's share. */
     private var liveLocationJob: Job? = null
+
+    /** Ignored users (m.ignored_user_list): their messages are hidden everywhere. */
+    private val ignoredUsers = MutableStateFlow<Set<String>>(emptySet())
     private val lifecycleMutex = Mutex()
     private val clientJobs = mutableListOf<kotlinx.coroutines.Job>()
     private val _clientState = MutableStateFlow<MatrixClient?>(null)
@@ -1301,9 +1310,10 @@ class MatrixRepositoryImpl : MatrixRepository {
         require(latitude.isFinite() && latitude in -90.0..90.0 && longitude.isFinite() && longitude in -180.0..180.0)
         sendRoomEvent(
             c, RoomId(roomId),
-            RoomMessageEventContent.Location(
+            PinLocationEventContent(
                 body = com.matrix.messenger.data.model.GeoUri.format(location),
-                geoUri = com.matrix.messenger.data.model.GeoUri.toGeoUri(location)
+                geoUri = com.matrix.messenger.data.model.GeoUri.toGeoUri(location),
+                asset = PinLocationEventContent.Asset("m.pin"),
             )
         )
     }
@@ -1458,6 +1468,150 @@ class MatrixRepositoryImpl : MatrixRepository {
         c.api.room.reportEvent(RoomId(roomId), EventId(eventId), reason, score?.toLong()).getOrThrow()
     }
 
+    override suspend fun reportUser(userId: String, reason: String?) {
+        val c = requireClient()
+        c.api.httpClient.request(
+            ReportUserEndpoint(userId),
+            ReportUserEndpoint.Request(score = null, reason = reason),
+        ).getOrThrow()
+    }
+
+    override suspend fun ignoreUser(userId: String) = setIgnoredUser(userId, true)
+
+    override suspend fun unignoreUser(userId: String) = setIgnoredUser(userId, false)
+
+    private suspend fun setIgnoredUser(userId: String, ignored: Boolean) {
+        val c = requireClient()
+        val target = UserId(userId)
+        val current = c.api.user.getAccountData<IgnoredUserListEventContent>(userId = c.userId).getOrNull()
+            ?: IgnoredUserListEventContent(emptyMap())
+        val users = current.ignoredUsers.toMutableMap()
+        if (ignored) users[target] = kotlinx.serialization.json.JsonObject(emptyMap())
+        else users.keys.removeAll { it == target }
+        c.api.user.setAccountData(IgnoredUserListEventContent(users), userId = c.userId).getOrThrow()
+    }
+
+    override fun getIgnoredUsersFlow(): Flow<Set<String>> = ignoredUsers
+
+    override suspend fun changePassword(newPassword: String, currentPasswordProvider: suspend () -> String?, logoutDevices: Boolean) {
+        val c = requireClient()
+        // UIA carries the CURRENT password; the new one is the request body.
+        val initial = c.api.authentication.changePassword(newPassword, logoutDevices).getOrThrow()
+        completeUia(initial, currentPasswordProvider)
+    }
+
+    override suspend fun getThirdPartyIdentifiers(): List<com.matrix.messenger.data.model.ThirdPartyId> {
+        val c = requireClient()
+        return c.api.authentication.getThirdPartyIdentifiers().getOrThrow()
+            .map {
+                com.matrix.messenger.data.model.ThirdPartyId(
+                    address = it.address,
+                    isEmail = it.medium == Medium.EMAIL,
+                    addedAt = it.addedAt,
+                    validatedAt = it.validatedAt,
+                )
+            }
+    }
+
+    override suspend fun removeThirdPartyIdentifier(address: String): Boolean {
+        val c = requireClient()
+        val tpid = c.api.authentication.getThirdPartyIdentifiers().getOrThrow()
+            .firstOrNull { it.address == address } ?: return false
+        c.api.authentication.deleteThirdPartyIdentifiers(address, medium = tpid.medium).getOrThrow()
+        return true
+    }
+
+    override suspend fun getRoomMediaPage(roomId: String, from: String?): com.matrix.messenger.data.model.RoomMediaPage {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        val startToken: String = from ?: run {
+            val lastEventId = runCatching { c.room.getById(rId).firstOrNull()?.lastRelevantEventId }.getOrNull()
+                ?: return com.matrix.messenger.data.model.RoomMediaPage(emptyList(), null)
+            runCatching { c.api.room.getEventContext(rId, lastEventId, limit = 1L).getOrThrow().start }.getOrNull()
+                ?: return com.matrix.messenger.data.model.RoomMediaPage(emptyList(), null)
+        }
+        val response = runCatching {
+            c.api.room.getEvents(
+                rId, startToken,
+                dir = GetEvents.Direction.BACKWARDS,
+                limit = 50L,
+                filter = """{"contains_url":true}""",
+            ).getOrThrow()
+        }.getOrElse {
+            if (from != null) return com.matrix.messenger.data.model.RoomMediaPage(emptyList(), null)
+            throw it
+        }
+        val items = response.chunk.orEmpty().mapNotNull { event ->
+            val content = event.content
+            val media = content.mediaReference() ?: return@mapNotNull null
+            val url = media.file?.url ?: media.url ?: return@mapNotNull null
+            val isVoice = content is com.matrix.messenger.data.voice.VoiceAudioContent ||
+                (content is UnknownEventContent && content.eventType == "m.audio")
+            com.matrix.messenger.data.model.RoomMediaItem(
+                eventId = event.id.full,
+                senderId = event.sender.full,
+                senderName = c.resolveSenderName(rId, event.sender),
+                body = when (content) {
+                    is RoomMessageEventContent.FileBased -> content.body
+                    is com.matrix.messenger.data.voice.VoiceAudioContent -> content.stockAudio.body
+                    is StickerEventContent -> content.body
+                    else -> "Вложение"
+                },
+                timestamp = event.originTimestamp,
+                url = url,
+                encryptedFile = media.file,
+                mimeType = media.mimeType,
+                isVoice = isVoice,
+            )
+        }
+        return com.matrix.messenger.data.model.RoomMediaPage(items, response.end)
+    }
+
+    override suspend fun getSpaceChildStates(spaceId: String): List<com.matrix.messenger.data.model.SpaceChildState> {
+        val c = requireClient()
+        val states = runCatching {
+            c.room.getAllState(RoomId(spaceId), ChildEventContent::class).firstOrNull().orEmpty()
+        }.getOrNull().orEmpty()
+        return states.mapNotNull { (childRoomId, flow) ->
+            val content = flow.filterNotNull().firstOrNull()?.content ?: return@mapNotNull null
+            com.matrix.messenger.data.model.SpaceChildState(childRoomId, content.order, content.suggested)
+        }
+    }
+
+    override suspend fun updateSpaceChild(spaceId: String, childRoomId: String, order: String?, suggested: Boolean) {
+        val c = requireClient()
+        val existing = runCatching {
+            c.room.getState<ChildEventContent>(RoomId(spaceId), childRoomId).firstOrNull()?.content
+        }.getOrNull()
+        val via = existing?.via?.takeIf { it.isNotEmpty() } ?: setOf(c.userId.full.substringAfter(':'))
+        c.api.room.sendStateEvent(
+            RoomId(spaceId),
+            ChildEventContent(order = order, suggested = suggested, via = via),
+            stateKey = childRoomId,
+        ).getOrThrow()
+    }
+
+    override suspend fun removeSpaceChild(spaceId: String, childRoomId: String) {
+        val c = requireClient()
+        // Removal per spec: empty m.space.child content (no via servers).
+        c.api.room.sendStateEvent(
+            RoomId(spaceId),
+            ChildEventContent(via = emptySet()),
+            stateKey = childRoomId,
+        ).getOrThrow()
+    }
+
+    override suspend fun reorderSpaceChildren(spaceId: String, orderedChildRoomIds: List<String>) {
+        val states = getSpaceChildStates(spaceId).associateBy { it.roomId }
+        orderedChildRoomIds.forEachIndexed { index, childRoomId ->
+            val current = states[childRoomId]
+            val normalized = index.toString().padStart(10, '0')
+            if (current?.order != normalized) {
+                updateSpaceChild(spaceId, childRoomId, normalized, current?.suggested ?: false)
+            }
+        }
+    }
+
     override suspend fun deleteMessages(roomId: String, eventIds: List<String>) {
         eventIds.forEach { deleteMessage(it, roomId) }
     }
@@ -1471,6 +1625,8 @@ class MatrixRepositoryImpl : MatrixRepository {
                     targetRoomId,
                     message.poll.question,
                     message.poll.answers.map { it.text },
+                    disclosed = message.poll.disclosed,
+                    maxSelections = message.poll.maxSelections,
                 )
                 message.messageType == com.matrix.messenger.data.model.MessageType.TEXT ->
                     sendTextMessage(targetRoomId, message.body)
@@ -2318,6 +2474,12 @@ class MatrixRepositoryImpl : MatrixRepository {
             }
         }
         clientJobs += repositoryScope.launch {
+            // m.ignored_user_list: hide ignored senders everywhere (Element parity).
+            c.user.getAccountData(IgnoredUserListEventContent::class).collect { content ->
+                ignoredUsers.value = content?.ignoredUsers?.keys?.map { it.full }?.toSet().orEmpty()
+            }
+        }
+        clientJobs += repositoryScope.launch {
             // Element shows "Неизвестное устройство" for sessions without a display name.
             runCatching {
                 val device = c.api.devices.getDevice(c.deviceId).getOrNull()
@@ -2392,12 +2554,12 @@ class MatrixRepositoryImpl : MatrixRepository {
         requireClient().api.room.inviteUser(RoomId(roomId), UserId(userId)).getOrThrow()
     }
 
-    override suspend fun sendPoll(roomId: String, question: String, answers: List<String>) {
+    override suspend fun sendPoll(roomId: String, question: String, answers: List<String>, disclosed: Boolean, maxSelections: Int) {
         if (answers.size < 2) error("Нужно минимум 2 варианта ответа")
         // m.poll.* is UnknownEventContent -> same outbox limitation as call signaling.
         sendRoomEvent(
             requireClient(), RoomId(roomId),
-            com.matrix.messenger.data.poll.buildPollStartContent(question, answers)
+            com.matrix.messenger.data.poll.buildPollStartContent(question, answers, disclosed, maxSelections)
         )
     }
 
@@ -2495,6 +2657,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         val originalContent = rawContent.getOrNull() ?: return null
         val voice = originalContent as? com.matrix.messenger.data.voice.VoiceAudioContent
         val eventContent = voice?.stockAudio ?: originalContent
+        if (sender != c.userId && sender.full in ignoredUsers.value) return null
         eventRoomMap[eventId.full] = roomId.full
         originalContent.mediaReference()?.let { media ->
             media.file?.let { encryptedFiles[eventId.full] = it }

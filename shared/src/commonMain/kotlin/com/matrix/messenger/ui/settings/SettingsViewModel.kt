@@ -56,6 +56,12 @@ data class SettingsUiState(
     val proxyMessage: String? = null,
     val isLoggingOut: Boolean = false,
     val isDeactivating: Boolean = false,
+    val isChangingPassword: Boolean = false,
+    val isRemovingIdentifier: Boolean = false,
+    /** Third-party identifiers (email / msisdn) bound to the account. */
+    val thirdPartyIds: List<com.matrix.messenger.data.model.ThirdPartyId> = emptyList(),
+    /** One-shot confirmation for account actions (password change, identifier removal). */
+    val accountMessage: String? = null,
     val isSavingPin: Boolean = false,
     val isSavingProxy: Boolean = false,
     val isSavingNotifications: Boolean = false,
@@ -313,6 +319,66 @@ class SettingsViewModel(
             } finally {
                 _uiState.update { it.copy(isDeactivating = false) }
             }
+        }
+    }
+
+    /**
+     * Changes the account password (UIA walks with the current password).
+     * With [logoutDevices] the session is invalidated server-side: emits the
+     * same [SettingsEvent.LoggedOut] as the logout flow so navigation resets.
+     */
+    fun changePassword(newPassword: String, currentPassword: String, logoutDevices: Boolean) {
+        if (_uiState.value.isChangingPassword) return
+        _uiState.update { it.copy(isChangingPassword = true, errorMessage = null) }
+        viewModelScope.launch {
+            try {
+                attempt("Не удалось изменить пароль. Повторите попытку") {
+                    matrixRepository.changePassword(
+                        newPassword = newPassword,
+                        currentPasswordProvider = { currentPassword },
+                        logoutDevices = logoutDevices
+                    )
+                    if (logoutDevices) {
+                        eventChannel.send(SettingsEvent.LoggedOut)
+                    } else {
+                        _uiState.update { it.copy(accountMessage = "Пароль изменён") }
+                    }
+                }
+            } finally {
+                _uiState.update { it.copy(isChangingPassword = false) }
+            }
+        }
+    }
+
+    /** Loads the account's third-party identifiers (for the Email и телефон dialog). */
+    fun loadThirdPartyIdentifiers() {
+        viewModelScope.launch {
+            attempt("Не удалось загрузить привязанные адреса") {
+                val ids = matrixRepository.getThirdPartyIdentifiers()
+                _uiState.update { it.copy(thirdPartyIds = ids) }
+            }
+        }
+    }
+
+    fun removeThirdPartyIdentifier(address: String) {
+        if (_uiState.value.isRemovingIdentifier) return
+        _uiState.update { it.copy(isRemovingIdentifier = true, errorMessage = null) }
+        viewModelScope.launch {
+            try {
+                attempt("Не удалось отвязать адрес") {
+                    matrixRepository.removeThirdPartyIdentifier(address)
+                    val ids = matrixRepository.getThirdPartyIdentifiers()
+                    _uiState.update { it.copy(thirdPartyIds = ids, accountMessage = "Удалено") }
+                }
+            } finally {
+                _uiState.update { it.copy(isRemovingIdentifier = false) }
+            }
+        }
+    }
+
+    fun consumeAccountMessage() {
+        if (_uiState.value.accountMessage != null) {
+            _uiState.value = _uiState.value.copy(accountMessage = null)
         }
     }
 

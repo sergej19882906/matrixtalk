@@ -230,6 +230,40 @@ data class StickerItem(
     val isSticker: Boolean = true
 )
 
+/** Entry of the room media panel (Element «Файлы и медиа»). */
+data class RoomMediaItem(
+    val eventId: String,
+    val senderId: String,
+    val senderName: String?,
+    val body: String,
+    val timestamp: Long,
+    val url: String,
+    val encryptedFile: EncryptedFile? = null,
+    val mimeType: String?,
+    val isVoice: Boolean = false,
+)
+
+/** One page of the room media panel; null [nextFrom] means history exhausted. */
+data class RoomMediaPage(
+    val items: List<RoomMediaItem>,
+    val nextFrom: String?
+)
+
+/** Third-party identifier (email / msisdn) of the account. */
+data class ThirdPartyId(
+    val address: String,
+    val isEmail: Boolean,
+    val addedAt: Long,
+    val validatedAt: Long
+)
+
+/** m.space.child state of a space (order/suggested for the tree editor). */
+data class SpaceChildState(
+    val roomId: String,
+    val order: String?,
+    val suggested: Boolean
+)
+
 /** Quoted original of a reply (m.in_reply_to). */
 data class ReplyInfo(
     val eventId: String,

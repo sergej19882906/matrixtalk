@@ -97,7 +97,8 @@ fun parsePollEnd(raw: JsonObject): PollEnd? {
 fun buildPollStartContent(
     question: String,
     answers: List<String>,
-    disclosed: Boolean = true
+    disclosed: Boolean = true,
+    maxSelections: Int = 1
 ): UnknownEventContent {
     val ids = answers.map { kotlin.random.Random.nextLong().toString(36).take(8) }
     val fallbackBody = buildString {
@@ -113,7 +114,7 @@ fun buildPollStartContent(
                     put("text", question)
                 }
                 put("kind", if (disclosed) "org.matrix.msc3381.disclosed" else "org.matrix.msc3381.undisclosed")
-                put("max_selections", 1)
+                put("max_selections", maxSelections.coerceAtLeast(1))
                 putJsonArray("answers") {
                     answers.forEachIndexed { index, text ->
                         add(buildJsonObject {

@@ -8,16 +8,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,8 +68,11 @@ fun SpaceDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val shareLink by viewModel.shareLink.collectAsState()
+    val addCandidates by viewModel.addCandidates.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var leaving by remember { mutableStateOf(false) }
+    var manageMode by remember(spaceId) { mutableStateOf(false) }
+    var showAddChildDialog by remember { mutableStateOf(false) }
 
     var preview by remember(spaceId) { mutableStateOf<PublicRoomItem?>(null) }
     val openChild: (PublicRoomItem) -> Unit = { child ->
@@ -98,6 +107,10 @@ fun SpaceDetailScreen(
                         }) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Скопировать ссылку")
                         }
+                    }
+                    // Tree editor toggle (always available for joined spaces).
+                    TextButton(onClick = { manageMode = !manageMode }) {
+                        Text(if (manageMode) "Готово" else "Управление")
                     }
                 }
             )
@@ -166,7 +179,19 @@ fun SpaceDetailScreen(
                     Spacer(Modifier.height(4.dp))
                 }
                 items(uiState.childSpaces, key = { "space_${it.roomId}" }) { child ->
-                    SpaceChildRow(child = child, onOpen = { openChild(child) })
+                    val index = uiState.childSpaces.indexOfFirst { it.roomId == child.roomId }
+                    SpaceChildRow(
+                        child = child,
+                        onOpen = { openChild(child) },
+                        manageMode = manageMode,
+                        suggested = uiState.childStates[child.roomId]?.suggested ?: false,
+                        canMoveUp = index > 0,
+                        canMoveDown = index < uiState.childSpaces.lastIndex,
+                        onMoveUp = { viewModel.moveChild(child.roomId, up = true) },
+                        onMoveDown = { viewModel.moveChild(child.roomId, up = false) },
+                        onToggleSuggested = { viewModel.toggleChildSuggested(child.roomId) },
+                        onRemove = { viewModel.removeChild(child.roomId) }
+                    )
                 }
                 item(key = "rooms_header_gap") { Spacer(Modifier.height(12.dp)) }
             }
@@ -180,7 +205,19 @@ fun SpaceDetailScreen(
                 Spacer(Modifier.height(4.dp))
             }
             items(uiState.rooms, key = { it.roomId }) { child ->
-                SpaceChildRow(child = child, onOpen = { openChild(child) })
+                val index = uiState.rooms.indexOfFirst { it.roomId == child.roomId }
+                SpaceChildRow(
+                    child = child,
+                    onOpen = { openChild(child) },
+                    manageMode = manageMode,
+                    suggested = uiState.childStates[child.roomId]?.suggested ?: false,
+                    canMoveUp = index > 0,
+                    canMoveDown = index < uiState.rooms.lastIndex,
+                    onMoveUp = { viewModel.moveChild(child.roomId, up = true) },
+                    onMoveDown = { viewModel.moveChild(child.roomId, up = false) },
+                    onToggleSuggested = { viewModel.toggleChildSuggested(child.roomId) },
+                    onRemove = { viewModel.removeChild(child.roomId) }
+                )
             }
             if (uiState.rooms.isEmpty()) {
                 item(key = "rooms_empty") {
@@ -190,6 +227,18 @@ fun SpaceDetailScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 8.dp)
                     )
+                }
+            }
+            if (manageMode) {
+                item(key = "add_child") {
+                    TextButton(onClick = {
+                        viewModel.loadAddCandidates()
+                        showAddChildDialog = true
+                    }) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Добавить комнату")
+                    }
                 }
             }
 
@@ -277,10 +326,76 @@ fun SpaceDetailScreen(
             }
         )
     }
+
+    // Manage mode: add an existing joined room as a space child.
+    if (showAddChildDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddChildDialog = false },
+            title = { Text("Добавить комнату") },
+            text = {
+                if (addCandidates.isEmpty()) {
+                    Text(
+                        text = "Нет подходящих комнат — все уже добавлены",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)
+                    ) {
+                        items(
+                            items = addCandidates,
+                            key = { it.roomId }
+                        ) { room ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        showAddChildDialog = false
+                                        viewModel.addChild(room.roomId)
+                                    }
+                                    .padding(vertical = 8.dp)
+                            ) {
+                                MatrixAvatar(
+                                    name = room.name ?: room.roomId,
+                                    avatarUrl = room.avatarUrl,
+                                    size = 32.dp,
+                                    shape = MaterialTheme.shapes.small
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    text = room.name ?: room.roomId,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAddChildDialog = false }) { Text("Отмена") }
+            }
+        )
+    }
 }
 
 @Composable
-private fun SpaceChildRow(child: PublicRoomItem, onOpen: () -> Unit) {
+private fun SpaceChildRow(
+    child: PublicRoomItem,
+    onOpen: () -> Unit,
+    manageMode: Boolean = false,
+    suggested: Boolean = false,
+    canMoveUp: Boolean = false,
+    canMoveDown: Boolean = false,
+    onMoveUp: () -> Unit = {},
+    onMoveDown: () -> Unit = {},
+    onToggleSuggested: () -> Unit = {},
+    onRemove: () -> Unit = {}
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -312,10 +427,45 @@ private fun SpaceChildRow(child: PublicRoomItem, onOpen: () -> Unit) {
                 )
             }
             Text(
-                text = "${child.joinedMembers} участн. · ${child.joinRule}",
+                text = "${child.joinedMembers} участн. · ${child.joinRule}" +
+                    if (manageMode && suggested) " · рекомендуется" else "",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+        if (manageMode) {
+            IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Выше",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            IconButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Ниже",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            IconButton(onClick = onToggleSuggested, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.School,
+                    contentDescription = if (suggested) "Убрать рекомендацию" else "Рекомендовать",
+                    tint = if (suggested) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Удалить связь",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }

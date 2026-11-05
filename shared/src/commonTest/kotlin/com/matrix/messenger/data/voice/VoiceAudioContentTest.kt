@@ -105,15 +105,18 @@ class VoiceAudioContentTest {
     @Test
     fun duplicateWireMappingsShareDispatcherAndContextualOutboxRoundTrips() {
         val entries = mappings.message.filter { it.type == "m.room.message" }
-        assertEquals(2, entries.size)
+        assertEquals(3, entries.size)
         val voice = VoiceAudioContent.fromAudio(
             RoomMessageEventContent.FileBased.Audio(body = "Voice", url = "mxc://example.org/voice"),
             duration = 1200, waveform = listOf(1, 2),
         )
-        // Both wire mappings wrap the voice dispatcher: encoding through either
-        // entry must emit the MSC voice marker (a stock audio serializer would not).
+        // Voice-capable wire mappings wrap the voice dispatcher: encoding the voice
+        // content through them must emit the MSC voice marker (a stock audio or
+        // pin-location serializer would not accept it at all).
         entries.forEach { entry ->
-            assertTrue(VOICE_MESSAGE_KEY in json.encodeToJsonElement(entry.serializer, voice).jsonObject)
+            if (entry.kClass.isInstance(voice)) {
+                assertTrue(VOICE_MESSAGE_KEY in json.encodeToJsonElement(entry.serializer, voice).jsonObject)
+            }
         }
         val restored = assertIs<VoiceAudioContent>(contextualRoundTrip(voice))
         assertEquals(voice.stockAudio, restored.stockAudio)

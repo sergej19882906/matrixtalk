@@ -16,6 +16,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ArrowBack
@@ -82,6 +84,12 @@ fun SettingsScreen(
             viewModel.consumeProxyMessage()
         }
     }
+    LaunchedEffect(uiState.accountMessage) {
+        uiState.accountMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeAccountMessage()
+        }
+    }
 
     var pinDialog by remember { mutableStateOf(false) }
     LaunchedEffect(viewModel) {
@@ -114,6 +122,13 @@ fun SettingsScreen(
     var showDeactivatePassword by remember { mutableStateOf(false) }
     var deactivateErase by remember { mutableStateOf(false) }
     var deactivatePassword by remember { mutableStateOf("") }
+
+    // Account rows: password change + third-party identifiers.
+    var showChangePasswordDialog by remember { mutableStateOf(false) }
+    var changePasswordNew by remember { mutableStateOf("") }
+    var changePasswordCurrent by remember { mutableStateOf("") }
+    var changePasswordLogoutDevices by remember { mutableStateOf(false) }
+    var showIdentifiersDialog by remember { mutableStateOf(false) }
     if (showDeactivateConfirm) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showDeactivateConfirm = false },
@@ -180,6 +195,123 @@ fun SettingsScreen(
                     onClick = { showDeactivatePassword = false },
                     enabled = !uiState.isDeactivating
                 ) { Text("Отмена") }
+            }
+        )
+    }
+
+    // Сменить пароль: новый + текущий пароль, опционально выйти на всех устройствах.
+    if (showChangePasswordDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!uiState.isChangingPassword) showChangePasswordDialog = false },
+            title = { Text("Сменить пароль") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = changePasswordNew,
+                        onValueChange = { changePasswordNew = it },
+                        label = { Text("Новый пароль") },
+                        singleLine = true,
+                        enabled = !uiState.isChangingPassword,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = changePasswordCurrent,
+                        onValueChange = { changePasswordCurrent = it },
+                        label = { Text("Текущий пароль") },
+                        singleLine = true,
+                        enabled = !uiState.isChangingPassword,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = changePasswordLogoutDevices,
+                            onCheckedChange = { changePasswordLogoutDevices = it },
+                            enabled = !uiState.isChangingPassword
+                        )
+                        Text(
+                            text = "Выйти на всех устройствах",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showChangePasswordDialog = false
+                        viewModel.changePassword(changePasswordNew, changePasswordCurrent, changePasswordLogoutDevices)
+                        changePasswordNew = ""
+                        changePasswordCurrent = ""
+                        changePasswordLogoutDevices = false
+                    },
+                    enabled = !uiState.isChangingPassword &&
+                        changePasswordNew.isNotBlank() &&
+                        changePasswordCurrent.isNotBlank()
+                ) { Text("Сохранить") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showChangePasswordDialog = false },
+                    enabled = !uiState.isChangingPassword
+                ) { Text("Отмена") }
+            }
+        )
+    }
+
+    // Email и телефон: список привязанных идентификаторов с удалением.
+    if (showIdentifiersDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showIdentifiersDialog = false },
+            title = { Text("Email и телефон") },
+            text = {
+                Column {
+                    if (uiState.thirdPartyIds.isEmpty()) {
+                        Text(
+                            text = "Не привязано",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        uiState.thirdPartyIds.forEach { id ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(id.address, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        text = if (id.isEmail) "email" else "телефон",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { viewModel.removeThirdPartyIdentifier(id.address) },
+                                    enabled = !uiState.isRemovingIdentifier,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Удалить",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Добавление нового email — через веб-клиент Element или приглашение администратора",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showIdentifiersDialog = false }) { Text("Закрыть") }
             }
         )
     }
@@ -583,6 +715,61 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
             SettingsSectionHeader("Аккаунт")
+
+            // Сменить пароль
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showChangePasswordDialog = true }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Сменить пароль", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = "Обновить пароль аккаунта",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Email и телефон
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        viewModel.loadThirdPartyIdentifiers()
+                        showIdentifiersDialog = true
+                    }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.Email,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Email и телефон", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = "Привязанные адреса аккаунта",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
             Button(
                 onClick = viewModel::logout,
                 enabled = !uiState.isLoggingOut,

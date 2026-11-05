@@ -2,7 +2,9 @@ package com.matrix.messenger.data.bridge
 
 import com.matrix.messenger.data.call.callEventContentSerializerMappings
 import com.matrix.messenger.data.emote.emoteEventContentSerializerMappings
+import com.matrix.messenger.data.location.PinLocationEventContent
 import com.matrix.messenger.data.location.beaconEventContentSerializerMappings
+import com.matrix.messenger.data.location.locationAssetEventContentSerializerMappings
 import com.matrix.messenger.data.sticker.stickerEventContentSerializerMappings
 import com.matrix.messenger.data.voice.voiceEventContentSerializerMappings
 import kotlinx.serialization.SerialName
@@ -85,7 +87,8 @@ val customEventContentSerializerMappings: EventContentSerializerMappings =
                 callEventContentSerializerMappings.message.filterNot { it.type == "m.room.message" } +
                 voiceEventContentSerializerMappings.message +
                 stickerEventContentSerializerMappings.message.filter { it.type == "m.sticker" } +
-                beaconEventContentSerializerMappings.message.filter { it.type == "m.beacon" }
+                beaconEventContentSerializerMappings.message.filter { it.type == "m.beacon" } +
+                locationAssetEventContentSerializerMappings.message.filter { it.kClass == PinLocationEventContent::class }
             ).toSet()
         override val state = DefaultEventContentSerializerMappings.state +
             bridgeStateEventContentMappings +

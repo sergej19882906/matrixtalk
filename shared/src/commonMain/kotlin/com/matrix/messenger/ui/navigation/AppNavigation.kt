@@ -208,7 +208,21 @@ fun AppNavigation(
                 onNavigateBack = { navController.popBackStack() },
                 onLeftRoom = {
                     navController.popBackStack(Screen.Home.route, inclusive = false)
-                }
+                },
+                onOpenMedia = { navController.navigate(Screen.RoomMedia.createRoute(roomId)) }
+            )
+        }
+
+        composable(
+            route = Screen.RoomMedia.route,
+            arguments = listOf(
+                navArgument("roomId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: return@composable
+            com.matrix.messenger.ui.room.RoomMediaScreen(
+                roomId = roomId,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 

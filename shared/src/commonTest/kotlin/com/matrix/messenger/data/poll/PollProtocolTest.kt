@@ -61,4 +61,20 @@ class PollProtocolTest {
         assertTrue(body!!.startsWith("[FALLBACK]"))
         assertTrue(body.contains("1. Один"))
     }
+
+    @Test
+    fun forwardedPollSettingsCarryThroughWireFormat() {
+        val content = buildPollStartContent(
+            "Множественный выбор?", listOf("А", "Б", "В"),
+            disclosed = false, maxSelections = 2,
+        )
+        val poll = content.raw["org.matrix.msc3381.poll.start"]!!.jsonObject
+        assertEquals("2", poll["max_selections"]?.jsonPrimitive?.content)
+        assertEquals("org.matrix.msc3381.undisclosed", poll["kind"]?.jsonPrimitive?.content)
+        // Defaults stay disclosed / single-choice.
+        val defaultContent = buildPollStartContent("Q?", listOf("A", "B"))
+        val defaultPoll = defaultContent.raw["org.matrix.msc3381.poll.start"]!!.jsonObject
+        assertEquals("1", defaultPoll["max_selections"]?.jsonPrimitive?.content)
+        assertEquals("org.matrix.msc3381.disclosed", defaultPoll["kind"]?.jsonPrimitive?.content)
+    }
 }

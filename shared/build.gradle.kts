@@ -74,6 +74,8 @@ kotlin {
             // Ktor (required by Trixnity)
             implementation("io.ktor:ktor-client-core:2.3.12")
             implementation("io.ktor:ktor-client-okhttp:2.3.12")
+            // @Resource endpoint annotations for custom Matrix endpoints (user reports)
+            implementation("io.ktor:ktor-resources:2.3.12")
 
             // Coil 3 (KMP image loading)
             implementation("io.coil-kt.coil3:coil-compose:3.0.4")

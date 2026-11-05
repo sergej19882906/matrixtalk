@@ -55,6 +55,32 @@ class RoomSettingsViewModel(
     private val _shareLink = MutableStateFlow<String?>(null)
     val shareLink: StateFlow<String?> = _shareLink.asStateFlow()
 
+    /** Server-side ignored senders (account data "m.ignored_user_list"). */
+    val ignoredUsers: StateFlow<Set<String>> =
+        matrixRepository.getIgnoredUsersFlow()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    fun ignoreUser(userId: String) {
+        launchAction("Не удалось заблокировать пользователя") {
+            matrixRepository.ignoreUser(userId)
+            _message.value = "Пользователь заблокирован"
+        }
+    }
+
+    fun unignoreUser(userId: String) {
+        launchAction("Не удалось разблокировать пользователя") {
+            matrixRepository.unignoreUser(userId)
+            _message.value = "Разблокирован"
+        }
+    }
+
+    fun reportUser(userId: String, reason: String?) {
+        launchAction("Не удалось отправить жалобу") {
+            matrixRepository.reportUser(userId, reason?.trim()?.takeIf { it.isNotBlank() })
+            _message.value = "Жалоба отправлена"
+        }
+    }
+
     fun endPoll(pollEventId: String) {
         launchAction("Не удалось завершить опрос") {
             matrixRepository.sendPollEnd(roomId, pollEventId)
