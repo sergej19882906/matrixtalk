@@ -2,71 +2,107 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build (must match gradle.properties)
+        required: true
+        type: string
+      source_ref:
+        description: Optional recovery branch or commit (original tag must be its ancestor)
+        required: false
+        type: string
 
 permissions:
   contents: write
   actions: write
 
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 env:
   GRADLE_OPTS: -Dorg.gradle.daemon=false
 
 jobs:
-  android-apk:
+  metadata:
     runs-on: ubuntu-latest
-    env:
-      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-
+    outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
+      version: ${{ steps.metadata.outputs.version }}
+      version_code: ${{ steps.metadata.outputs.version_code }}
+      sha: ${{ steps.metadata.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate tag and release metadata
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          python -I scripts/release_metadata.py outputs --root . --tag "$RELEASE_TAG" --output "$GITHUB_OUTPUT"
+          git merge-base --is-ancestor "refs/tags/$RELEASE_TAG" HEAD
+          printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Release validation tests
+        run: |
+          python -m pip install PyYAML==6.0.2
+          python -I -m unittest discover -s scripts -p 'test_*.py'
+          python -I scripts/validate_workflows.py .github/workflows
 
+  android-apk:
+    needs: metadata
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_VERSION_CODE: ${{ needs.metadata.outputs.version_code }}
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
           cache: gradle
-
       - run: chmod +x gradlew
-
-      - name: Set up signing
-        if: ${{ env.KEYSTORE_BASE64 != '' }}
+      - name: Set up Android signing
+        run: python -I scripts/android-release.py prepare
+      - name: Build APK and validate release metadata
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > matrix-messenger.jks
-          cat > local.properties <<EOF
-          sdk.dir=$ANDROID_SDK_ROOT
-          keystore.file=matrix-messenger.jks
-          keystore.alias=${{ secrets.KEYSTORE_ALIAS }}
-          keystore.password=${{ secrets.KEYSTORE_PASSWORD }}
-          key.password=${{ secrets.KEY_PASSWORD }}
-          EOF
-
-      - name: Build signed release APK
-        if: ${{ env.KEYSTORE_BASE64 != '' }}
-        run: ./gradlew :app:assembleRelease
-
-      - name: Build debug APK (no signing secrets)
-        if: ${{ env.KEYSTORE_BASE64 == '' }}
-        run: ./gradlew :app:assembleDebug
-
-
-      - name: Prepare artifact
-        shell: bash
-        run: |
-          mkdir -p release-assets
-          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            cp app/build/outputs/apk/release/app-release.apk "release-assets/MatrixTalk-${{ github.ref_name }}.apk"
-          else
-            cp app/build/outputs/apk/debug/app-debug.apk "release-assets/MatrixTalk-${{ github.ref_name }}-debug.apk"
-          fi
-
+          set -euo pipefail
+          if [ -n "$KEYSTORE_BASE64" ]; then variant=Release; else variant=Debug; fi
+          ./gradlew verifyReleaseMetadata -PreleaseTag="$RELEASE_TAG" ":app:assemble$variant"
+      - name: Verify APK version and signature
+        run: python -I scripts/android-release.py verify "$RELEASE_VERSION" "$RELEASE_VERSION_CODE" "$RELEASE_TAG"
+      - name: Clean up Android signing files
+        if: always()
+        run: python -I scripts/android-release.py cleanup
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: release-assets/*.apk
+          if-no-files-found: error
 
   desktop:
+    needs: metadata
     env:
+      RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
       WIN_PFX_BASE64: ${{ secrets.WIN_PFX_BASE64 }}
       WIN_PFX_PASSWORD: ${{ secrets.WIN_PFX_PASSWORD }}
       MAC_CERTIFICATE_BASE64: ${{ secrets.MAC_CERTIFICATE_BASE64 }}
@@ -81,172 +117,142 @@ jobs:
           - os: windows-latest
             task: packageMsi
             format: msi
-            glob: '*.msi'
           - os: ubuntu-latest
             task: packageDeb
             format: deb
-            glob: '*.deb'
-          # macos-13 (intel) — arm64 runners suffer long capacity queues
-          - os: macos-13
+          - os: macos-15-intel
             task: packageDmg
             format: dmg
-            glob: '*.dmg'
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: gradle
-
       - name: Grant execute permission for gradlew
         if: runner.os != 'Windows'
         run: chmod +x gradlew
-
+      - name: Prepare macOS signing before packaging
+        if: runner.os == 'macOS'
+        run: python -I scripts/mac-release.py prepare
       - name: Package ${{ matrix.format }}
         shell: bash
-        run: ./gradlew :desktop-app:${{ matrix.task }}
-
+        env:
+          PACKAGE_TASK: ${{ matrix.task }}
+        run: ./gradlew verifyReleaseMetadata -PreleaseTag="$RELEASE_TAG" ":desktop-app:$PACKAGE_TASK"
       - name: Smoke test packaged app
-        # Startup regressions in the packaged (minified) app are invisible to
-        # compile tasks and unit tests — launch the real binary and check output.
         shell: bash
         timeout-minutes: 5
         run: |
-          set -u
+          set -euo pipefail
           dir="desktop-app/build/compose/binaries/main/app/MatrixTalk"
-          if [ ! -e "$dir" ]; then
-            ./gradlew :desktop-app:createDistributable
-          fi
-          if [ -f "$dir/MatrixTalk.exe" ]; then bin="$dir/MatrixTalk.exe"; else
-            bin="$dir/bin/MatrixTalk"
-            if [ "$RUNNER_OS" = "Linux" ]; then
+          runner=()
+          case "$RUNNER_OS" in
+            Windows) bin="$dir/MatrixTalk.exe" ;;
+            Linux)
+              bin="$dir/bin/MatrixTalk"
               sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
-              runner="xvfb-run -a"
-            elif [ "$RUNNER_OS" = "macOS" ]; then
-              bin="desktop-app/build/compose/binaries/main/app/MatrixTalk.app/Contents/MacOS/MatrixTalk"
-            fi
-          fi
-          if [ ! -e "$bin" ]; then
-            echo "packaged binary not found, directory contents:"
-            ls -laR "$dir" 2>&1 | head -30
-            exit 1
-          fi
+              runner=(xvfb-run -a)
+              ;;
+            macOS) bin="${dir}.app/Contents/MacOS/MatrixTalk" ;;
+          esac
+          test -f "$bin"
           out=$(mktemp)
-          ${runner:-} "$bin" >"$out" 2>&1 &
+          "${runner[@]}" "$bin" >"$out" 2>&1 &
           pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; rm -f "$out"' EXIT
           sleep 30
-          if ! kill -0 $pid 2>/dev/null; then
-            echo "Packaged app exited early:"; cat "$out"; exit 1
+          if ! kill -0 "$pid" 2>/dev/null; then
+            printf 'Packaged app exited early:\n'; cat "$out"; exit 1
           fi
-          kill $pid 2>/dev/null || true
-          sleep 2
-          if grep -qE "Exception in thread|InstanceCreationException|NoDefinitionFoundException|NoClassDefFoundError|UnsatisfiedLinkError|Could not create instance" "$out"; then
-            echo "Packaged app logged exceptions:"; cat "$out"; exit 1
+          if grep -qE 'Exception in thread|InstanceCreationException|NoDefinitionFoundException|NoClassDefFoundError|UnsatisfiedLinkError|Could not create instance' "$out"; then
+            cat "$out"; exit 1
           fi
-          echo "Packaged app smoke test OK"
-
+          printf 'Packaged app smoke test OK\n'
       - name: Store check without sun.misc.Unsafe
-        # Reproduces the installer jlink runtime (no jdk.unsupported module):
-        # the prefs store must survive it (regression: v1.14.x desktop login crash).
         shell: bash
         run: ./gradlew :desktop-app:loginSmokeTestNoUnsafe
-
-      - name: Sign MSI (Authenticode)
-        # Requires secrets: WIN_PFX_BASE64 (PKCS#12 cert), WIN_PFX_PASSWORD.
-        # Without them the MSI ships unsigned (SmartScreen warning on first run).
-        if: runner.os == 'Windows' && env.WIN_PFX_BASE64 != ''
+      - name: Verify MSI version and optionally sign it
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $msi = Get-ChildItem "desktop-app/build/compose/binaries/main/msi/*.msi" | Select-Object -First 1
-          $pfx = "$env:RUNNER_TEMP/matrix-talk.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WIN_PFX_BASE64))
-          signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f "$pfx" /p "$env:WIN_PFX_PASSWORD" $msi.FullName
-          if ($LASTEXITCODE -ne 0) { throw "signtool failed" }
-          echo "MSI signed: $($msi.Name)"
-
-      - name: Codesign + notarize macOS app
-        # Requires secrets: MAC_CERTIFICATE_BASE64 (Developer ID Application P12),
-        # MAC_CERTIFICATE_PASSWORD, APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD.
-        # Without them the DMG ships unsigned (Gatekeeper prompt on first run).
-        if: runner.os == 'MacOS' && env.MAC_CERTIFICATE_BASE64 != ''
+          $packages = @(Get-ChildItem "desktop-app/build/compose/binaries/main/msi/*.msi")
+          if ($packages.Count -ne 1) { throw "Expected exactly one MSI" }
+          ./scripts/verify-sign-windows.ps1 -ExpectedVersion $env:RELEASE_VERSION -PackagePath $packages[0].FullName
+      - name: Verify DEB metadata
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          APP="desktop-app/build/compose/binaries/main/app/MatrixTalk.app"
-          [ -d "$APP" ] || ./gradlew :desktop-app:createDistributable
-
-          echo "$MAC_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/mac.p12"
-          security create-keychain -p CIpass123 build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p CIpass123 build.keychain
-          security import "$RUNNER_TEMP/mac.p12" -k build.keychain -P "$MAC_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k CIpass123 build.keychain
-
-          CERT_NAME=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')
-          [ -n "$CERT_NAME" ] || { echo "No Developer ID Application identity found in the P12"; exit 1; }
-          echo "Signing with: $CERT_NAME"
-
-          codesign --deep --force --options runtime --sign "$CERT_NAME" --timestamp "$APP"
-          codesign --verify --deep --strict "$APP"
-
-          DMG=$(ls desktop-app/build/compose/binaries/main/dmg/*.dmg | head -1)
-          xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-          xcrun stapler staple "$DMG"
-          echo "DMG signed and notarized: $DMG"
-
-      - name: Prepare artifact
+          packages=(desktop-app/build/compose/binaries/main/deb/*.deb)
+          test "${#packages[@]}" -eq 1
+          test "$(dpkg-deb -f "${packages[0]}" Version)" = "$RELEASE_VERSION"
+          test "$(dpkg-deb -f "${packages[0]}" Architecture)" = amd64
+      - name: Verify DMG contents and optionally notarize
+        if: runner.os == 'macOS'
         shell: bash
         run: |
+          set -euo pipefail
+          packages=(desktop-app/build/compose/binaries/main/dmg/*.dmg)
+          test "${#packages[@]}" -eq 1
+          python -I scripts/mac-release.py verify "$RELEASE_VERSION" "${packages[0]}"
+      - name: Clean up macOS signing keychain
+        if: always() && runner.os == 'macOS'
+        run: python -I scripts/mac-release.py cleanup
+      - name: Prepare artifact
+        shell: bash
+        env:
+          PACKAGE_FORMAT: ${{ matrix.format }}
+        run: |
+          set -euo pipefail
+          packages=(desktop-app/build/compose/binaries/main/"$PACKAGE_FORMAT"/*."$PACKAGE_FORMAT")
+          test "${#packages[@]}" -eq 1
           mkdir -p release-assets
-          cp desktop-app/build/compose/binaries/main/${{ matrix.format }}/${{ matrix.glob }} release-assets/
-
+          cp "${packages[0]}" release-assets/
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.format }}
           path: release-assets/*
+          if-no-files-found: error
 
   publish:
-    needs: [android-apk, desktop]
+    needs: [metadata, android-apk, desktop]
     runs-on: ubuntu-latest
-
+    env:
+      GH_HOST: github.com
+      GH_REPO: ${{ github.repository }}
+      GH_PROMPT_DISABLED: '1'
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+      RELEASE_SOURCE_SHA: ${{ needs.metadata.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: actions/download-artifact@v4
         with:
+          pattern: '*'
           path: artifacts
           merge-multiple: true
-
-      - name: List artifacts
-        run: ls -la artifacts/
-
-      - name: Extract release notes
-        shell: bash
+      - name: Validate complete artifact set
+        run: python -I scripts/release_metadata.py artifacts --root . --tag "$RELEASE_TAG" --directory artifacts --manifest-output artifacts/release-manifest.json
+      - name: Extract exact release notes and source provenance
         run: |
-          VER="${GITHUB_REF_NAME#v}"
-          awk -v ver="$VER" 'index($0, "## " ver) == 1 { f=1; next } f && /^## / { exit } f' RELEASE_NOTES.md > release-notes.md
-          if [ ! -s release-notes.md ]; then
-            echo "MatrixTalk $GITHUB_REF_NAME" > release-notes.md
-          fi
-          cat release-notes.md
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "MatrixTalk ${GITHUB_REF_NAME}" \
-            --notes-file release-notes.md \
-            artifacts/*
-
-      - name: Trigger AppImage build
-        # Releases created with GITHUB_TOKEN do not emit release events, so the
-        # AppImage workflow cannot trigger on release publication — dispatch it.
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run linux-appimage.yml --ref main -f tag="${GITHUB_REF_NAME}"
+          python -I scripts/release_metadata.py notes --root . --tag "$RELEASE_TAG" --output release-notes.md
+          python -I scripts/release_source.py "$RELEASE_SOURCE_SHA" release-notes.md
+      - name: Publish complete release (resume draft safely)
+        run: python -I scripts/publish-release.py "$RELEASE_TAG" artifacts release-notes.md
+      - name: Trigger separate AppImage build
+        run: gh workflow run linux-appimage.yml --ref main -f tag="$RELEASE_TAG" -f source_ref="$RELEASE_SOURCE_SHA"
+      - name: AppImage status
+        run: printf 'AppImage is a separate workflow; publication of APK/MSI/DMG/DEB does not imply AppImage succeeded.\n' >> "$GITHUB_STEP_SUMMARY"

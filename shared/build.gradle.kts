@@ -6,6 +6,28 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+abstract class GenerateBuildVersion : DefaultTask() {
+    @get:Input
+    abstract val releaseVersion: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val version = releaseVersion.get()
+        require(Regex("[0-9]+\\.[0-9]+\\.[0-9]+").matches(version)) { "Invalid releaseVersion" }
+        val source = outputDirectory.file("com/matrix/messenger/build/BuildVersion.kt").get().asFile
+        source.parentFile.mkdirs()
+        source.writeText("package com.matrix.messenger.build\n\nobject BuildVersion {\n    const val NAME = \"$version\"\n}\n")
+    }
+}
+
+val generateBuildVersion = tasks.register<GenerateBuildVersion>("generateBuildVersion") {
+    releaseVersion.set(providers.gradleProperty("releaseVersion"))
+    outputDirectory.set(layout.buildDirectory.dir("generated/buildVersion/commonMain"))
+}
+
 kotlin {
     androidTarget {
         compilations.all {
@@ -16,6 +38,9 @@ kotlin {
     jvm("desktop")
 
     sourceSets {
+        commonMain {
+            kotlin.srcDir(generateBuildVersion.map { it.outputDirectory })
+        }
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)

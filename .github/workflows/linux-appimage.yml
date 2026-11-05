@@ -9,9 +9,17 @@ on:
         description: Release tag to build and attach the AppImage to
         required: true
         type: string
+      source_ref:
+        description: Optional recovery source commit used by the main release build
+        required: false
+        type: string
 
 permissions:
   contents: write
+
+concurrency:
+  group: appimage-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
   appimage:
@@ -22,18 +30,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          ref: ${{ inputs.source_ref || github.event.release.tag_name || inputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify tag and release metadata
+        run: |
+          python -I scripts/release_metadata.py check --root . --tag "$RELEASE_TAG"
+          git merge-base --is-ancestor "refs/tags/$RELEASE_TAG" HEAD
 
       - uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
           cache: gradle
 
       - name: Build Linux application image
         run: |
           chmod +x gradlew
-          ./gradlew :desktop-app:createDistributable
+          ./gradlew verifyReleaseMetadata -PreleaseTag="$RELEASE_TAG" :desktop-app:createDistributable
 
       - name: Package AppImage
         shell: bash
@@ -70,4 +88,7 @@ jobs:
       - name: Upload AppImage to GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_HOST: github.com
+          GH_REPO: ${{ github.repository }}
+          GH_PROMPT_DISABLED: '1'
         run: gh release upload "$RELEASE_TAG" "MatrixTalk-${RELEASE_TAG}-x86_64.AppImage" --clobber

@@ -30,6 +30,12 @@ server-data/
 *.aab
 *.jks
 *.keystore
+*.p12
+*.pfx
+.matrix-android-signing/
+release-assets/
+__pycache__/
+*.pyc
 
 # Lint and reports
 lint/
