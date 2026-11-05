@@ -58,6 +58,7 @@ kotlin {
 
             // Lifecycle ViewModel Compose (KMP)
             implementation("org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0")
+            implementation("org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose:2.8.2")
 
             // Koin
             implementation("io.insert-koin:koin-core:4.0.0")
