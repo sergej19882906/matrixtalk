@@ -9,12 +9,15 @@ import com.matrix.messenger.data.repository.SessionStore
 import com.matrix.messenger.platform.MediaDeviceInfo
 import com.matrix.messenger.platform.listAudioInputDevices
 import com.matrix.messenger.platform.listVideoInputDevices
-import com.matrix.messenger.platform.setMessageNotificationsEnabled
 import com.matrix.messenger.ui.theme.ThemeManager
 import com.matrix.messenger.ui.theme.ThemeMode
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class SettingsUiState(
@@ -50,8 +53,19 @@ data class SettingsUiState(
     val proxy: ProxySettings? = null,
     val proxyDirty: Boolean = false,
     /** One-shot confirmation for the proxy save. */
-    val proxyMessage: String? = null
+    val proxyMessage: String? = null,
+    val isLoggingOut: Boolean = false,
+    val isSavingPin: Boolean = false,
+    val isSavingProxy: Boolean = false,
+    val isSavingNotifications: Boolean = false,
+    val isSavingNotificationRules: Boolean = false,
+    val errorMessage: String? = null
 )
+
+sealed interface SettingsEvent {
+    data object LoggedOut : SettingsEvent
+    data object PinSaved : SettingsEvent
+}
 
 private const val PROXY_SAVED = "Прокси сохранён — применится после перезапуска приложения"
 
@@ -59,8 +73,12 @@ class SettingsViewModel(
     private val matrixRepository: MatrixRepository
 ) : ViewModel() {
 
+    private val appLock: AppLockController = AppLockManager
+
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+    private val eventChannel = Channel<SettingsEvent>(Channel.BUFFERED)
+    val events = eventChannel.receiveAsFlow()
 
     init {
         viewModelScope.launch {
@@ -75,19 +93,25 @@ class SettingsViewModel(
         }
         viewModelScope.launch { loadPushRules() }
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                pinEnabled = runCatching { SessionStore.readPinHash() } != null,
-                defaultNotificationLevel = runCatching {
-                    com.matrix.messenger.data.model.RoomNotificationLevel.fromStored(
-                        SessionStore.readDefaultNotificationLevel()
-                    )
-                }.getOrDefault(com.matrix.messenger.data.model.RoomNotificationLevel.ALL_MESSAGES)
-            )
+            appLock.initialize()
+            appLock.state.collect { lock ->
+                _uiState.update { it.copy(pinEnabled = lock.enabled) }
+                if (lock.error != null) reportError(lock.error)
+            }
         }
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                proxy = runCatching { SessionStore.readProxySettings() }.getOrNull()
-            )
+            attempt("Не удалось загрузить настройки уведомлений") {
+                val level = com.matrix.messenger.data.model.RoomNotificationLevel.fromStored(
+                    SessionStore.readDefaultNotificationLevel()
+                )
+                _uiState.update { it.copy(defaultNotificationLevel = level) }
+            }
+        }
+        viewModelScope.launch {
+            attempt("Не удалось загрузить настройки прокси") {
+                val proxy = SessionStore.readProxySettings()
+                _uiState.update { it.copy(proxy = proxy) }
+            }
         }
         viewModelScope.launch {
             matrixRepository.currentUser.collect { user ->
@@ -103,8 +127,10 @@ class SettingsViewModel(
             }
         }
         viewModelScope.launch {
-            val enabled = SessionStore.readNotificationsEnabled() ?: true
-            _uiState.value = _uiState.value.copy(notificationsEnabled = enabled)
+            attempt("Не удалось загрузить настройки уведомлений") {
+                val enabled = SessionStore.readNotificationsEnabled() ?: true
+                _uiState.update { it.copy(notificationsEnabled = enabled) }
+            }
         }
         viewModelScope.launch {
             // Media devices (desktop: real enumeration; Android: cameras only)
@@ -123,17 +149,27 @@ class SettingsViewModel(
     }
 
     fun selectAudioInputDevice(deviceId: String) {
-        _uiState.value = _uiState.value.copy(selectedAudioInput = deviceId)
-        viewModelScope.launch { SessionStore.saveAudioInputDevice(deviceId) }
+        viewModelScope.launch {
+            attempt("Не удалось сохранить устройство ввода") {
+                SessionStore.saveAudioInputDevice(deviceId)
+                _uiState.update { it.copy(selectedAudioInput = deviceId) }
+            }
+        }
     }
 
     fun selectVideoDevice(deviceId: String) {
-        _uiState.value = _uiState.value.copy(selectedVideoDevice = deviceId)
-        viewModelScope.launch { SessionStore.saveVideoDevice(deviceId) }
+        viewModelScope.launch {
+            attempt("Не удалось сохранить камеру") {
+                SessionStore.saveVideoDevice(deviceId)
+                _uiState.update { it.copy(selectedVideoDevice = deviceId) }
+            }
+        }
     }
 
     fun setThemeMode(mode: ThemeMode) {
-        viewModelScope.launch { ThemeManager.set(mode) }
+        viewModelScope.launch {
+            attempt("Не удалось сохранить тему") { ThemeManager.set(mode) }
+        }
     }
 
     fun updateProxy(proxy: ProxySettings?) {
@@ -141,84 +177,121 @@ class SettingsViewModel(
     }
 
     fun saveProxy() {
+        if (_uiState.value.isSavingProxy) return
         val current = _uiState.value.proxy
+        _uiState.update { it.copy(isSavingProxy = true, proxyMessage = null, errorMessage = null) }
         viewModelScope.launch {
-            runCatching { SessionStore.saveProxySettings(current) }
-            _uiState.value = _uiState.value.copy(proxyDirty = false, proxyMessage = PROXY_SAVED)
+            try {
+                attempt("Не удалось сохранить прокси") {
+                    SessionStore.saveProxySettings(current)
+                    _uiState.update {
+                        it.copy(proxyDirty = it.proxy != current, proxyMessage = PROXY_SAVED)
+                    }
+                }
+            } finally {
+                _uiState.update { it.copy(isSavingProxy = false) }
+            }
         }
     }
 
     private suspend fun loadPushRules() {
-        runCatching {
+        attempt("Не удалось загрузить правила уведомлений") {
             val mode = matrixRepository.getAccountNotificationMode()
             val keywords = matrixRepository.getKeywords()
             val rules = matrixRepository.getPushRulesDebug()
             val pushers = matrixRepository.getPushersDebug()
-            _uiState.value = _uiState.value.copy(
-                accountMode = mode, keywords = keywords,
-                pushRules = rules, pushers = pushers
-            )
+            _uiState.update {
+                it.copy(accountMode = mode, keywords = keywords, pushRules = rules, pushers = pushers)
+            }
+        }
+    }
+
+    private fun changeNotificationRule(block: suspend () -> Unit) {
+        if (_uiState.value.isSavingNotificationRules) return
+        _uiState.update { it.copy(isSavingNotificationRules = true, errorMessage = null) }
+        viewModelScope.launch {
+            try {
+                attempt("Не удалось изменить настройки уведомлений") { block() }
+            } finally {
+                _uiState.update { it.copy(isSavingNotificationRules = false) }
+            }
         }
     }
 
     fun setAccountMode(mode: com.matrix.messenger.data.repository.AccountNotificationMode) {
-        viewModelScope.launch {
-            runCatching { matrixRepository.setAccountNotificationMode(mode) }
-            _uiState.value = _uiState.value.copy(accountMode = mode)
+        changeNotificationRule {
+            matrixRepository.setAccountNotificationMode(mode)
+            _uiState.update { it.copy(accountMode = mode) }
             loadPushRules()
         }
     }
 
     fun addKeyword(keyword: String) {
         if (keyword.isBlank()) return
-        viewModelScope.launch {
-            runCatching { matrixRepository.addKeyword(keyword.trim()) }
+        changeNotificationRule {
+            matrixRepository.addKeyword(keyword.trim())
             loadPushRules()
         }
     }
 
     fun removeKeyword(ruleId: String) {
-        viewModelScope.launch {
-            runCatching { matrixRepository.removeKeyword(ruleId) }
+        changeNotificationRule {
+            matrixRepository.removeKeyword(ruleId)
             loadPushRules()
         }
     }
 
     fun toggleRule(kind: net.folivo.trixnity.core.model.push.PushRuleKind, ruleId: String, enabled: Boolean) {
-        viewModelScope.launch {
-            runCatching { matrixRepository.setRuleEnabled(kind, ruleId, enabled) }
+        changeNotificationRule {
+            matrixRepository.setRuleEnabled(kind, ruleId, enabled)
             loadPushRules()
         }
     }
 
     fun togglePushRulesExpanded() {
-        _uiState.value = _uiState.value.copy(pushRulesExpanded = !_uiState.value.pushRulesExpanded)
+        _uiState.update { it.copy(pushRulesExpanded = !it.pushRulesExpanded) }
     }
 
     fun setDefaultNotificationLevel(level: com.matrix.messenger.data.model.RoomNotificationLevel) {
-        viewModelScope.launch {
-            runCatching { matrixRepository.setDefaultNotificationLevel(level) }
-            _uiState.value = _uiState.value.copy(defaultNotificationLevel = level)
+        changeNotificationRule {
+            matrixRepository.setDefaultNotificationLevel(level)
+            _uiState.update { it.copy(defaultNotificationLevel = level) }
         }
     }
 
-    fun setPin(pin: String) {
-        viewModelScope.launch {
-            runCatching { SessionStore.savePinHash(PinHash.of(pin)) }
-            _uiState.value = _uiState.value.copy(pinEnabled = true)
-        }
-    }
+    fun setPin(pin: String, oldPin: String? = null) = changePinSettings { appLock.setPin(pin, oldPin) }
+    fun changePin(oldPin: String, newPin: String) = changePinSettings { appLock.changePin(oldPin, newPin) }
+    fun clearPin(oldPin: String) = changePinSettings { appLock.disablePin(oldPin) }
 
-    fun clearPin() {
+    private fun changePinSettings(block: suspend () -> PinOperationResult) {
+        if (_uiState.value.isSavingPin) return
+        _uiState.update { it.copy(isSavingPin = true, errorMessage = null) }
         viewModelScope.launch {
-            runCatching { SessionStore.savePinHash(null) }
-            _uiState.value = _uiState.value.copy(pinEnabled = false)
+            try {
+                when (val result = block()) {
+                    PinOperationResult.Success -> eventChannel.send(SettingsEvent.PinSaved)
+                    PinOperationResult.WrongPin -> reportError("Неверный PIN")
+                    is PinOperationResult.Throttled -> reportError("Слишком много попыток. Подождите перед повтором")
+                    is PinOperationResult.Error -> reportError(result.message)
+                }
+            } finally {
+                _uiState.update { it.copy(isSavingPin = false) }
+            }
         }
     }
 
     fun logout() {
+        if (_uiState.value.isLoggingOut) return
+        _uiState.update { it.copy(isLoggingOut = true, errorMessage = null) }
         viewModelScope.launch {
-            runCatching { matrixRepository.logout() }
+            try {
+                attempt("Не удалось выйти из аккаунта. Повторите попытку") {
+                    matrixRepository.logout()
+                    eventChannel.send(SettingsEvent.LoggedOut)
+                }
+            } finally {
+                _uiState.update { it.copy(isLoggingOut = false) }
+            }
         }
     }
 
@@ -229,11 +302,32 @@ class SettingsViewModel(
     }
 
     fun setNotificationsEnabled(enabled: Boolean) {
-        _uiState.value = _uiState.value.copy(notificationsEnabled = enabled)
+        if (_uiState.value.isSavingNotifications) return
+        _uiState.update { it.copy(isSavingNotifications = true, errorMessage = null) }
         viewModelScope.launch {
-            SessionStore.saveNotificationsEnabled(enabled)
-            setMessageNotificationsEnabled(enabled)
+            try {
+                attempt("Не удалось сохранить настройки уведомлений") {
+                    matrixRepository.setNotificationsEnabled(enabled)
+                    _uiState.update { it.copy(notificationsEnabled = enabled) }
+                }
+            } finally {
+                _uiState.update { it.copy(isSavingNotifications = false) }
+            }
         }
+    }
+
+    fun consumeError() { _uiState.update { it.copy(errorMessage = null) } }
+
+    private fun reportError(message: String) { _uiState.update { it.copy(errorMessage = message) } }
+
+    private suspend fun attempt(message: String, block: suspend () -> Unit): Boolean = try {
+        block()
+        true
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        reportError(message)
+        false
     }
 
     fun onDisplayNameChange(value: String) {
@@ -246,22 +340,16 @@ class SettingsViewModel(
         _uiState.value = _uiState.value.copy(isSavingName = true)
         viewModelScope.launch {
             try {
-                matrixRepository.setDisplayName(name)
-            } catch (_: Exception) {
-                // keep input; user can retry
+                attempt("Не удалось сохранить имя") { matrixRepository.setDisplayName(name) }
             } finally {
-                _uiState.value = _uiState.value.copy(isSavingName = false)
+                _uiState.update { it.copy(isSavingName = false) }
             }
         }
     }
 
     fun uploadAvatar(filePath: String, mimeType: String) {
         viewModelScope.launch {
-            try {
-                matrixRepository.uploadAvatar(filePath, mimeType)
-            } catch (_: Exception) {
-                // surfaced by repository logs; profile keeps old avatar
-            }
+            attempt("Не удалось загрузить аватар") { matrixRepository.uploadAvatar(filePath, mimeType) }
         }
     }
 }

@@ -83,18 +83,28 @@ fun SettingsScreen(
     }
 
     var pinDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                SettingsEvent.LoggedOut -> onLogout()
+                SettingsEvent.PinSaved -> pinDialog = false
+            }
+        }
+    }
+    LaunchedEffect(uiState.errorMessage) {
+        uiState.errorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeError()
+        }
+    }
     if (pinDialog) {
         PinSetupDialog(
             pinEnabled = uiState.pinEnabled,
-            onDismiss = { pinDialog = false },
-            onSet = { pin ->
-                pinDialog = false
-                viewModel.setPin(pin)
-            },
-            onClear = {
-                pinDialog = false
-                viewModel.clearPin()
-            }
+            busy = uiState.isSavingPin,
+            error = uiState.errorMessage,
+            onDismiss = { if (!uiState.isSavingPin) pinDialog = false },
+            onSet = { pin, oldPin -> viewModel.setPin(pin, oldPin) },
+            onClear = { oldPin -> viewModel.clearPin(oldPin) }
         )
     }
 
@@ -222,6 +232,7 @@ fun SettingsScreen(
                 )
                 Switch(
                     checked = uiState.notificationsEnabled,
+                    enabled = !uiState.isSavingNotifications,
                     onCheckedChange = viewModel::setNotificationsEnabled
                 )
             }
@@ -271,6 +282,19 @@ fun SettingsScreen(
 
             // О приложении
             SettingsSectionHeader("Безопасность и сессии")
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable(enabled = !uiState.isSavingPin) { pinDialog = true }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.PhonelinkLock, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Блокировка приложения PIN", style = MaterialTheme.typography.bodyLarge)
+                    Text(if (uiState.pinEnabled) "Включена · изменить или отключить" else "Выключена · задать PIN",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -453,7 +477,7 @@ fun SettingsScreen(
                     )
                     viewModel.saveProxy()
                 },
-                enabled = proxyValid,
+                enabled = proxyValid && !uiState.isSavingProxy,
                 modifier = Modifier.padding(horizontal = 16.dp)
             ) {
                 Text(if (uiState.proxyDirty) "Сохранить" else "Сохранить (без изменений)")
@@ -484,7 +508,8 @@ fun SettingsScreen(
 
             SettingsSectionHeader("Аккаунт")
             Button(
-                onClick = onLogout,
+                onClick = viewModel::logout,
+                enabled = !uiState.isLoggingOut,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.errorContainer,
                     contentColor = MaterialTheme.colorScheme.error
@@ -563,10 +588,13 @@ private fun SettingsSectionHeader(title: String) {
 @Composable
 private fun PinSetupDialog(
     pinEnabled: Boolean,
+    busy: Boolean,
+    error: String?,
     onDismiss: () -> Unit,
-    onSet: (String) -> Unit,
-    onClear: () -> Unit
+    onSet: (String, String?) -> Unit,
+    onClear: (String) -> Unit
 ) {
+    var oldPin by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     androidx.compose.material3.AlertDialog(
@@ -574,6 +602,18 @@ private fun PinSetupDialog(
         title = { Text(if (pinEnabled) "Изменить PIN" else "Задать PIN") },
         text = {
             Column {
+                if (pinEnabled) {
+                    OutlinedTextField(
+                        value = oldPin,
+                        onValueChange = { oldPin = it.filter { ch -> ch in '0'..'9' }.take(4) },
+                        label = { Text("Текущий PIN") },
+                        enabled = !busy,
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 androidx.compose.material3.OutlinedTextField(
                     value = pin,
                     onValueChange = { pin = it.filter { ch -> ch.isDigit() }.take(4) },
@@ -594,13 +634,13 @@ private fun PinSetupDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSet(pin) },
-                enabled = pin.length == 4 && pin == confirm
+                onClick = { onSet(pin, oldPin.takeIf { pinEnabled }) },
+                enabled = !busy && pin.length == 4 && pin == confirm && (!pinEnabled || oldPin.length == 4)
             ) { Text(if (pinEnabled) "Изменить" else "Включить") }
         },
         dismissButton = {
             if (pinEnabled) {
-                TextButton(onClick = onClear) { Text("Отключить") }
+                TextButton(onClick = { onClear(oldPin) }, enabled = !busy && oldPin.length == 4) { Text("Отключить") }
             } else {
                 TextButton(onClick = onDismiss) { Text("Отмена") }
             }

@@ -25,7 +25,7 @@ object ThemeManager {
     }
 
     suspend fun set(mode: ThemeMode) {
+        SessionStore.saveThemeMode(mode.name.lowercase())
         _mode.value = mode
-        runCatching { SessionStore.saveThemeMode(mode.name.lowercase()) }
     }
 }

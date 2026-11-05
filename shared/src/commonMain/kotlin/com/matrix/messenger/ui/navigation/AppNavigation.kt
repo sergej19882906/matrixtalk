@@ -1,5 +1,19 @@
 package com.matrix.messenger.ui.navigation
 
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.matrix.messenger.ui.settings.AppLockManager
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -32,26 +46,41 @@ fun AppNavigation(
     val callRepository: CallRepository = koinInject()
     val callState by callRepository.callState.collectAsState()
 
-    // Incoming call anywhere in the app -> open the call screen.
-    LaunchedEffect(callState) {
-        if (callState is CallState.Incoming &&
-            navController.currentDestination?.route != Screen.Call.route
-        ) {
-            navController.navigate(Screen.Call.route)
+    val appLock = AppLockManager
+    val lockState by appLock.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(appLock) { appLock.start(this) }
+    DisposableEffect(lifecycleOwner, appLock) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) appLock.onBackground()
         }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-
-    // App lock: PIN gate before anything else when configured.
-    val pinHash = remember { kotlinx.coroutines.runBlocking { com.matrix.messenger.data.repository.SessionStore.readPinHash() } }
-    var pinUnlocked by remember { mutableStateOf(pinHash == null) }
-    if (!pinUnlocked) {
-        PinLockScreen(
-            pinHash = pinHash!!,
-            onUnlock = { pinUnlocked = true }
-        )
+    if (!lockState.initialized) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (lockState.error == null) CircularProgressIndicator()
+            else Column {
+                Text(lockState.error!!)
+                TextButton(onClick = { scope.launch { appLock.initialize() } }, enabled = !lockState.busy) {
+                    Text("Повторить")
+                }
+            }
+        }
+        return
+    }
+    if (lockState.enabled && lockState.locked) {
+        PinLockScreen(onUnlock = {}, appLock = appLock)
         return
     }
 
+    // Keep signaling alive while locked, but never navigate until the PIN gate opens.
+    LaunchedEffect(callState, lockState.initialized, lockState.locked) {
+        if (lockState.initialized && !lockState.locked && callState is CallState.Incoming &&
+            navController.currentDestination?.route != Screen.Call.route
+        ) navController.navigate(Screen.Call.route)
+    }
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -190,8 +219,29 @@ fun AppNavigation(
             )
         ) { backStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: return@composable
-            val session = kotlinx.coroutines.runBlocking {
-                com.matrix.messenger.data.repository.SessionStore.read()
+            var session by remember(roomId) {
+                mutableStateOf<com.matrix.messenger.data.repository.SessionStore.Session?>(null)
+            }
+            var sessionLoaded by remember(roomId) { mutableStateOf(false) }
+            var sessionError by remember(roomId) { mutableStateOf<String?>(null) }
+            LaunchedEffect(roomId) {
+                try { session = com.matrix.messenger.data.repository.SessionStore.read() }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: Exception) { sessionError = "Не удалось загрузить данные сессии" }
+                finally { sessionLoaded = true }
+            }
+            if (!sessionLoaded) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                return@composable
+            }
+            if (session == null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column {
+                        Text(sessionError ?: "Для звонка необходимо войти в аккаунт")
+                        TextButton(onClick = { navController.popBackStack() }) { Text("Назад") }
+                    }
+                }
+                return@composable
             }
             val url = com.matrix.messenger.ui.call.elementCallUrl(
                 roomId,
