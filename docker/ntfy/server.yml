@@ -2,7 +2,7 @@
 # The base URL is set via the NTFY_BASE_URL environment variable (see
 # docker-compose.bridges.yml) and must match the public HTTPS address
 # (reverse proxy) of this server.
-cache_file: "/var/cache/ntfy/cache.db"
+cache-file: "/var/cache/ntfy/cache.db"
 attachment-cache-dir: "/var/cache/ntfy/attachments"
 listen-http: ":80"
 behind-proxy: true

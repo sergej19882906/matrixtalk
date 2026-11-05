@@ -12,6 +12,11 @@ services:
       - ./server-data/mautrix-telegram:/data/mautrix-telegram:ro
       - ./server-data/mautrix-whatsapp:/data/mautrix-whatsapp:ro
       - ./server-data/mautrix-signal:/data/mautrix-signal:ro
+      - ./server-data/mautrix-meta:/data/mautrix-meta:ro
+      - ./server-data/mautrix-gmessages:/data/mautrix-gmessages:ro
+      - ./server-data/mautrix-discord:/data/mautrix-discord:ro
+      - ./server-data/heisenbridge:/data/heisenbridge:ro
+      - ./server-data/hookshot:/data/hookshot:ro
     environment:
       SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME:?Set MATRIX_SERVER_NAME in .env}
       SYNAPSE_REPORT_STATS: "no"
@@ -19,6 +24,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-synapse}
       TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-}
+      TURN_PORT: ${TURN_PORT:-3478}
+      SYNAPSE_REGISTRATION_SHARED_SECRET: ${SYNAPSE_REGISTRATION_SHARED_SECRET:?Set SYNAPSE_REGISTRATION_SHARED_SECRET in .env}
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,22 +40,22 @@ services:
       synapse:
         condition: service_started
 
-  # Self-hosted ntfy: UnifiedPush delivery for instant Android notifications.
-  # The phone's ntfy app must point at https://ntfy.<MATRIX_SERVER_NAME>.
-  # Matrix push payloads arrive at https://ntfy.<domain>/<topic> and are
-  # forwarded to the subscribed devices without any external service.
+  # Optional ntfy Matrix gateway. Only configured HTTPS ntfy endpoints are supported.
   ntfy:
     image: binwiederhier/ntfy:latest
     container_name: matrix-talk-ntfy
+    profiles: ["push"]
     restart: unless-stopped
-    command: serve --config /etc/ntfy/server.yml
+    entrypoint: ["sh", "/etc/ntfy/matrix-entrypoint.sh"]
+    command: ["serve", "--config", "/etc/ntfy/server.yml"]
     ports:
       - "${NTFY_PORT:-2586}:80"
     volumes:
       - ./server-data/ntfy:/var/cache/ntfy
       - ./docker/ntfy/server.yml:/etc/ntfy/server.yml:ro
+      - ./docker/ntfy/entrypoint.sh:/etc/ntfy/matrix-entrypoint.sh:ro
     environment:
-      - NTFY_BASE_URL=${NTFY_BASE_URL:-https://ntfy.example.org}
+      - NTFY_BASE_URL=${NTFY_BASE_URL:-}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --tries=1 -O- http://localhost:80/v1/health || exit 1"]
       interval: 60s
@@ -82,9 +89,12 @@ services:
     environment:
       PGHOST: postgres
       PGUSER: ${POSTGRES_USER:-synapse}
+      POSTGRES_USER: ${POSTGRES_USER:-synapse}
+      POSTGRES_DB: ${POSTGRES_DB:-synapse}
       PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-    entrypoint: >
-      sh -c "psql -c 'CREATE DATABASE mautrix_telegram;' 2>/dev/null; psql -c 'CREATE DATABASE mautrix_whatsapp;' 2>/dev/null; psql -c 'CREATE DATABASE mautrix_signal;' 2>/dev/null; psql -c 'CREATE DATABASE mautrix_meta;' 2>/dev/null; psql -c 'CREATE DATABASE mautrix_gmessages;' 2>/dev/null; psql -c 'CREATE DATABASE mautrix_discord;' 2>/dev/null; echo 'Bridge databases ready.'"
+    volumes:
+      - ./docker/postgres/init-bridges.sh:/usr/local/bin/init-bridges.sh:ro
+    entrypoint: ["sh", "/usr/local/bin/init-bridges.sh"]
 
   coturn:
     image: coturn/coturn:latest
@@ -113,7 +123,7 @@ services:
       context: docker/mautrix-telegram
     container_name: matrix-talk-telegram-bridge
     restart: unless-stopped
-    profiles: ["bridges"]
+    profiles: ["bridge-telegram"]
     volumes:
       - ./server-data/mautrix-telegram:/data
     environment:
@@ -136,7 +146,7 @@ services:
       context: docker/mautrix-whatsapp
     container_name: matrix-talk-whatsapp-bridge
     restart: unless-stopped
-    profiles: ["bridges"]
+    profiles: ["bridge-whatsapp"]
     volumes:
       - ./server-data/mautrix-whatsapp:/data
     environment:
@@ -157,7 +167,7 @@ services:
       context: docker/mautrix-signal
     container_name: matrix-talk-signal-bridge
     restart: unless-stopped
-    profiles: ["bridges"]
+    profiles: ["bridge-signal"]
     volumes:
       - ./server-data/mautrix-signal:/data
     environment:
@@ -177,7 +187,7 @@ services:
       context: docker/mautrix-meta
     container_name: matrix-talk-mautrix-meta-bridge
     restart: unless-stopped
-    profiles: ["bridges"]
+    profiles: ["bridge-meta"]
     volumes:
       - ./server-data/mautrix-meta:/data
     environment:
@@ -198,7 +208,7 @@ services:
       context: docker/mautrix-gmessages
     container_name: matrix-talk-mautrix-gmessages-bridge
     restart: unless-stopped
-    profiles: ["bridges"]
+    profiles: ["bridge-gmessages"]
     volumes:
       - ./server-data/mautrix-gmessages:/data
     environment:
@@ -219,7 +229,7 @@ services:
       context: docker/mautrix-discord
     container_name: matrix-talk-mautrix-discord-bridge
     restart: unless-stopped
-    profiles: ["bridges"]
+    profiles: ["bridge-discord"]
     volumes:
       - ./server-data/mautrix-discord:/data
     environment:
@@ -240,7 +250,7 @@ services:
       context: docker/heisenbridge
     container_name: matrix-talk-heisenbridge
     restart: unless-stopped
-    profiles: ["bridges"]
+    profiles: ["bridge-irc"]
     volumes:
       - ./server-data/heisenbridge:/data
     environment:
@@ -257,7 +267,7 @@ services:
       context: docker/hookshot
     container_name: matrix-talk-hookshot
     restart: unless-stopped
-    profiles: ["bridges"]
+    profiles: ["bridge-hookshot"]
     volumes:
       - ./server-data/hookshot:/data
     depends_on:

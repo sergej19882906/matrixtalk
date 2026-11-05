@@ -1,6 +1,5 @@
-# ARM64 override (Raspberry Pi и другие aarch64-хосты).
-# Все образы матрикс-стека собираются мультиарх (amd64 + arm64) в CI;
-# этот файл явно фиксирует платформу, если Docker выбрал не ту.
+# ARM64 override. Verify each pinned upstream tag includes an arm64 manifest;
+# an explicit platform cannot make an unsupported image multi-architecture.
 services:
   synapse:
     platform: linux/arm64

@@ -1,376 +1,168 @@
-# Инструкция по установке и настройке сервера Matrix Talk
-
-Полное руководство по развёртыванию собственного Matrix-сервера с поддержкой
-мессенджера, аудио/видео звонков и опциональных мостов Telegram, WhatsApp и Signal.
-
-Кастомные Docker-образы с авто-конфигурацией публикуются в
-[ghcr.io](https://github.com/sergej19882906/matrixtalk/pkgs/container/)
-— **не нужно вручную генерировать и редактировать конфиги.**
-
----
-
-## Что входит в сервер
-
-`docker-compose.bridges.yml` определяет 8 сервисов:
-
-| Сервис | Образ | Назначение |
-|--------|-------|------------|
-| **Synapse** | `ghcr.io/sergej19882906/matrixtalk-synapse` | Matrix homeserver — ядро мессенджера |
-| **synapse-admin** | `awesometechnologies/synapse-admin` | Веб-интерфейс администрирования сервера |
-| **PostgreSQL** | `postgres:16-alpine` | База данных Synapse + мосты |
-| **init-bridges-db** | `postgres:16-alpine` | Создание БД для мостов (однократный) |
-| **Coturn** | `coturn/coturn:latest` | TURN/STUN сервер для VoIP-звонков |
-| **mautrix-telegram** | `ghcr.io/sergej19882906/matrixtalk-mautrix-telegram` | Мост Telegram |
-| **mautrix-whatsapp** | `ghcr.io/sergej19882906/matrixtalk-mautrix-whatsapp` | Мост WhatsApp |
-| **mautrix-signal** | `ghcr.io/sergej19882906/matrixtalk-mautrix-signal` | Мост Signal |
-
-Кастомные образы автоматически:
-- Генерируют `homeserver.yaml` / `config.yaml` при первом запуске
-- Настраивают PostgreSQL, TURN и мосты из переменных окружения
-- Создают `registration.yaml` для мостов
-- Добавляют регистрации мостов в конфиг Synapse
-
-Мосты используют профиль Compose `bridges`, чтобы Synapse запускался первым.
-
----
-
-## Требования
-
-- Docker Engine 20.10+ и Docker Compose v2+
-- Доменное имя с DNS A-записью, указывающей на ваш сервер
-- Открытые порты (см. раздел «Порты» ниже)
-
----
-
-## Шаг 1. Настройка переменных окружения
-
-```bash
-cp .env.example .env
-```
-
-Отредактируйте `.env`:
-
-```ini
-# === Matrix Talk Server Configuration ===
-
-# --- Homeserver ---
-# Ваш домен (должен совпадать с DNS / обратным прокси)
-MATRIX_SERVER_NAME=matrix.example.org
-
-# --- PostgreSQL ---
-POSTGRES_USER=synapse
-POSTGRES_PASSWORD=<сгенерируйте длинный случайный пароль>
-POSTGRES_DB=synapse
-
-# --- TURN Server (VoIP звонки) ---
-# Общий секрет для TURN-аутентификации
-# Генерация: openssl rand -hex 32
-TURN_SHARED_SECRET=<сгенерируйте случайный секрет>
-# UDP-порт TURN/STUN
-TURN_PORT=3478
-# TLS-порт (требует сертификаты в server-data/coturn/)
-TURN_TLS_PORT=5349
-# Диапазон портов для медиа-релея
-TURN_MIN_PORT=49152
-TURN_MAX_PORT=65535
-
-# --- Synapse Admin ---
-# Секрет для скрипта register_new_matrix_user
-# Генерация: openssl rand -hex 32
-SYNAPSE_REGISTRATION_SHARED_SECRET=<сгенерируйте случайный секрет>
-
-# --- Bridge Configuration ---
-# Telegram API credentials (обязательно для моста Telegram)
-# Получите на https://my.telegram.org/apps
-TELEGRAM_API_ID=
-TELEGRAM_API_HASH=
-
-# Bridge admin MXID (опционально, по умолчанию @admin:MATRIX_SERVER_NAME)
-BRIDGE_ADMIN=
-```
-
-> **⚠️ Никогда не коммитьте `.env` в git.** Файл добавлен в `.gitignore`.
-
----
-
-## Шаг 2. Запуск основных сервисов
-
-```bash
-docker compose -f docker-compose.bridges.yml up -d synapse postgres coturn
-```
-
-При первом запуске кастомный образ Synapse:
-1. Генерирует `homeserver.yaml` с вашим `MATRIX_SERVER_NAME`
-2. Настраивает подключение к PostgreSQL
-3. Добавляет TURN-конфигурацию (если `TURN_SHARED_SECRET` задан)
-
-Дождитесь запуска (Synapse станет `healthy`):
-
-```bash
-docker compose -f docker-compose.bridges.yml ps
-```
-
-### Проверка
-
-```bash
-curl http://localhost:8008/_matrix/client/versions
-```
-
-Должен вернуть JSON с версиями API (v1.1–v1.12).
-
-### Администрирование через веб-интерфейс
-
-`synapse-admin` запускается вместе со стеком и доступен на порту `SYNAPSE_ADMIN_PORT` (по умолчанию **8080**): откройте `http://<адрес сервера>:8080`, введите URL хомсервера `http://<адрес сервера>:8008` и войдите учётной записью администратора. Через интерфейс можно управлять пользователями, комнатами, чёрными списками и просматривать статистику сервера.
-
----
-
-## Шаг 3. Создание администратора
-
-```bash
-docker exec -it matrixtalk-synapse register_new_matrix_user \
-  -c /data/homeserver.yaml \
-  --admin \
-  --password-prompt \
-  @admin:matrix.example.org
-```
-
-Введите пароль при запросе. Этот аккаунт будет использоваться для входа в
-приложение Matrix Talk.
-
----
-
-## Шаг 4. Порты фаервола
-
-Откройте на сервере следующие порты:
-
-| Порт | Протокол | Сервис | Назначение |
-|------|----------|--------|------------|
-| 8008 | TCP | Synapse | Client API + Federation API |
-| 8448 | TCP | Synapse | Federation (если прямой TLS) |
-| 8080 | TCP | synapse-admin | Веб-интерфейс администрирования |
-| 3478 | UDP | Coturn | TURN/STUN |
-| 5349 | TCP | Coturn | TURN over TLS (если есть сертификаты) |
-| 49152–65535 | UDP | Coturn | Медиа-релей для VoIP |
-
----
-
-## Шаг 5. Мосты (опционально)
-
-Доступны 8 мостов: **Telegram, WhatsApp, Signal, Meta (Facebook/Instagram),
-Google Messages, Discord, IRC (heisenbridge), GitHub/GitLab/webhooks (hookshot)**.
-Все используют один и тот же профиль `bridges` — включаются вместе.
-
-### 5.1. Запуск мостов
-
-```bash
-docker compose -f docker-compose.bridges.yml --profile bridges up -d
-```
-
-Кастомные образы мостов автоматически:
-1. Генерируют `config.yaml` с настройками из `.env`
-2. Настраивают адрес homeserver, домен, базу данных и права
-3. Создают `registration.yaml`
-4. Сервис `init-bridges-db` создаёт базы данных `mautrix_telegram`,
-   `mautrix_whatsapp`, `mautrix_signal`, `mautrix_meta`, `mautrix_gmessages`,
-   `mautrix_discord` в PostgreSQL (heisenbridge и hookshot хранят состояние
-   в файлах на томе)
-
-#### Отдельные мосты
-
-Запустить конкретный мост:
-
-```bash
-docker compose -f docker-compose.bridges.yml --profile bridges up -d mautrix-meta-bridge
-```
-
-Имена сервисов: `mautrix-telegram-bridge`, `mautrix-whatsapp-bridge`,
-`mautrix-signal-bridge`, `mautrix-meta-bridge`, `mautrix-gmessages-bridge`,
-`mautrix-discord-bridge`, `heisenbridge`, `hookshot`.
-
-#### Особенности авторизации
-
-| Мост | Как привязать аккаунт |
-|------|----------------------|
-| Telegram | ссылка авторизации в bridge-комнате (нужны `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` в `.env`) |
-| WhatsApp | QR-код в bridge-комнате |
-| Signal | привязка как linked-устройство |
-| Meta | вход в аккаунт Facebook/Instagram по ссылке из bridge-комнаты |
-| Google Messages | QR-код (телефон Android с Google Messages) |
-| Discord | команда `login <token>` в bridge-комнате |
-| IRC (heisenbridge) | напишите боту `@heisenbridge:<домен>` — подключение к IRC-сетям по командам |
-| GitHub/GitLab (hookshot) | см. вики проекта; требует отдельного файла конфигурации на томе `server-data/hookshot` |
-
-### 5.2. Перезапуск Synapse для подключения мостов
-
-После первого запуска мостов перезапустите Synapse, чтобы он подхватил
-файлы регистрации:
-
-```bash
-docker compose -f docker-compose.bridges.yml restart synapse
-```
-
-### 5.3. Проверка
-
-```bash
-docker compose -f docker-compose.bridges.yml --profile bridges ps
-```
-
-Все контейнеры должны быть `Up` (не `Restarting`).
-
-> **⚠️ Telegram мост:** требуется указать `TELEGRAM_API_ID` и `TELEGRAM_API_HASH`
-> в `.env`. Получите их на https://my.telegram.org/apps (войдите → API development
-> tools). Без них мост не запустится.
-
-> **⚠️ Права файлов:** если мосты падают с `Permission denied`, выполните:
-> ```bash
-> docker run --rm -v "$PWD/server-data:/server-data" alpine \
->   chmod -R 777 /server-data/mautrix-telegram /server-data/mautrix-whatsapp /server-data/mautrix-signal
-> ```
-
-### 5.4. Привязка аккаунтов
-
-В Matrix Talk откройте экран «Мосты» (иконка ссылки на экране чатов) и
-следуйте инструкции:
-
-- **Telegram:** отправьте `!tg login` в комнату моста, введите номер телефона
-- **WhatsApp:** отправьте `!wa login` и отсканируйте QR-код
-- **Signal:** отправьте `!signal login` и привяжите устройство
-
-> Подробные инструкции: [mautrix-telegram](https://docs.mau.fi/bridges/go/telegram/),
-> [mautrix-whatsapp](https://docs.mau.fi/bridges/go/whatsapp/),
-> [mautrix-signal](https://docs.mau.fi/bridges/go/signal/)
-
----
-
-## Шаг 6. Push-сервер ntfy (мгновенные уведомления, опционально)
-
-MatrixTalk поддерживает мгновенный push через **UnifiedPush**: homeserver сам
-доставляет событие в момент отправки сообщения. Чтобы весь путь был на своём
-домене (без ntfy.sh), в стек входит сервер **ntfy**:
-
-```bash
-docker compose -f docker-compose.bridges.yml up -d ntfy
-```
-
-1. Порт по умолчанию: `2586` (переменная `NTFY_PORT`). Положите за обратный
-   прокси на поддомен `ntfy.<MATRIX_SERVER_NAME>` с HTTPS — и задайте
-   `NTFY_BASE_URL=https://ntfy.<домен>` в `.env` (используется сервером для
-   формирования ссылок).
-2. На телефоне установите приложение **ntfy** (F-Droid / Play) →
-   Настройки → Default server → `https://ntfy.<домен>`.
-3. Откройте MatrixTalk — он сам зарегистрируется как pusher. В настройках
-   приложения появится статус «Мгновенный push через UnifiedPush (ntfy)».
-
-Без этого шага (и без любого другого UnifiedPush-дистрибьютора) MatrixTalk
-работает в фолбэк-режиме: фоновая проверка сообщений раз в 15 минут.
-
----
-
-## ARM64 (Raspberry Pi и др.)
-
-Кастомные образы собираются для `linux/amd64` и `linux/arm64` в CI
-и публикуются в ghcr.io. Добавьте файл переопределения для PostgreSQL и Coturn:
-
-```bash
-docker compose -f docker-compose.bridges.yml -f docker-compose.arm64.yml up -d synapse postgres coturn
-docker compose -f docker-compose.bridges.yml -f docker-compose.arm64.yml --profile bridges up -d
-```
-
----
-
-## Локальная сборка образов (без ghcr.io)
-
-Если вы хотите собрать образы локально вместо пулла из ghcr.io:
-
-```bash
-docker compose -f docker-compose.bridges.yml build
-```
-
-Или отдельный образ:
+# Сервер MatrixTalk: настройка и границы поддержки
+
+Стек запускает Synapse, PostgreSQL, Coturn и synapse-admin. **Мосты и ntfy
+опциональны.** Их наличие в Compose не означает готовность к работе.
+Автогенерация конфигурации гарантируется только для Synapse. Конфигурации мостов
+зависят от версии upstream и должны быть подготовлены оператором; wrapper
+завершится с ошибкой, если необходимые файлы отсутствуют, а не имитирует успех.
+
+## Базовый сервер
+
+1. Скопируйте `.env.example` в `.env`, задайте домен, пароль PostgreSQL,
+   `TURN_SHARED_SECRET` и `SYNAPSE_REGISTRATION_SHARED_SECRET`. Генерируйте секреты
+   самостоятельно, например `openssl rand -hex 32`; никогда не коммитьте `.env`.
+2. Закрепите проверенные теги или digest образов вместо `latest`. Изменения wrapper
+   применяются только после сборки локальных образов либо публикации новых.
+3. Запустите сервер:
 
 ```bash
 docker compose -f docker-compose.bridges.yml build synapse
+docker compose -f docker-compose.bridges.yml up -d postgres synapse coturn synapse-admin
+curl http://localhost:8008/_matrix/client/versions
 ```
 
----
+Synapse получает PostgreSQL, TURN и registration shared secret из окружения.
+Администратор создаётся через штатный `register_new_matrix_user` в контейнере
+`matrixtalk-synapse` с конфигурацией `/data/homeserver.yaml` и интерактивным
+вводом пароля. synapse-admin слушает порт `SYNAPSE_ADMIN_PORT` (8080).
+Поставьте HTTP-сервисы за HTTPS reverse proxy; ограничьте административный порт.
+Coturn использует host networking: откройте 3478 UDP/TCP и выбранный диапазон
+UDP relay (49152–65535). TLS TURN требует настоящих сертификатов и настройки
+`--cert`/`--pkey`, один порт 5349 не включает работоспособный TLS.
 
-## Продакшен
+## Восемь независимых мостов
 
-### HTTPS / обратный прокси
+| Сервис Compose | Профиль | Каталог на хосте | Файлы, обязательные перед запуском |
+|---|---|---|---|
+| `telegram-bridge` | `bridge-telegram` | `server-data/mautrix-telegram` | `config.yaml`, `registration.yaml` |
+| `whatsapp-bridge` | `bridge-whatsapp` | `server-data/mautrix-whatsapp` | `config.yaml`, `registration.yaml` |
+| `signal-bridge` | `bridge-signal` | `server-data/mautrix-signal` | `config.yaml`, `registration.yaml` |
+| `mautrix-meta-bridge` | `bridge-meta` | `server-data/mautrix-meta` | `config.yaml`, `registration.yaml` |
+| `mautrix-gmessages-bridge` | `bridge-gmessages` | `server-data/mautrix-gmessages` | `config.yaml`, `registration.yaml` |
+| `mautrix-discord-bridge` | `bridge-discord` | `server-data/mautrix-discord` | `config.yaml`, `registration.yaml` |
+| `heisenbridge` | `bridge-irc` | `server-data/heisenbridge` | `registration.yaml` |
+| `hookshot` | `bridge-hookshot` | `server-data/hookshot` | `config.yml`, `registration.yml`, `passkey.pem` |
 
-Рекомендуется **Caddy** — автоматический TLS:
+Не используйте прежний профиль `bridges`: он запускал всё одновременно даже без
+настроек. Выбирайте только нужные профили. Настройки `HOMESERVER_*`, `BRIDGE_ADMIN`
+и Telegram API в `.env` **не заменяют конфигурацию mautrix**: wrapper намеренно
+не переписывает пользовательский YAML через sed и не угадывает формат версии.
 
+### Подготовка mautrix
+
+Для выбранного, закреплённого образа следуйте [upstream Docker setup]
+(https://docs.mau.fi/bridges/general/docker-setup.html) и [регистрации appservice]
+(https://docs.mau.fi/bridges/general/registering-appservices.html).
+Используйте upstream image отдельно от нашего fail-fast wrapper для подготовки
+шаблона и регистрации на выделенном каталоге. **Не запускайте preparation в
+рабочем контейнере с production-данными.** Upstream `/docker-run.sh` создаёт
+шаблон при отсутствии config и завершает запуск; после редактирования он
+генерирует registration и снова завершается. Это этап подготовки, не healthy
+bridge. Не пересоздавайте токены существующей регистрации.
+
+Перед первым рабочим запуском проверьте:
+
+- homeserver URL внутри Docker — `http://synapse:8008`, домен — ваш Matrix domain;
+- appservice URL в регистрации доступен Synapse по **имени сервиса Compose**, а не
+  localhost; listener мостa привязан к `0.0.0.0` и правильному порту;
+- PostgreSQL URI использует `postgres` и одну из БД `mautrix_telegram`,
+  `mautrix_whatsapp`, `mautrix_signal`, `mautrix_meta`, `mautrix_gmessages`,
+  `mautrix_discord`; корректно URL-encode специальные символы пароля;
+- разрешения содержат ваш административный MXID и минимально необходимые права;
+- Telegram credentials заполнены в config; для остальных мостов завершена
+  версия-зависимая привязка аккаунта согласно upstream документации.
+
+`init-bridges-db` создаёт все шесть БД идемпотентно, но не скрывает ошибки
+авторизации/SQL. Для нового PostgreSQL эти же БД создаёт init script.
+
+### IRC и Hookshot
+
+Для heisenbridge используйте штатный CLI закреплённой версии для генерации
+`registration.yaml` (`--generate -c ...`), затем настройте URL регистрации на
+`http://heisenbridge:9898`. Укажите `BRIDGE_ADMIN` — полный MXID владельца.
+Wrapper запускает официальный `heisenbridge` с `-o` (owner), `-l 0.0.0.0`,
+`-c /data/registration.yaml` и полным positional homeserver URL.
+
+Hookshot требует подготовленные config, registration и RSA passkey по
+[upstream setup](https://matrix-org.github.io/matrix-hookshot/latest/setup.html).
+Настройте `passFile: /data/passkey.pem`, внутренние listener/registration URL,
+права и только нужные интеграции. Wrapper использует upstream container launch
+`/bin/matrix-hookshot/App/BridgeApp.js`, не выдуманный путь source checkout.
+Публикация webhook listener наружу и HTTPS — отдельная настройка оператора.
+
+### Запуск и регистрация в Synapse
+
+```bash
+docker compose -f docker-compose.bridges.yml build whatsapp-bridge
+docker compose -f docker-compose.bridges.yml --profile bridge-whatsapp up -d whatsapp-bridge
+docker compose -f docker-compose.bridges.yml restart synapse
 ```
-matrix.example.org {
-    reverse_proxy localhost:8008
-}
+
+Все восемь каталогов смонтированы в Synapse read-only. На старте scanner ищет
+`registration.yaml` или `registration.yml`, проверяет обязательные поля и
+добавляет найденные файлы к `app_service_config_files`. **Пользовательские
+appservice entries сохраняются**, повторный запуск не дублирует записи.
+Две регистрации разных расширений в одном каталоге — ошибка, а не выбор наугад.
+Перезапускайте Synapse после появления или изменения регистрации. Чтобы удалить
+мост, остановите его и явно удалите его entry из homeserver config; scanner не
+удаляет пользовательские entries автоматически.
+
+Не используйте `chmod -R 777`. Определите UID/GID закреплённого upstream image,
+дайте минимальные права на его каталог и возможность Synapse читать registration.
+Токены регистрации, passkeys, bridge databases и пароли — секреты; защищайте бэкапы.
+
+## Мгновенный push: только настроенный ntfy
+
+**Произвольные UnifiedPush/NextPush endpoints не поддерживаются.** Пустая
+настройка означает unavailable и периодический fallback, а не зелёный push status.
+
+1. Задайте `NTFY_BASE_URL=https://ntfy.your-domain.example` (HTTPS origin без
+   subpath/query) и `NTFY_PORT=2586` в `.env`.
+2. Запустите `docker compose -f docker-compose.bridges.yml --profile push up -d ntfy`.
+   Настройте HTTPS reverse proxy на 2586; проверьте `/v1/health` и GET
+   `https://ntfy.your-domain.example/_matrix/push/v1/notify` (discovery должен
+   вернуть `{"unifiedpush":{"gateway":"matrix"}}`).
+3. При сборке Android APK задайте `-PntfyBaseUrl=https://ntfy.your-domain.example`.
+   Manifest placeholder `ntfyBaseUrl` заполняет metadata
+   `com.matrix.messenger.NTFY_BASE_URL` в **тот же origin**. По умолчанию
+   property пустое: unsupported push выключен до конфигурации.
+   `.env` сервера не конфигурирует APK автоматически.
+4. Установите ntfy (`io.heckel.ntfy`), выберите тот же default server, включите
+   уведомления MatrixTalk и дайте системное разрешение.
+
+ntfy endpoint вида `https://ntfy.your-domain.example/up<secret>?up=1` становится
+**pushkey**, а gateway URL — `https://ntfy.your-domain.example/_matrix/push/v1/notify`.
+Это разные значения. Matrix HTTP pusher использует `kind=http`,
+`data.format=event_id_only`, `append=false`; содержимое сообщения не отправляется
+в gateway. Gateway ntfy требует совпадение pushkey с `NTFY_BASE_URL` и пересылает
+Matrix JSON как UnifiedPush bytes. См. [официальный gateway protocol]
+(https://unifiedpush.org/developers/gateway/) и [реализацию ntfy]
+(https://github.com/binwiederhier/ntfy/blob/main/server/server_matrix.go).
+
+Exported receiver оставляет SDK token/instance validation и проверяет выбранный
+установленный ntfy distributor; payload служит только подсказкой room/event.
+Worker получает и расшифровывает событие через один repository-owned client,
+проверяет собственные/прочитанные сообщения, toggle и room notification level.
+Дедуп фиксируется после успешного показа, не до decryption.
+
+Статусы: **unavailable**, **disabled**, **pending**, **failed**, **active**.
+`active` только после успешного ответа homeserver на регистрацию pusher, не при
+получении endpoint; это не гарантия end-to-end доставки. При disable/logout или
+unregistration серверный pusher удаляется. Неудачная очистка сохраняется как
+pending removal, а не объявляется успешной; при недоступном сервере и окончательном
+logout оператор может удалить оставшийся pusher через homeserver/device management.
+Fallback WorkManager — минимум 15 минут, Android/Doze может отложить его; это
+не мгновенная доставка. Force-stop приложения блокирует фон до следующего открытия.
+
+## ARM64 и проверка
+
+`docker-compose.arm64.yml` задаёт платформу, но **не гарантирует**, что любой
+upstream tag имеет ARM64 manifest. Проверяйте закреплённые образы перед deployment.
+
+```bash
+docker compose -f docker-compose.bridges.yml -f docker-compose.arm64.yml config
 ```
 
-Или **nginx**:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name matrix.example.org;
-
-    ssl_certificate /etc/ssl/certs/matrix.example.org.crt;
-    ssl_certificate_key /etc/ssl/private/matrix.example.org.key;
-
-    location / {
-        proxy_pass http://localhost:8008;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $remote_addr;
-    }
-}
-```
-
-### Федерация
-
-Для федерации с другими серверами Matrix создайте `.well-known`:
-
-`https://matrix.example.org/.well-known/matrix/server`:
-```json
-{"m.server": "matrix.example.org:443"}
-```
-
-`https://matrix.example.org/.well-known/matrix/client`:
-```json
-{"m.homeserver": {"base_url": "https://matrix.example.org"}}
-```
-
-### Coturn с TLS
-
-Поместите `cert.pem` и `key.pem` в `server-data/coturn/` и добавьте в
-`docker-compose.bridges.yml` параметры Coturn:
-
-```yaml
-command:
-  - "--cert=/etc/coturn/cert.pem"
-  - "--pkey=/etc/coturn/key.pem"
-```
-
-### Бэкапы
-
-Регулярно бэкапьте:
-- `server-data/postgres/` — база данных
-- `server-data/synapse/` — конфигурация, ключи подписи, медиа
-
-### Рекомендации
-
-- **Пиньте версии** — замените `latest` на конкретные теги образов
-- **Не коммитьте** `.env`, токены доступа, базы мостов, файлы регистрации,
-  ключи шифрования
-- **Ограничьте права** мостов минимально необходимыми
-- **Настройте мониторинг** логов Synapse и Coturn
-
----
-
-## Подключение из Matrix Talk
-
-1. Откройте приложение
-2. На экране входа укажите адрес homeserver: `https://matrix.example.org`
-3. Введите логин и пароль администратора (шаг 3)
-4. Для настройки мостов — нажмите иконку ссылки на экране чатов
-
-VoIP-звонки используют WebRTC через настроенный TURN-сервер. Приложение
-автоматически запрашивает TURN-учётные данные у Synapse при звонке.
+Изолированные regression tests лежат в `docker/tests/test_configuration.py` и
+`shared/src/commonTest/kotlin/com/matrix/messenger/data/push/PushProtocolTest.kt`.
+Они используют mock config/токены и не запускают production containers.
