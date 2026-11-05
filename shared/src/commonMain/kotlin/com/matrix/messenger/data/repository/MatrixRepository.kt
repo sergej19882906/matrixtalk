@@ -195,6 +195,16 @@ interface MatrixRepository {
     /** Unsubscribes a room's packs from the user emote rooms. */
     suspend fun removeStickerPackRoom(roomIdToRemove: String)
 
+    /** Room ids whose packs the user subscribed to (emote_rooms + user_emotes.packs). */
+    suspend fun getStickerPackRooms(): List<String>
+
+    /**
+     * Adds a sticker pack by reference: matrix.to link, `#alias:server` or `!roomId:server`.
+     * Joins the room when needed, validates that it carries `im.ponies.room_emotes` packs.
+     * Returns the resolved room id.
+     */
+    suspend fun addStickerPackByReference(reference: String): String
+
     /** Reports a message to the homeserver administrators (spec report endpoint). */
     suspend fun reportMessage(roomId: String, eventId: String, reason: String?, score: Int? = null)
 

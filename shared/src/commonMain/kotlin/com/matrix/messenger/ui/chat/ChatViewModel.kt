@@ -62,6 +62,8 @@ data class ChatUiState(
     /** MSC2545 sticker/emote packs available in this room (loaded lazily for the picker). */
     val stickerPacks: List<StickerPack> = emptyList(),
     val stickerPacksLoading: Boolean = false,
+    /** Room ids whose packs the user subscribed to (sticker pack management). */
+    val packRooms: List<String> = emptyList(),
     /** Multi-select mode: event ids currently ticked for delete/forward. */
     val selectedEventIds: Set<String> = emptySet()
 )
@@ -416,6 +418,47 @@ class ChatViewModel(
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки стикера: ${e.message}"))
             }
         }
+    }
+
+    /** Room ids the user subscribed to for their packs (loaded when the manage dialog opens). */
+    fun loadStickerPackRooms() {
+        roomScope?.launch {
+            try {
+                val rooms = matrixRepository.getStickerPackRooms()
+                _uiState.value = _uiState.value.copy(packRooms = rooms)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Не удалось загрузить паки: ${e.message ?: "неизвестная ошибка"}"))
+            }
+        }
+    }
+
+    /** Adds a pack by matrix.to link / alias / roomId, then force-reloads the picker. */
+    fun addStickerPackByReference(reference: String) {
+        val trimmed = reference.trim()
+        if (trimmed.isEmpty()) return
+        launchRoomAction("Не удалось добавить пак") {
+            matrixRepository.addStickerPackByReference(trimmed)
+            _events.send(UiEvent.ShowSnackbar("Пак добавлен"))
+            reloadStickerPacks()
+        }
+    }
+
+    /** Unsubscribes a room's packs and force-reloads the picker. */
+    fun removeStickerPackRoom(roomIdToRemove: String) {
+        launchRoomAction("Не удалось удалить пак") {
+            matrixRepository.removeStickerPackRoom(roomIdToRemove)
+            _uiState.value = _uiState.value.copy(packRooms = _uiState.value.packRooms - roomIdToRemove)
+            _events.send(UiEvent.ShowSnackbar("Пак удалён"))
+            reloadStickerPacks()
+        }
+    }
+
+    /** Forces a fresh pack fetch on the next load (bypasses the double-load guard). */
+    private fun reloadStickerPacks() {
+        stickerPacksLoadedForRoom = null
+        loadStickerPacks()
     }
 
     // --- Message reporting ---

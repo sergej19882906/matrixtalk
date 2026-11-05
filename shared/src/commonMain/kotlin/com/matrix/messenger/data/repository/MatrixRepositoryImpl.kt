@@ -1404,6 +1404,53 @@ class MatrixRepositoryImpl : MatrixRepository {
         ).getOrThrow()
     }
 
+    override suspend fun getStickerPackRooms(): List<String> {
+        val c = requireClient()
+        val emoteRooms = runCatching {
+            c.api.user.getAccountData<EmoteRoomsEventContent>(userId = c.userId).getOrNull()?.roomIds
+        }.getOrNull().orEmpty()
+        val legacyPacks = runCatching {
+            c.api.user.getAccountData<UserEmotesEventContent>(userId = c.userId).getOrNull()?.packs
+        }.getOrNull().orEmpty()
+        return (emoteRooms + legacyPacks).distinct()
+    }
+
+    override suspend fun addStickerPackByReference(reference: String): String {
+        val c = requireClient()
+        val trimmed = reference.trim()
+            .removePrefix("https://matrix.to/#/")
+            .removePrefix("http://matrix.to/#/")
+            .substringBefore('?')
+        require(trimmed.isNotEmpty()) { "Укажите ссылку matrix.to, #алиас:сервер или !roomId:сервер" }
+        // Percent-decode matrix.to fragments (%23 -> '#', %3A -> ':', %2F -> '/').
+        val rawId = trimmed
+            .replace("%23", "#")
+            .replace("%3A", ":")
+            .replace("%3a", ":")
+            .replace("%2F", "/")
+            .replace("%2f", "/")
+        val roomId: RoomId = when {
+            rawId.startsWith("#") -> {
+                val alias = RoomAliasId(rawId)
+                c.api.room.getRoomAlias(alias).getOrThrow().roomId
+            }
+            rawId.startsWith("!") -> RoomId(rawId)
+            else -> throw IllegalArgumentException("Не похоже на ссылку комнаты: ожидается #алиас:сервер или !roomId:сервер")
+        }
+        val joined = runCatching { requireJoinedRoom(c, roomId) }.isSuccess
+        if (!joined) {
+            // Explicit user action on a pack share link: join, then read the pack.
+            c.api.room.joinRoom(roomId).getOrThrow()
+        }
+        val hasPack = runCatching {
+            c.room.getAllState(roomId, RoomEmotesEventContent::class)
+                .first().values.any { it.firstOrNull()?.content != null }
+        }.getOrDefault(false)
+        require(hasPack) { "В этой комнате нет стикер-паков (im.ponies.room_emotes)" }
+        addStickerPackRoom(roomId.full)
+        return roomId.full
+    }
+
     override suspend fun reportMessage(roomId: String, eventId: String, reason: String?, score: Int?) {
         val c = requireClient()
         c.api.room.reportEvent(RoomId(roomId), EventId(eventId), reason, score?.toLong()).getOrThrow()

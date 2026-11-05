@@ -196,6 +196,9 @@ fun ChatScreen(
         viewModel.sendSticker(file.path, file.mimeType)
     }
     var showStickerSheet by remember { mutableStateOf(false) }
+    var showAddPackDialog by remember { mutableStateOf(false) }
+    var addPackInput by remember { mutableStateOf("") }
+    var showManagePacksDialog by remember { mutableStateOf(false) }
     var reportingMessage by remember { mutableStateOf<Message?>(null) }
     var reportReason by remember { mutableStateOf("") }
     var showForwardDialog by remember { mutableStateOf(false) }
@@ -978,6 +981,20 @@ fun ChatScreen(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)
                     )
                 }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(onClick = { showAddPackDialog = true }) {
+                        Text("Добавить пак…")
+                    }
+                    TextButton(onClick = {
+                        showManagePacksDialog = true
+                        viewModel.loadStickerPackRooms()
+                    }) {
+                        Text("Управление паками")
+                    }
+                }
                 HorizontalDivider()
                 TextButton(
                     onClick = {
@@ -990,6 +1007,89 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    // MSC2545: subscribe to a pack room by matrix.to link / alias / roomId.
+    if (showAddPackDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddPackDialog = false },
+            title = { Text("Добавить пак") },
+            text = {
+                OutlinedTextField(
+                    value = addPackInput,
+                    onValueChange = { addPackInput = it },
+                    label = { Text("Ссылка matrix.to, #алиас:сервер или !roomId:сервер") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showAddPackDialog = false
+                        viewModel.addStickerPackByReference(addPackInput)
+                        addPackInput = ""
+                    },
+                    enabled = addPackInput.isNotBlank()
+                ) { Text("Добавить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddPackDialog = false }) { Text("Отмена") }
+            }
+        )
+    }
+
+    // MSC2545: manage subscribed pack rooms (unsubscribe per room).
+    if (showManagePacksDialog) {
+        AlertDialog(
+            onDismissRequest = { showManagePacksDialog = false },
+            title = { Text("Управление паками") },
+            text = {
+                if (uiState.packRooms.isEmpty()) {
+                    Text(
+                        text = "Вы не подписаны на паки комнат",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)
+                    ) {
+                        items(
+                            items = uiState.packRooms,
+                            key = { it }
+                        ) { packRoomId ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = packRoomId.substringBefore(":"),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { viewModel.removeStickerPackRoom(packRoomId) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Удалить пак",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showManagePacksDialog = false }) { Text("Закрыть") }
+            }
+        )
     }
 
     // Report a message to the homeserver administrators.

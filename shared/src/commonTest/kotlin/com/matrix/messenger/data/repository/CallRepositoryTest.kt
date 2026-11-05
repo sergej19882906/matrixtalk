@@ -158,6 +158,8 @@ class CallRepositoryTest {
         override suspend fun getStickerPacks(roomId: String): List<com.matrix.messenger.data.model.StickerPack> = emptyList()
         override suspend fun addStickerPackRoom(roomIdToAdd: String) = Unit
         override suspend fun removeStickerPackRoom(roomIdToRemove: String) = Unit
+        override suspend fun getStickerPackRooms(): List<String> = emptyList()
+        override suspend fun addStickerPackByReference(reference: String): String = ""
         override suspend fun reportMessage(roomId: String, eventId: String, reason: String?, score: Int?) = Unit
         override suspend fun deleteMessages(roomId: String, eventIds: List<String>) = Unit
         override suspend fun forwardMessages(targetRoomId: String, messages: List<Message>): Int = 0
