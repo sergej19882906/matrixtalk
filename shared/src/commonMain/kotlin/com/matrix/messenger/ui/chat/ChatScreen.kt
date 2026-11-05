@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Groups
@@ -46,6 +48,7 @@ import androidx.compose.material.icons.filled.HowToVote
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TextFormat
 import androidx.compose.material.icons.filled.PersonAdd
@@ -67,11 +70,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.font.FontWeight
@@ -95,6 +101,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.matrix.messenger.data.model.GeoLocation
 import com.matrix.messenger.data.model.GeoUri
+import com.matrix.messenger.data.model.LiveLocationBeacon
 import com.matrix.messenger.data.model.ReadReceipt
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
@@ -188,11 +195,34 @@ fun ChatScreen(
     val pickSticker = rememberFilePicker(listOf("image/*")) { file ->
         viewModel.sendSticker(file.path, file.mimeType)
     }
+    var showStickerSheet by remember { mutableStateOf(false) }
+    var reportingMessage by remember { mutableStateOf<Message?>(null) }
+    var reportReason by remember { mutableStateOf("") }
+    var showForwardDialog by remember { mutableStateOf(false) }
+    var confirmDeleteSelected by remember { mutableStateOf(false) }
+    var showLiveLocationDialog by remember { mutableStateOf(false) }
+    val chatListPreview by viewModel.chatListPreview.collectAsState()
+    val selectionMode = uiState.selectedEventIds.isNotEmpty()
     var locationDraft by remember { mutableStateOf<GeoLocation?>(null) }
     var showLocationDialog by remember { mutableStateOf(false) }
     val requestLocation = rememberLocationRequester { point ->
         locationDraft = point
         showLocationDialog = true
+    }
+    val requestLiveLocation = rememberLocationRequester { point ->
+        if (point == null) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(
+                    if (com.matrix.messenger.platform.hasLocationProvider()) {
+                        "Не удалось определить местоположение"
+                    } else {
+                        "Live-геолокация недоступна на этом устройстве"
+                    }
+                )
+            }
+        } else {
+            showLiveLocationDialog = true
+        }
     }
     var videoDraft by remember(roomId) { mutableStateOf<String?>(null) }
     val captureVideo = rememberVideoRecorder(onError = { error ->
@@ -349,6 +379,17 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
+            if (selectionMode) {
+                SelectionModeBar(
+                    selectedCount = uiState.selectedEventIds.size,
+                    onCancel = viewModel::clearSelection,
+                    onForward = {
+                        showForwardDialog = true
+                        viewModel.loadChatListPreview()
+                    },
+                    onDelete = { confirmDeleteSelected = true }
+                )
+            } else {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -536,6 +577,7 @@ fun ChatScreen(
                     }
                 }
             )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
@@ -553,8 +595,12 @@ fun ChatScreen(
                 onCreatePoll = { showPollDialog = true },
                 markdownEnabled = uiState.markdownEnabled,
                 onToggleMarkdown = { viewModel.toggleMarkdown() },
-                onPickSticker = { pickSticker() },
+                onPickSticker = {
+                    showStickerSheet = true
+                    viewModel.loadStickerPacks()
+                },
                 onPickLocation = { requestLocation() },
+                onPickLiveLocation = { requestLiveLocation() },
                 onPickVideo = { captureVideo() }
             )
         }
@@ -674,7 +720,12 @@ fun ChatScreen(
                                         onVotePoll = { ids -> viewModel.votePoll(item.message, ids) },
                                         onEndPoll = { viewModel.endPoll(item.message.eventId) },
                                         isPinned = uiState.pinnedMessages.any { it.eventId == item.message.eventId },
-                                        onTogglePin = { viewModel.togglePin(item.message) }
+                                        onTogglePin = { viewModel.togglePin(item.message) },
+                                        onStopLiveLocation = { viewModel.stopLiveLocationShare() },
+                                        onReport = { reportingMessage = item.message },
+                                        isSelected = item.message.eventId in uiState.selectedEventIds,
+                                        selectionMode = selectionMode,
+                                        onSelect = { viewModel.toggleSelection(item.message.eventId) }
                                     )
                                 }
                             }
@@ -869,6 +920,216 @@ fun ChatScreen(
         )
     }
 
+    // MSC2545 sticker pack picker (Element X style sheet).
+    if (showStickerSheet) {
+        ModalBottomSheet(onDismissRequest = { showStickerSheet = false }) {
+            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                if (uiState.stickerPacks.isNotEmpty()) {
+                    var selectedPackIndex by remember { mutableStateOf(0) }
+                    ScrollableTabRow(selectedTabIndex = selectedPackIndex.coerceIn(0, uiState.stickerPacks.lastIndex)) {
+                        uiState.stickerPacks.forEachIndexed { index, pack ->
+                            Tab(
+                                selected = selectedPackIndex == index,
+                                onClick = { selectedPackIndex = index },
+                                text = { Text(pack.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            )
+                        }
+                    }
+                    val pack = uiState.stickerPacks[selectedPackIndex.coerceIn(0, uiState.stickerPacks.lastIndex)]
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(4),
+                        modifier = Modifier.fillMaxWidth().height(280.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(12.dp)
+                    ) {
+                        gridItems(items = pack.stickers) { sticker ->
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        showStickerSheet = false
+                                        viewModel.sendStickerUrl(sticker.url, sticker.body)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = MatrixMedia(sticker.url, null),
+                                    contentDescription = sticker.shortcode,
+                                    modifier = Modifier.size(72.dp),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
+                        }
+                    }
+                } else if (uiState.stickerPacksLoading) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    Text(
+                        text = "Стикер-паки не найдены. Паки берутся из комнат с im.ponies.room_emotes (MSC2545).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)
+                    )
+                }
+                HorizontalDivider()
+                TextButton(
+                    onClick = {
+                        showStickerSheet = false
+                        pickSticker()
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
+                    Text("Отправить файл как стикер")
+                }
+            }
+        }
+    }
+
+    // Report a message to the homeserver administrators.
+    reportingMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { reportingMessage = null },
+            title = { Text("Пожаловаться на сообщение") },
+            text = {
+                OutlinedTextField(
+                    value = reportReason,
+                    onValueChange = { reportReason = it },
+                    label = { Text("Причина (необязательно)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.reportMessage(message.eventId, reportReason)
+                    reportingMessage = null
+                    reportReason = ""
+                }) { Text("Отправить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { reportingMessage = null }) { Text("Отмена") }
+            }
+        )
+    }
+
+    // Multi-select: pick a target room for forwarding.
+    if (showForwardDialog) {
+        AlertDialog(
+            onDismissRequest = { showForwardDialog = false },
+            title = { Text("Переслать в…") },
+            text = {
+                if (chatListPreview.isEmpty()) {
+                    Text(
+                        text = "Список чатов загружается…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)
+                    ) {
+                        items(
+                            items = chatListPreview,
+                            key = { it.roomId }
+                        ) { room ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        showForwardDialog = false
+                                        viewModel.forwardSelected(room.roomId)
+                                    }
+                                    .padding(vertical = 8.dp)
+                            ) {
+                                MatrixAvatar(
+                                    name = room.name ?: room.roomId,
+                                    avatarUrl = room.avatarUrl,
+                                    size = 32.dp,
+                                    shape = CircleShape
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = room.name ?: room.roomId,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showForwardDialog = false }) { Text("Отмена") }
+            }
+        )
+    }
+
+    // Multi-select delete confirmation (same style as the single-message one).
+    if (confirmDeleteSelected) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteSelected = false },
+            title = { Text("Удалить сообщения?") },
+            text = { Text("Будет удалено сообщений: ${uiState.selectedEventIds.size}. Это удалит их для участников комнаты, если сервер разрешает удаление.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteSelected = false
+                        viewModel.deleteSelected()
+                    }
+                ) {
+                    Text("Удалить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteSelected = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
+    // MSC3488 live location: duration picker (shown after location access was granted).
+    if (showLiveLocationDialog) {
+        AlertDialog(
+            onDismissRequest = { showLiveLocationDialog = false },
+            title = { Text("Live-геолокация") },
+            text = {
+                Column {
+                    Text("Ваша геолокация будет транслироваться в комнате в реальном времени. Выберите длительность:")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    listOf(
+                        "15 минут" to 15 * 60_000L,
+                        "1 час" to 3_600_000L,
+                        "8 часов" to 8 * 3_600_000L
+                    ).forEach { (label, durationMs) ->
+                        TextButton(
+                            onClick = {
+                                showLiveLocationDialog = false
+                                viewModel.startLiveLocationShare(durationMs)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(label, modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLiveLocationDialog = false }) { Text("Отмена") }
+            }
+        )
+    }
+
     // In-chat SAS verification (triggered by "Верифицировать" on a key verification request)
     when (val vs = verificationState) {
         is com.matrix.messenger.data.model.VerificationUiState.Waiting,
@@ -956,7 +1217,12 @@ internal fun MessageItem(
     onTogglePin: (() -> Unit)? = null,
     onPlayAudio: (() -> Unit)? = null,
     onVotePoll: ((List<String>) -> Unit)? = null,
-    onEndPoll: (() -> Unit)? = null
+    onEndPoll: (() -> Unit)? = null,
+    onStopLiveLocation: (() -> Unit)? = null,
+    onReport: (() -> Unit)? = null,
+    isSelected: Boolean = false,
+    selectionMode: Boolean = false,
+    onSelect: (() -> Unit)? = null
 ) {
     if (message.messageType == MessageType.SYSTEM) {
         Text(
@@ -971,6 +1237,15 @@ internal fun MessageItem(
     val hasActions = !message.isDeleted && listOf(onReaction, onReply, onOpenThread, onTogglePin, onEdit, onDelete, onEndPoll).any { it != null }
     var menuExpanded by remember(message.eventId) { mutableStateOf(false) }
     var showReactionPicker by remember(message.eventId) { mutableStateOf(false) }
+    // In selection mode a tap toggles the tick instead of opening the context menu.
+    val itemClick: () -> Unit = {
+        if (selectionMode) {
+            onSelect?.invoke()
+        } else {
+            menuExpanded = true
+        }
+    }
+    val itemClickEnabled = selectionMode || hasActions
     BoxWithConstraints(Modifier.fillMaxWidth()) {
     val messageWidth = (maxWidth - 44.dp).coerceAtLeast(1.dp).coerceAtMost(560.dp)
     Column(
@@ -1020,15 +1295,22 @@ internal fun MessageItem(
 
                     if (isMediaOnly) {
                         Column(
-                            modifier = Modifier.clickable(enabled = hasActions) { menuExpanded = true },
+                            modifier = Modifier.clickable(enabled = itemClickEnabled) { itemClick() },
                             horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start
                         ) {
                             when {
-                                message.messageType == MessageType.LOCATION && message.location != null -> {
-                                    LocationCard(
-                                        location = message.location,
-                                        onOpenMap = { openUrl(GeoUri.toOsmUrl(message.location)) }
-                                    )
+                                message.messageType == MessageType.LOCATION &&
+                                    (message.location != null || message.liveBeacon != null) -> {
+                                    val cardLocation = message.location ?: message.liveBeacon?.location
+                                    if (cardLocation != null) {
+                                        LocationCard(
+                                            location = cardLocation,
+                                            liveBeacon = message.liveBeacon,
+                                            isMine = message.isMine,
+                                            onOpenMap = { openUrl(GeoUri.toOsmUrl(cardLocation)) },
+                                            onStopLive = onStopLiveLocation
+                                        )
+                                    }
                                 }
 
                                 else -> {
@@ -1082,7 +1364,7 @@ internal fun MessageItem(
                             } else {
                                 MaterialTheme.colorScheme.surfaceContainerHigh
                             },
-                            modifier = Modifier.clickable(enabled = hasActions) { menuExpanded = true }
+                            modifier = Modifier.clickable(enabled = itemClickEnabled) { itemClick() }
                         ) {
                             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                                 val replyTo = message.replyTo
@@ -1427,6 +1709,14 @@ internal fun MessageItem(
                             )
                         }
                         if (onReaction != null) HorizontalDivider()
+                        if (onSelect != null) DropdownMenuItem(
+                            text = { Text("Выбрать") },
+                            leadingIcon = { Icon(Icons.Default.CheckCircle, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                onSelect?.invoke()
+                            }
+                        )
                         if (!message.isDeleted) {
                             if (onReply != null) DropdownMenuItem(
                                 text = { Text("Ответить") },
@@ -1479,6 +1769,14 @@ internal fun MessageItem(
                                 )
                             }
                         }
+                        if (!message.isMine && !message.isDeleted && onReport != null) DropdownMenuItem(
+                            text = { Text("Пожаловаться") },
+                            leadingIcon = { Icon(Icons.Default.Flag, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                onReport?.invoke()
+                            }
+                        )
                     }
                     if (onReaction != null) ReactionPicker(
                         expanded = showReactionPicker,
@@ -1488,6 +1786,15 @@ internal fun MessageItem(
                         onSelect = onReaction
                     )
                 }
+            }
+            // Multi-select tick next to the bubble (Element X style).
+            if (selectionMode) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    contentDescription = if (isSelected) "Выбрано" else "Не выбрано",
+                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.CenterVertically)
+                )
             }
             if (message.isMine) {
                 Spacer(modifier = Modifier.width(36.dp))
@@ -1619,6 +1926,31 @@ private fun PinnedBanner(
     }
 }
 
+/** Selection-mode top bar replacing the room header while messages are ticked. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectionModeBar(
+    selectedCount: Int,
+    onCancel: () -> Unit,
+    onForward: () -> Unit,
+    onDelete: () -> Unit
+) {
+    TopAppBar(
+        title = { Text("Выбрано: $selectedCount") },
+        navigationIcon = {
+            IconButton(onClick = onCancel) {
+                Icon(Icons.Default.Close, contentDescription = "Отмена")
+            }
+        },
+        actions = {
+            TextButton(onClick = onForward) { Text("Переслать") }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "Удалить")
+            }
+        }
+    )
+}
+
 @Composable
 private fun MessageInputBar(
     value: String,
@@ -1636,6 +1968,7 @@ private fun MessageInputBar(
     onToggleMarkdown: () -> Unit = {},
     onPickSticker: () -> Unit = {},
     onPickLocation: () -> Unit = {},
+    onPickLiveLocation: () -> Unit = {},
     onPickVideo: () -> Unit = {}
 ) {
     var emojiVisible by remember { mutableStateOf(false) }
@@ -1766,6 +2099,14 @@ private fun MessageInputBar(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Live-геолокация") },
+                                leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                                onClick = {
+                                    attachMenuVisible = false
+                                    onPickLiveLocation()
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Видео") },
                                 leadingIcon = { Icon(Icons.Default.Videocam, contentDescription = null) },
                                 onClick = {
@@ -1879,7 +2220,30 @@ private fun UnreadDividerRow() {
 }
 
 @Composable
-private fun LocationCard(location: GeoLocation, onOpenMap: () -> Unit) {
+private fun LocationCard(
+    location: GeoLocation,
+    liveBeacon: LiveLocationBeacon? = null,
+    isMine: Boolean = false,
+    onOpenMap: () -> Unit,
+    onStopLive: (() -> Unit)? = null
+) {
+    // Ticking clock for the live beacon countdown (updates once a second).
+    var nowMs by remember(liveBeacon?.infoEventId) {
+        mutableStateOf(kotlinx.datetime.Clock.System.now().toEpochMilliseconds())
+    }
+    LaunchedEffect(liveBeacon?.infoEventId) {
+        if (liveBeacon == null) return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            nowMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+        }
+    }
+    val beaconEnded = liveBeacon != null &&
+        liveBeacon.endTimestamp != null &&
+        liveBeacon.endTimestamp < nowMs
+    val remainingMs = liveBeacon?.endTimestamp?.let { (it - nowMs).coerceAtLeast(0L) }
+    val liveActive = liveBeacon != null && liveBeacon.live && !beaconEnded
+
     Column {
         Box(
             modifier = Modifier
@@ -1908,6 +2272,42 @@ private fun LocationCard(location: GeoLocation, onOpenMap: () -> Unit) {
                     modifier = Modifier.size(18.dp)
                 )
             }
+            if (liveBeacon != null) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color.Black.copy(alpha = 0.6f),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                    ) {
+                        if (liveActive) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(MaterialTheme.colorScheme.error, CircleShape)
+                            )
+                            Text(
+                                text = "LIVE" + (remainingMs?.let {
+                                    " · " + com.matrix.messenger.data.model.MediaFormat.duration(it)
+                                } ?: ""),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White
+                            )
+                        } else {
+                            Text(
+                                text = if (liveBeacon.live) "Завершена" else "Трансляция остановлена",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
             Text(
                 text = "© OpenStreetMap",
                 style = MaterialTheme.typography.labelSmall,
@@ -1917,6 +2317,30 @@ private fun LocationCard(location: GeoLocation, onOpenMap: () -> Unit) {
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
                     .padding(horizontal = 4.dp)
             )
+        }
+        if (liveBeacon != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                Text(
+                    text = when {
+                        !liveBeacon.live -> "Трансляция остановлена"
+                        beaconEnded -> "Завершена"
+                        remainingMs != null -> "Осталось: " + com.matrix.messenger.data.model.MediaFormat.duration(remainingMs)
+                        else -> "Трансляция активна"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (isMine && liveActive && onStopLive != null) {
+                    TextButton(onClick = onStopLive) {
+                        Text("Остановить")
+                    }
+                }
+            }
         }
         Text(
             text = GeoUri.format(location),

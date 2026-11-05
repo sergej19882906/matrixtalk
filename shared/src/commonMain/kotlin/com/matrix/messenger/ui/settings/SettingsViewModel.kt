@@ -55,6 +55,7 @@ data class SettingsUiState(
     /** One-shot confirmation for the proxy save. */
     val proxyMessage: String? = null,
     val isLoggingOut: Boolean = false,
+    val isDeactivating: Boolean = false,
     val isSavingPin: Boolean = false,
     val isSavingProxy: Boolean = false,
     val isSavingNotifications: Boolean = false,
@@ -291,6 +292,26 @@ class SettingsViewModel(
                 }
             } finally {
                 _uiState.update { it.copy(isLoggingOut = false) }
+            }
+        }
+    }
+
+    /**
+     * Permanently deactivates the account (irreversible, POST /account/deactivate).
+     * On success emits the same [SettingsEvent.LoggedOut] as the logout flow so
+     * navigation resets to the login screen.
+     */
+    fun deactivateAccount(eraseData: Boolean, password: String) {
+        if (_uiState.value.isDeactivating) return
+        _uiState.update { it.copy(isDeactivating = true, errorMessage = null) }
+        viewModelScope.launch {
+            try {
+                attempt("Не удалось деактивировать аккаунт. Повторите попытку") {
+                    matrixRepository.deactivateAccount(eraseData) { password }
+                    eventChannel.send(SettingsEvent.LoggedOut)
+                }
+            } finally {
+                _uiState.update { it.copy(isDeactivating = false) }
             }
         }
     }

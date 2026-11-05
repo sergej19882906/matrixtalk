@@ -2,10 +2,12 @@ package com.matrix.messenger.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.PresenceInfo
 import com.matrix.messenger.data.model.ReadReceipt
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.RoomTrust
+import com.matrix.messenger.data.model.StickerPack
 import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.UiState
 import com.matrix.messenger.data.model.VerificationUiState
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -55,7 +58,12 @@ data class ChatUiState(
     /** Event id of the image currently opened in the fullscreen viewer, null = closed. */
     val imageViewerMessageId: String? = null,
     /** Presence of the direct-chat peer, polled while the chat is open. */
-    val peerPresence: PresenceInfo? = null
+    val peerPresence: PresenceInfo? = null,
+    /** MSC2545 sticker/emote packs available in this room (loaded lazily for the picker). */
+    val stickerPacks: List<StickerPack> = emptyList(),
+    val stickerPacksLoading: Boolean = false,
+    /** Multi-select mode: event ids currently ticked for delete/forward. */
+    val selectedEventIds: Set<String> = emptySet()
 )
 
 class ChatViewModel(
@@ -104,6 +112,9 @@ class ChatViewModel(
             _uiState.value = ChatUiState(roomId = roomId)
             _uiStateSealed.value = UiState.Loading
             _readReceipts.value = emptyMap()
+            _chatListPreview.value = emptyList()
+            chatListPreviewLoaded = false
+            stickerPacksLoadedForRoom = null
             roomScope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
             observeMessages(roomId)
             observePeerPresence(roomId)
@@ -365,6 +376,139 @@ class ChatViewModel(
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка отправки стикера: ${e.message}"))
             }
+        }
+    }
+
+    // --- Sticker packs (MSC2545) ---
+
+    private var stickerPacksLoadedForRoom: String? = null
+
+    /** Lazily loads the sticker packs for the current room (guard against double-load). */
+    fun loadStickerPacks() {
+        val roomId = _uiState.value.roomId
+        if (roomId.isBlank() || _uiState.value.stickerPacksLoading) return
+        if (stickerPacksLoadedForRoom == roomId) return
+        stickerPacksLoadedForRoom = roomId
+        _uiState.value = _uiState.value.copy(stickerPacksLoading = true)
+        roomScope?.launch {
+            try {
+                val packs = matrixRepository.getStickerPacks(roomId)
+                _uiState.value = _uiState.value.copy(stickerPacks = packs, stickerPacksLoading = false)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Allow a retry on the next sheet open.
+                stickerPacksLoadedForRoom = null
+                _uiState.value = _uiState.value.copy(stickerPacksLoading = false)
+                _events.send(UiEvent.ShowSnackbar("Не удалось загрузить стикер-паки: ${e.message ?: "неизвестная ошибка"}"))
+            }
+        }
+    }
+
+    /** Sends an m.sticker from an already-uploaded pack URL (sticker picker tap). */
+    fun sendStickerUrl(mxcUrl: String, body: String) {
+        roomScope?.launch {
+            try {
+                matrixRepository.sendStickerUrl(_uiState.value.roomId, mxcUrl, body, null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка отправки стикера: ${e.message}"))
+            }
+        }
+    }
+
+    // --- Message reporting ---
+
+    fun reportMessage(eventId: String, reason: String?) {
+        val roomId = _uiState.value.roomId
+        launchRoomAction("Не удалось отправить жалобу") {
+            matrixRepository.reportMessage(roomId, eventId, reason?.trim()?.takeIf { it.isNotBlank() }, null)
+            _events.send(UiEvent.ShowSnackbar("Жалоба отправлена"))
+        }
+    }
+
+    // --- Multi-select (delete + forward) ---
+
+    fun toggleSelection(eventId: String) {
+        val current = _uiState.value.selectedEventIds
+        _uiState.value = _uiState.value.copy(
+            selectedEventIds = if (eventId in current) current - eventId else current + eventId
+        )
+    }
+
+    fun clearSelection() {
+        _uiState.value = _uiState.value.copy(selectedEventIds = emptySet())
+    }
+
+    fun deleteSelected() {
+        val roomId = _uiState.value.roomId
+        val eventIds = _uiState.value.selectedEventIds.toList()
+        if (eventIds.isEmpty()) return
+        roomScope?.launch {
+            try {
+                matrixRepository.deleteMessages(roomId, eventIds)
+                _uiState.value = _uiState.value.copy(selectedEventIds = emptySet())
+                _events.send(UiEvent.ShowSnackbar("Удалено: ${eventIds.size}"))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка удаления: ${e.message}"))
+            }
+        }
+    }
+
+    fun forwardSelected(targetRoomId: String) {
+        val state = _uiState.value
+        val selectedIds = state.selectedEventIds
+        if (selectedIds.isEmpty()) return
+        val messages = state.messages.filter { it.eventId in selectedIds }
+        roomScope?.launch {
+            try {
+                val count = matrixRepository.forwardMessages(targetRoomId, messages)
+                _uiState.value = _uiState.value.copy(selectedEventIds = emptySet())
+                _events.send(UiEvent.ShowSnackbar("Переслано: $count"))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка пересылки: ${e.message}"))
+            }
+        }
+    }
+
+    /** Room list snapshot for the forward dialog, fetched on demand. */
+    private val _chatListPreview = MutableStateFlow<List<ChatRoom>>(emptyList())
+    val chatListPreview: StateFlow<List<ChatRoom>> = _chatListPreview.asStateFlow()
+
+    private var chatListPreviewLoaded = false
+
+    fun loadChatListPreview() {
+        if (chatListPreviewLoaded) return
+        chatListPreviewLoaded = true
+        roomScope?.launch {
+            try {
+                _chatListPreview.value = matrixRepository.getRoomsFlow().first()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                chatListPreviewLoaded = false
+                _events.send(UiEvent.ShowSnackbar("Не удалось загрузить список чатов: ${e.message}"))
+            }
+        }
+    }
+
+    // --- Live location (MSC3488) ---
+
+    fun startLiveLocationShare(durationMs: Long) {
+        launchRoomAction("Не удалось запустить трансляцию геолокации") {
+            matrixRepository.startLiveLocationShare(_uiState.value.roomId, durationMs)
+            _events.send(UiEvent.ShowSnackbar("Трансляция геолокации запущена"))
+        }
+    }
+
+    fun stopLiveLocationShare() {
+        launchRoomAction("Не удалось остановить трансляцию геолокации") {
+            matrixRepository.stopLiveLocationShare(_uiState.value.roomId)
         }
     }
 

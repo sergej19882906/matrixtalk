@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -105,6 +106,81 @@ fun SettingsScreen(
             onDismiss = { if (!uiState.isSavingPin) pinDialog = false },
             onSet = { pin, oldPin -> viewModel.setPin(pin, oldPin) },
             onClear = { oldPin -> viewModel.clearPin(oldPin) }
+        )
+    }
+
+    // Account deactivation: step 1 explains irreversibility, step 2 asks for the password.
+    var showDeactivateConfirm by remember { mutableStateOf(false) }
+    var showDeactivatePassword by remember { mutableStateOf(false) }
+    var deactivateErase by remember { mutableStateOf(false) }
+    var deactivatePassword by remember { mutableStateOf("") }
+    if (showDeactivateConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showDeactivateConfirm = false },
+            title = { Text("Деактивировать аккаунт?") },
+            text = {
+                Column {
+                    Text(
+                        "Аккаунт будет удалён навсегда. Вы потеряете доступ ко всем комнатам и не сможете войти под этим же пользователем. Это действие необратимо."
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = deactivateErase,
+                            onCheckedChange = { deactivateErase = it }
+                        )
+                        Text(
+                            text = "Также стереть мои сообщения",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeactivateConfirm = false
+                    showDeactivatePassword = true
+                }) { Text("Продолжить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeactivateConfirm = false }) { Text("Отмена") }
+            }
+        )
+    }
+    if (showDeactivatePassword) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!uiState.isDeactivating) showDeactivatePassword = false },
+            title = { Text("Подтвердите паролем") },
+            text = {
+                Column {
+                    Text("Для удаления аккаунта введите пароль.")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = deactivatePassword,
+                        onValueChange = { deactivatePassword = it },
+                        label = { Text("Пароль") },
+                        singleLine = true,
+                        enabled = !uiState.isDeactivating,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeactivatePassword = false
+                        viewModel.deactivateAccount(deactivateErase, deactivatePassword)
+                        deactivatePassword = ""
+                    },
+                    enabled = !uiState.isDeactivating && deactivatePassword.isNotBlank()
+                ) { Text("Деактивировать") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeactivatePassword = false },
+                    enabled = !uiState.isDeactivating
+                ) { Text("Отмена") }
+            }
         )
     }
 
@@ -520,6 +596,29 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Выйти из аккаунта")
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = {
+                    deactivateErase = false
+                    deactivatePassword = ""
+                    showDeactivateConfirm = true
+                },
+                enabled = !uiState.isDeactivating,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            ) {
+                Text("Деактивировать аккаунт")
+            }
+            Text(
+                text = "Безвозвратно удаляет аккаунт на сервере.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
         }
