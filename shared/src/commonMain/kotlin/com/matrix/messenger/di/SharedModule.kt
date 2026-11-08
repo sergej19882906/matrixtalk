@@ -33,6 +33,9 @@ val sharedModule = module {
     viewModel { (roomId: String) ->
         com.matrix.messenger.ui.room.RoomSettingsViewModel(get(), roomId)
     }
+    viewModel { (roomId: String) ->
+        com.matrix.messenger.ui.room.RoomMediaViewModel(get(), roomId)
+    }
     viewModel { (roomId: String, rootId: String) ->
         com.matrix.messenger.ui.chat.ThreadViewModel(get(), roomId, rootId)
     }
