@@ -1,6 +1,7 @@
 package com.matrix.messenger.ui.chat
 
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,14 +60,23 @@ fun buildMentionAnnotatedString(
     append(body.substring(index))
 }
 
-/** Renders a rich (HTML) message body; link taps open the URL. */
+/**
+ * Renders a rich (HTML) message body; link taps open the URL.
+ * Base text follows LocalContentColor so it stays readable inside tinted
+ * bubbles; [linkColor] and [codeBackground] can be overridden for the same reason.
+ */
 @Composable
-fun RichMessageText(html: String, modifier: Modifier = Modifier) {
+fun RichMessageText(
+    html: String,
+    modifier: Modifier = Modifier,
+    linkColor: Color = MaterialTheme.colorScheme.primary,
+    codeBackground: Color = MaterialTheme.colorScheme.surfaceVariant
+) {
     val text = RichTextParser.parse(
         html = html,
-        linkColor = MaterialTheme.colorScheme.primary,
-        codeBackground = MaterialTheme.colorScheme.surfaceVariant,
-        spoilerBackground = MaterialTheme.colorScheme.surfaceVariant
+        linkColor = linkColor,
+        codeBackground = codeBackground,
+        spoilerBackground = codeBackground
     )
     val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
     Text(
@@ -83,6 +93,6 @@ fun RichMessageText(html: String, modifier: Modifier = Modifier) {
         },
         onTextLayout = { layoutResult.value = it },
         style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurface
+        color = LocalContentColor.current
     )
 }

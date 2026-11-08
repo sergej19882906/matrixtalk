@@ -31,7 +31,9 @@ fun PollContent(
     message: Message,
     onVote: (List<String>) -> Unit,
     modifier: Modifier = Modifier,
-    ended: Boolean = false
+    ended: Boolean = false,
+    /** Own polls render inside the primary bubble and switch to onPrimary for contrast. */
+    isMine: Boolean = false
 ) {
     val pollEnded = ended || message.pollEnded
     val poll = message.poll ?: return
@@ -42,14 +44,14 @@ fun PollContent(
                 Icons.Default.HowToVote,
                 contentDescription = null,
                 modifier = Modifier.width(18.dp).height(18.dp),
-                tint = MaterialTheme.colorScheme.primary
+                tint = if (isMine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = poll.question,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = if (isMine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
             if (pollEnded) {
@@ -90,7 +92,8 @@ fun PollContent(
                             Text(
                                 text = "$votes",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (isMine) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+                                else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -107,7 +110,8 @@ fun PollContent(
             text = "Голосов: ${message.pollTotalVoters}" +
                 if (poll.disclosed) "" else " · результаты скрыты до завершения",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (isMine) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+            else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp)
         )
     }

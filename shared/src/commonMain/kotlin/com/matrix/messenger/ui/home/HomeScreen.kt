@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -106,6 +107,8 @@ fun HomeScreen(
     onSearch: () -> Unit,
     onRoomsCatalog: () -> Unit,
     onOpenSpace: (String) -> Unit,
+    /** Room currently open in the two-pane right pane, highlighted in the list. */
+    selectedRoomId: String? = null,
     viewModel: HomeViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -317,6 +320,7 @@ fun HomeScreen(
                                         room = room,
                                         isMuted = uiState.mutedRooms.contains(room.roomId),
                                         isPeerOnline = uiState.peerOnline[room.roomId] == true,
+                                        isSelected = room.roomId == selectedRoomId,
                                         onClick = { viewModel.onRoomClick(room.roomId) },
                                         onLeave = { roomToLeave = room },
                                         onToggleFavorite = { viewModel.toggleFavorite(room.roomId) },
@@ -702,6 +706,7 @@ private fun RoomItem(
     room: ChatRoom,
     isMuted: Boolean,
     isPeerOnline: Boolean = false,
+    isSelected: Boolean = false,
     onClick: () -> Unit,
     onLeave: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -713,11 +718,13 @@ private fun RoomItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        color = MaterialTheme.colorScheme.surface
+        color = if (isSelected) MaterialTheme.colorScheme.surfaceContainerHighest
+        else MaterialTheme.colorScheme.surface
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 72.dp)
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -725,7 +732,7 @@ private fun RoomItem(
                 MatrixAvatar(
                     name = room.name ?: room.roomId,
                     avatarUrl = room.avatarUrl,
-                    size = 52.dp
+                    size = 48.dp
                 )
                 if (isPeerOnline) {
                     Box(
@@ -751,11 +758,7 @@ private fun RoomItem(
                 ) {
                     Text(
                         text = room.name ?: "Без названия",
-                        style = if (hasUnread) {
-                            MaterialTheme.typography.titleMedium
-                        } else {
-                            MaterialTheme.typography.bodyLarge
-                        },
+                        style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -783,7 +786,7 @@ private fun RoomItem(
                     room.lastMessage?.timestamp?.let { ts ->
                         Text(
                             text = TimeFormat.listLabel(ts),
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -804,11 +807,7 @@ private fun RoomItem(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
-                        color = if (hasUnread) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     if (isMuted) {
@@ -819,9 +818,11 @@ private fun RoomItem(
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    } else if (hasUnread) {
+                    }
+                    if (hasUnread) {
                         Spacer(modifier = Modifier.width(8.dp))
-                        UnreadBadge(count = room.unreadCount)
+                        // Element X: gray pill for muted rooms, primary otherwise.
+                        UnreadBadge(count = room.unreadCount, muted = isMuted)
                     } else if (room.isMarkedUnread) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Box(

@@ -1479,18 +1479,46 @@ internal fun MessageItem(
                             }
                         }
                     } else {
+                        // Element X bubble: outgoing = primary with onPrimary content,
+                        // incoming = surfaceContainerHigh. The 4.dp "tail" corner sits at
+                        // the bottom on each side and stays flattened where messages group.
+                        val bubbleColor = if (message.isMine) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        }
+                        val bubbleContentColor = if (message.isMine) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        }
+                        val bubbleSecondaryColor = if (message.isMine) {
+                            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        val bubbleAccentColor = if (message.isMine) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        }
                         Surface(
                             shape = RoundedCornerShape(
                                 topStart = if (!message.isMine && groupedWithPrevious) 4.dp else 16.dp,
                                 topEnd = if (message.isMine && groupedWithPrevious) 4.dp else 16.dp,
-                                bottomStart = if (message.isMine && groupedWithNext) 4.dp else 16.dp,
-                                bottomEnd = if (!message.isMine && groupedWithNext) 4.dp else 16.dp
+                                bottomStart = if (message.isMine) {
+                                    if (groupedWithNext) 4.dp else 16.dp
+                                } else {
+                                    4.dp
+                                },
+                                bottomEnd = if (message.isMine) {
+                                    4.dp
+                                } else {
+                                    if (groupedWithNext) 4.dp else 16.dp
+                                }
                             ),
-                            color = if (message.isMine) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
-                            },
+                            color = bubbleColor,
+                            contentColor = bubbleContentColor,
                             modifier = Modifier.clickable(enabled = itemClickEnabled) { itemClick() }
                         ) {
                             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -1498,19 +1526,32 @@ internal fun MessageItem(
                                 if (replyTo != null && !message.isDeleted) {
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                        color = if (message.isMine) {
+                                            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f)
+                                        } else {
+                                            MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
+                                        },
+                                        contentColor = bubbleContentColor,
                                         modifier = Modifier.padding(bottom = 6.dp)
                                     ) {
                                         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                                             Text(
                                                 text = replyTo.senderName?.substringBefore(":") ?: "Unknown",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = senderAccentColor(replyTo.senderName, message.isMine)
+                                                color = if (message.isMine) {
+                                                    bubbleContentColor
+                                                } else {
+                                                    senderAccentColor(replyTo.senderName, message.isMine)
+                                                }
                                             )
                                             Text(
                                                 text = replyTo.body,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                color = if (message.isMine) {
+                                                    bubbleContentColor
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
                                                 maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis
                                             )
@@ -1521,7 +1562,7 @@ internal fun MessageItem(
                                     Text(
                                         text = "Сообщение удалено",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = bubbleSecondaryColor
                                     )
                                 } else {
                                     val poll = message.poll
@@ -1534,7 +1575,8 @@ internal fun MessageItem(
                                         poll != null -> PollContent(
                                             message = message,
                                             onVote = { onVotePoll?.invoke(it) },
-                                            ended = message.pollEnded
+                                            ended = message.pollEnded,
+                                            isMine = message.isMine
                                         )
 
                                         message.messageType == MessageType.VERIFICATION_REQUEST -> {
@@ -1543,28 +1585,28 @@ internal fun MessageItem(
                                                     Icon(
                                                         Icons.Default.VerifiedUser,
                                                         contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        tint = bubbleAccentColor,
                                                         modifier = Modifier.size(18.dp)
                                                     )
                                                     Spacer(modifier = Modifier.width(6.dp))
                                                     Text(
                                                         text = "Запрос верификации ключа",
                                                         style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurface
+                                                        color = bubbleContentColor
                                                     )
                                                 }
                                                 if (!message.isMine) {
                                                     Text(
                                                         text = "Устройство ${message.verificationDeviceId ?: "неизвестно"}",
                                                         style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        color = bubbleSecondaryColor
                                                     )
                                                 }
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 Text(
                                                     text = "Element отменяет запросы верификации из чата — верифицируйте эту сессию через Настройки → Сессии в Element",
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    color = bubbleSecondaryColor
                                                 )
                                             }
                                         }
@@ -1575,13 +1617,13 @@ internal fun MessageItem(
                                                     if (message.callIsVideo == true) Icons.Default.Videocam else Icons.Default.Call,
                                                     contentDescription = null,
                                                     modifier = Modifier.size(20.dp),
-                                                    tint = MaterialTheme.colorScheme.primary
+                                                    tint = bubbleAccentColor
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
                                                 Text(
                                                     text = message.body,
                                                     style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurface
+                                                    color = bubbleContentColor
                                                 )
                                             }
                                         }
@@ -1662,6 +1704,7 @@ internal fun MessageItem(
                                                 VoiceMessageRow(
                                                     message = message,
                                                     playback = voicePlayback,
+                                                    isMine = message.isMine,
                                                     onToggle = { onPlayAudio?.invoke() },
                                                     onSeek = { onSeekVoice?.invoke(it) }
                                                 )
@@ -1674,13 +1717,13 @@ internal fun MessageItem(
                                                         Icons.Default.AttachFile,
                                                         contentDescription = null,
                                                         modifier = Modifier.size(20.dp),
-                                                        tint = MaterialTheme.colorScheme.onSurface
+                                                        tint = bubbleContentColor
                                                     )
                                                     Spacer(modifier = Modifier.width(4.dp))
                                                     Text(
                                                         text = message.body,
                                                         style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurface
+                                                        color = bubbleContentColor
                                                     )
                                                 }
                                             }
@@ -1689,17 +1732,25 @@ internal fun MessageItem(
                                         else -> {
                                             val formatted = message.formattedBody
                                             if (formatted != null) {
-                                                RichMessageText(html = formatted)
+                                                RichMessageText(
+                                                    html = formatted,
+                                                    linkColor = bubbleAccentColor,
+                                                    codeBackground = if (message.isMine) {
+                                                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f)
+                                                    } else {
+                                                        MaterialTheme.colorScheme.surfaceVariant
+                                                    }
+                                                )
                                             } else {
                                                 Text(
                                                     text = buildMentionAnnotatedString(
                                                         body = message.body,
                                                         ownShortId = ownShortId,
                                                         ownDisplayName = ownDisplayName,
-                                                        mentionColor = MaterialTheme.colorScheme.primary
+                                                        mentionColor = bubbleAccentColor
                                                     ),
                                                     style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurface
+                                                    color = bubbleContentColor
                                                 )
                                             }
                                         }
@@ -1715,13 +1766,13 @@ internal fun MessageItem(
                                         Text(
                                             text = "(ред.)",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = bubbleSecondaryColor
                                         )
                                     }
                                     Text(
                                         text = TimeFormat.timeOnly(message.timestamp),
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = bubbleSecondaryColor
                                     )
                                 }
                             }
@@ -2724,9 +2775,16 @@ fun BotBadge() {
 private fun VoiceMessageRow(
     message: Message,
     playback: com.matrix.messenger.platform.VoicePlaybackState?,
+    isMine: Boolean,
     onToggle: () -> Unit,
     onSeek: (Float) -> Unit
 ) {
+    // Inside an outgoing primary bubble the controls invert to onPrimary for contrast.
+    val playCircleColor = if (isMine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+    val playIconColor = if (isMine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimary
+    val playedBarColor = if (isMine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+    val idleBarColor = if (isMine) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.4f)
+    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
     val active = playback?.sourceId == message.eventId
     val playing = active && playback?.playing == true
     val durationMs = playback?.takeIf { active }?.durationMs
@@ -2746,14 +2804,14 @@ private fun VoiceMessageRow(
     ) {
         Surface(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.primary,
+            color = playCircleColor,
             modifier = Modifier.size(32.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = if (playing) "Пауза" else "Воспроизвести",
-                    tint = MaterialTheme.colorScheme.onPrimary,
+                    tint = playIconColor,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -2779,8 +2837,7 @@ private fun VoiceMessageRow(
                             .width(3.dp)
                             .height((4 + (amplitude / 1024f) * 22).dp)
                             .background(
-                                color = if (played) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                                color = if (played) playedBarColor else idleBarColor,
                                 shape = RoundedCornerShape(2.dp)
                             )
                     )
@@ -2801,7 +2858,8 @@ private fun VoiceMessageRow(
                     }
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (isMine) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f)
+                else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

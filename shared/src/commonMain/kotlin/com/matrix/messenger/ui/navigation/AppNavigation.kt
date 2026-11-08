@@ -355,7 +355,8 @@ private fun TwoPaneHome(navController: NavHostController) {
                 onRoomsCatalog = { navController.navigate(Screen.RoomsCatalog.route) },
                 onOpenSpace = { spaceId ->
                     navController.navigate(Screen.SpaceChildren.createRoute(spaceId, ""))
-                }
+                },
+                selectedRoomId = null
             )
             return@BoxWithConstraints
         }
@@ -385,7 +386,8 @@ private fun TwoPaneHome(navController: NavHostController) {
                     onRoomsCatalog = { navController.navigate(Screen.RoomsCatalog.route) },
                     onOpenSpace = { spaceId ->
                         navController.navigate(Screen.SpaceChildren.createRoute(spaceId, ""))
-                    }
+                    },
+                    selectedRoomId = selectedRoomId
                 )
             }
             TwoPaneDragHandle(

@@ -127,7 +127,7 @@ fun MatrixMessengerTheme(
     }
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
+        typography = appTypography(),
         shapes = ElementShapes,
         content = content
     )
