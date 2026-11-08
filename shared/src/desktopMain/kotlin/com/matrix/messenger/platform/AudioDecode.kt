@@ -29,8 +29,23 @@ object AudioDecode {
             header.matches(0, "RIFX") && header.matches(8, "WAVE") -> decodeWav(file)
             header.matches(0, "OggS") -> decodeOggOpus(file)
             header.matches(4, "ftyp") -> null // ISO-BMFF (M4A/AAC) is not PCM or Ogg/Opus.
+            // Recordings made by desktop builds before the 1.43 fix are raw int16
+            // PCM without any container header (audit finding 11). The capture
+            // parameters of that recorder were always 44100 Hz / mono / 16-bit,
+            // so decode them directly instead of pushing to the external player.
+            file.length() > 0 && file.length() % 2L == 0L -> decodeLegacyRawPcm(file)
             else -> null
         }
+    }.getOrNull()
+
+    private fun decodeLegacyRawPcm(file: File): DecodedAudio? = runCatching {
+        val bytes = file.readBytes()
+        DecodedAudio(
+            pcm = bytes.copyOf(bytes.size - bytes.size % 2),
+            sampleRate = 44100,
+            channels = 1,
+            frameBytes = 2,
+        )
     }.getOrNull()
 
     private fun ByteArray.matches(offset: Int, signature: String): Boolean =

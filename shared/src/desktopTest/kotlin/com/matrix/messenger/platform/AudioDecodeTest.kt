@@ -23,6 +23,22 @@ import kotlin.test.assertTrue
 
 class AudioDecodeTest {
     @Test
+    fun legacyRawPcmFromPre143RecordingsDecodesAt44100Mono() = withFile { file ->
+        // Real-world bytes from a pre-1.43 recording: quiet noise, no container header.
+        val raw = byteArrayOf(
+            0, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 1, 0, 2, 0, -2, -1,
+        )
+        file.writeBytes(raw)
+        val audio = assertNotNull(AudioDecode.decode(file.absolutePath))
+        assertEquals(44100, audio.sampleRate)
+        assertEquals(1, audio.channels)
+        assertEquals(2, audio.frameBytes)
+        assertContentEquals(raw, audio.pcm)
+    }
+
+    @Test
     fun extensionlessWaveHasValidRiffHeaderAndPcm16() = withFile { file ->
         val pcm = byteArrayOf(0, 0, -1, 127, 0, -128, -1, -1)
         WaveFileWriter(file, 48000, 1).use { it.write(pcm, pcm.size) }
