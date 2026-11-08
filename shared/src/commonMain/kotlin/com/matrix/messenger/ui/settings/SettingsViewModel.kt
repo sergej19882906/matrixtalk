@@ -11,6 +11,7 @@ import com.matrix.messenger.platform.listAudioInputDevices
 import com.matrix.messenger.platform.listVideoInputDevices
 import com.matrix.messenger.ui.theme.ThemeManager
 import com.matrix.messenger.ui.theme.ThemeMode
+import com.matrix.messenger.ui.theme.ThemePalette
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,7 @@ import kotlinx.coroutines.launch
 data class SettingsUiState(
     val user: MatrixUser? = null,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themePalette: ThemePalette = ThemePalette.DEFAULT,
     val notificationsEnabled: Boolean = true,
     val displayNameInput: String = "",
     val isSavingName: Boolean = false,
@@ -134,6 +136,11 @@ class SettingsViewModel(
             }
         }
         viewModelScope.launch {
+            ThemeManager.palette.collect { palette ->
+                _uiState.value = _uiState.value.copy(themePalette = palette)
+            }
+        }
+        viewModelScope.launch {
             attempt("Не удалось загрузить настройки уведомлений") {
                 val enabled = SessionStore.readNotificationsEnabled() ?: true
                 _uiState.update { it.copy(notificationsEnabled = enabled) }
@@ -176,6 +183,12 @@ class SettingsViewModel(
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch {
             attempt("Не удалось сохранить тему") { ThemeManager.set(mode) }
+        }
+    }
+
+    fun setThemePalette(palette: ThemePalette) {
+        viewModelScope.launch {
+            attempt("Не удалось сохранить палитру") { ThemeManager.set(palette) }
         }
     }
 

@@ -65,6 +65,7 @@ open class SessionPreferencesStore(
         val deviceId: String? = null,
         val accessToken: String? = null,
         val themeMode: String? = null,
+        val themePalette: String? = null,
         val notificationsEnabled: Boolean? = null,
         val videoDevice: String? = null,
         val audioInputDevice: String? = null,
@@ -142,6 +143,8 @@ open class SessionPreferencesStore(
     suspend fun clear() = mutex.withLock { save(StoredPrefs()) }
     suspend fun readThemeMode(): String? = mutex.withLock { load().themeMode }
     suspend fun saveThemeMode(mode: String) = mutex.withLock { save(load().copy(themeMode = mode)) }
+    suspend fun readThemePalette(): String? = mutex.withLock { load().themePalette }
+    suspend fun saveThemePalette(palette: String) = mutex.withLock { save(load().copy(themePalette = palette)) }
     /** null = never configured (treated as enabled). */
     suspend fun readNotificationsEnabled(): Boolean? = mutex.withLock { load().notificationsEnabled }
     suspend fun saveNotificationsEnabled(enabled: Boolean) = mutex.withLock {

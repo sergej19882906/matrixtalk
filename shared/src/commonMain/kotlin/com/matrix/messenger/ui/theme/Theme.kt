@@ -94,13 +94,39 @@ fun MatrixMessengerTheme(
     content: @Composable () -> Unit
 ) {
     val mode = themeMode ?: ThemeManager.mode.collectAsState().value
+    val palette = ThemeManager.palette.collectAsState().value
     val dark = when (mode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
+    val base = if (dark) DarkColorScheme else LightColorScheme
+    val colorScheme = if (palette == ThemePalette.DEFAULT) base else run {
+        val c = palette.colors(dark)
+        base.copy(
+            primary = c.primary,
+            onPrimary = c.onPrimary,
+            primaryContainer = c.primary,
+            onPrimaryContainer = c.onPrimary,
+            secondary = c.secondary,
+            tertiary = c.tertiary,
+            background = c.background,
+            onBackground = c.onBackground,
+            surface = c.background,
+            onSurface = c.onBackground,
+            surfaceContainerLowest = c.surfaceLow,
+            surfaceContainerLow = c.surfaceLow,
+            surfaceContainer = c.surface,
+            surfaceContainerHigh = c.surfaceHigh,
+            surfaceContainerHighest = c.surfaceHigh,
+            surfaceVariant = c.surfaceVariant,
+            onSurfaceVariant = c.onSurfaceVariant,
+            outline = c.outline,
+            surfaceTint = Color.Transparent
+        )
+    }
     MaterialTheme(
-        colorScheme = if (dark) DarkColorScheme else LightColorScheme,
+        colorScheme = colorScheme,
         typography = Typography,
         shapes = ElementShapes,
         content = content
