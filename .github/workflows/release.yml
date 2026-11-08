@@ -107,13 +107,7 @@ jobs:
             echo "primary Gradle CDN is healthy"
           else
             echo "primary Gradle CDN degraded — pointing wrapper at tencent mirror"
-            python - <<'PY'
-            p = 'gradle/wrapper/gradle-wrapper.properties'
-            s = open(p, encoding='utf-8').read()
-            open(p, 'w', encoding='utf-8', newline='').write(
-                s.replace('https\\://services.gradle.org/distributions', 'https://mirrors.cloud.tencent.com/gradle')
-            )
-            PY
+            python -c "p='gradle/wrapper/gradle-wrapper.properties'; s=open(p,encoding='utf-8').read(); open(p,'w',encoding='utf-8',newline='').write(s.replace('https\\://services.gradle.org/distributions','https://mirrors.cloud.tencent.com/gradle'))"
           fi
       - name: Set up Android signing
         run: python -I scripts/android-release.py prepare
@@ -219,13 +213,7 @@ jobs:
             echo "primary Gradle CDN is healthy"
           else
             echo "primary Gradle CDN degraded — pointing wrapper at tencent mirror"
-            python - <<'PY'
-            p = 'gradle/wrapper/gradle-wrapper.properties'
-            s = open(p, encoding='utf-8').read()
-            open(p, 'w', encoding='utf-8', newline='').write(
-                s.replace('https\\://services.gradle.org/distributions', 'https://mirrors.cloud.tencent.com/gradle')
-            )
-            PY
+            python -c "p='gradle/wrapper/gradle-wrapper.properties'; s=open(p,encoding='utf-8').read(); open(p,'w',encoding='utf-8',newline='').write(s.replace('https\\://services.gradle.org/distributions','https://mirrors.cloud.tencent.com/gradle'))"
           fi
       - name: Package ${{ matrix.format }}
         shell: bash
