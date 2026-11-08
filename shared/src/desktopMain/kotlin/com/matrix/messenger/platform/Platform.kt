@@ -131,6 +131,20 @@ actual fun createTrixnityRepositoriesModule(): org.koin.core.module.Module {
     }
 }
 
+actual fun readAppLogs(): ByteArray? {
+    val dir = java.io.File(
+        System.getProperty("user.home") ?: return null,
+        ".matrixtalk/logs"
+    )
+    val text = dir.listFiles()
+        ?.sortedBy { it.name }
+        ?.joinToString("\n\n") { f ->
+            "===== ${f.name} =====\n" + runCatching { f.readText() }.getOrDefault("(unreadable)")
+        }.orEmpty()
+    return text.ifBlank { null }?.encodeToByteArray()
+}
+
+
 actual fun logError(tag: String, message: String, throwable: Throwable?) {
     val logDir = File(
         System.getProperty("user.home") ?: error("user.home is not set"),

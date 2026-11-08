@@ -155,6 +155,17 @@ actual fun logError(tag: String, message: String, throwable: Throwable?) {
     }
 }
 
+actual fun readAppLogs(): ByteArray? {
+    val dir = java.io.File(appContext?.filesDir ?: return null, "logs")
+    val text = dir.listFiles()
+        ?.sortedBy { it.name }
+        ?.joinToString("\n\n") { f ->
+            "===== ${f.name} =====\n" + runCatching { f.readText() }.getOrDefault("(unreadable)")
+        }.orEmpty()
+    return text.ifBlank { null }?.encodeToByteArray()
+}
+
+
 actual fun startIncomingCallRingtone(): () -> Unit {
     val context = appContext ?: return {}
     val ringtone = runCatching {

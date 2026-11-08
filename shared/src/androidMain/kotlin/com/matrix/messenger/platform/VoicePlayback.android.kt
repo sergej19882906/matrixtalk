@@ -84,7 +84,10 @@ actual object VoicePlayback {
                 runCatching {
                     if (existing.isPlaying) existing.pause() else existing.start()
                     publish(existing, token, sourceId)
-                }.onFailure { releasePlayer(existing, token) }
+                }.onFailure {
+                    logError("VoicePlayback", "pause/start failed for $sourceId", it)
+                    releasePlayer(existing, token)
+                }
                 return@launch
             }
             stopNow()
@@ -109,18 +112,28 @@ actual object VoicePlayback {
                             if (playWhenPrepared) callback.start()
                             publish(callback, token, sourceId)
                             pollLoop(callback, token, sourceId)
-                        }.onFailure { releasePlayer(callback, token) }
+                        }.onFailure {
+                            logError("VoicePlayback", "post-prepare failed for $sourceId", it)
+                            releasePlayer(callback, token)
+                        }
                     }
                 }
                 p.setOnCompletionListener { callback ->
                     scope.launch { releasePlayer(callback, token) }
                 }
-                p.setOnErrorListener { callback, _, _ ->
+                p.setOnErrorListener { callback, what, extra ->
+                    logError(
+                        "VoicePlayback",
+                        "MediaPlayer error what=$what extra=$extra source=$sourceId " +
+                            "(file=${java.io.File(source).let { "exists=${it.isFile} size=${it.length()}" }})",
+                        null
+                    )
                     scope.launch { releasePlayer(callback, token) }
                     true
                 }
                 p.prepareAsync()
             }.onFailure {
+                logError("VoicePlayback", "prepare failed for $sourceId", it)
                 created?.let { releasePlayer(it, token) }
             }
         }

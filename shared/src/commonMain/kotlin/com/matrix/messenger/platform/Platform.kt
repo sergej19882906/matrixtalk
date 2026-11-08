@@ -53,6 +53,9 @@ data class ScreenSource(val id: Long, val title: String)
 /** Lists shareable screen/window sources. Empty on platforms without desktop capture. */
 expect suspend fun listScreenSources(): List<ScreenSource>
 
+/** Collected app logs (error.log / crash.log) for the bug-report share; null when empty. */
+expect fun readAppLogs(): ByteArray?
+
 /** Human-readable app version for the About section. */
 expect fun appVersionName(): String
 

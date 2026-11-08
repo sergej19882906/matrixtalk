@@ -795,6 +795,18 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
+            var logsShared by remember { mutableStateOf(false) }
+            TextButton(
+                onClick = {
+                    com.matrix.messenger.platform.readAppLogs()?.let {
+                        com.matrix.messenger.platform.exportFile("matrixtalk-logs.txt", it)
+                        logsShared = true
+                    }
+                },
+                modifier = Modifier.padding(horizontal = 16.dp)
+            ) {
+                Text(if (logsShared) "Журналы подготовлены" else "Поделиться журналами (для баг-репорта)")
+            }
             Text(
                 text = "Клиент Matrix на Kotlin Multiplatform",
                 style = MaterialTheme.typography.bodySmall,

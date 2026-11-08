@@ -24,6 +24,19 @@ class MatrixMessengerApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         appContext = this
+        // Uncaught crashes land in files/logs/crash.log so they can be shared
+        // from Settings -> "Поделиться журналами".
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                val dir = java.io.File(filesDir, "logs").apply { mkdirs() }
+                val stamp = java.time.LocalDateTime.now().toString()
+                val header = stamp + " [" + thread.name + "]" + "\n"
+                val body = android.util.Log.getStackTraceString(throwable) + "\n\n"
+                dir.resolve("crash.log").appendText(header + body)
+            }
+            previous?.uncaughtException(thread, throwable)
+        }
         setupImageLoader()
         startKoin {
             androidContext(this@MatrixMessengerApp)
