@@ -227,7 +227,9 @@ data class StickerItem(
     val shortcode: String,
     val url: String,
     val body: String,
-    val isSticker: Boolean = true
+    val isSticker: Boolean = true,
+    /** Usable as custom emoji in reactions (MSC2545 usage "emoticon"). */
+    val isEmoticon: Boolean = true
 )
 
 /** Entry of the room media panel (Element «Файлы и медиа»). */

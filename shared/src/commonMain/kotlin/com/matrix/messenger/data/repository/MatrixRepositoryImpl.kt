@@ -1359,6 +1359,7 @@ class MatrixRepositoryImpl : MatrixRepository {
                     url = url,
                     body = entry.body ?: shortcode,
                     isSticker = usage == null || "sticker" in usage,
+                    isEmoticon = usage == null || "emoticon" in usage,
                 )
             }
             if (items.isEmpty()) return null
@@ -1474,6 +1475,65 @@ class MatrixRepositoryImpl : MatrixRepository {
             ReportUserEndpoint(userId),
             ReportUserEndpoint.Request(score = null, reason = reason),
         ).getOrThrow()
+    }
+
+    override suspend fun setOwnStatus(status: String?) {
+        val c = requireClient()
+        c.api.user.setPresence(c.userId, Presence.ONLINE, status?.takeIf { it.isNotBlank() }).getOrThrow()
+    }
+
+    override suspend fun exportRoomHistory(roomId: String, html: Boolean): ByteArray {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        val lastEventId = runCatching { c.room.getById(rId).firstOrNull()?.lastRelevantEventId }.getOrNull()
+            ?: error("Не удалось определить начало истории")
+        var from = runCatching { c.api.room.getEventContext(rId, lastEventId, limit = 1L).getOrThrow().start }
+            .getOrElse { error("Сервер не отдал токен истории") }
+        data class Entry(val sender: String, val ts: Long, val text: String)
+        val entries = mutableListOf<Entry>()
+        var pages = 0
+        while (from != null && entries.size < 10000 && pages < 200) {
+            val response = runCatching {
+                c.api.room.getEvents(rId, from, dir = GetEvents.Direction.BACKWARDS, limit = 200L).getOrThrow()
+            }.getOrNull() ?: break
+            response.chunk.orEmpty().forEach { event ->
+                val content = event.content
+                val text = when (content) {
+                    is RoomMessageEventContent.TextBased -> content.body
+                    is RoomMessageEventContent.FileBased -> "[вложение: ${content.body}]"
+                    is RoomMessageEventContent.Location -> "[геолокация: ${content.body}]"
+                    is StickerEventContent -> "[стикер: ${content.body}]"
+                    is com.matrix.messenger.data.voice.VoiceAudioContent -> "[голосовое сообщение]"
+                    is UnknownEventContent -> when (content.eventType) {
+                        "m.poll.start", "org.matrix.msc3381.poll.start" -> "[опрос]"
+                        "m.beacon" -> "[live-геолокация]"
+                        else -> null
+                    }
+                    else -> null
+                } ?: return@forEach
+                entries += Entry(event.sender.full, event.originTimestamp, text)
+            }
+            pages++
+            from = response.end
+            if (response.chunk.isNullOrEmpty()) break
+        }
+        return if (html) {
+            val rows = entries.joinToString("\n") { e ->
+                val time = java.time.Instant.ofEpochMilli(e.ts).toString().replace("T", " ").substringBefore(".")
+                val safeSender = e.sender.replace("<", "&lt;")
+                val safeText = e.text.replace("&", "&amp;").replace("<", "&lt;").replace("\n", "<br/>")
+                "<p><b>$safeSender</b> <span style=\"color:#888\">$time</span><br/>$safeText</p>"
+            }
+            ("<html><head><meta charset=\"utf-8\"><title>MatrixTalk — экспорт $roomId</title></head>" +
+                "<body style=\"font-family:sans-serif;max-width:720px;margin:24px auto\"><h2>MatrixTalk — экспорт переписки</h2>" +
+                "<p>Комната: $roomId</p><hr/>$rows</body></html>").encodeToByteArray()
+        } else {
+            val list = entries.joinToString(",\n") { e ->
+                val safeBody = e.text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\n")
+                "{\"sender\":\"${e.sender}\",\"ts\":${e.ts},\"body\":\"$safeBody\"}"
+            }
+            "{\"room\":\"$roomId\",\"events\":[$list]}".encodeToByteArray()
+        }
     }
 
     override suspend fun ignoreUser(userId: String) = setIgnoredUser(userId, true)

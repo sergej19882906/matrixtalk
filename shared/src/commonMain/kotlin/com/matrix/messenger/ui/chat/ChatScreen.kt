@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.PresentToAll
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.ShareLocation
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
@@ -105,6 +106,7 @@ import com.matrix.messenger.data.model.LiveLocationBeacon
 import com.matrix.messenger.data.model.ReadReceipt
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
+import com.matrix.messenger.data.model.StickerItem
 import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.data.repository.CallRepository
@@ -204,6 +206,9 @@ fun ChatScreen(
     var showForwardDialog by remember { mutableStateOf(false) }
     var confirmDeleteSelected by remember { mutableStateOf(false) }
     var showLiveLocationDialog by remember { mutableStateOf(false) }
+    // MSC3488: beacons still broadcasting in this room, latest per sender.
+    val activeBeacons = viewModel.activeLocationBeacons()
+    var showActiveBeaconsDialog by remember { mutableStateOf(false) }
     val chatListPreview by viewModel.chatListPreview.collectAsState()
     val selectionMode = uiState.selectedEventIds.isNotEmpty()
     var locationDraft by remember { mutableStateOf<GeoLocation?>(null) }
@@ -458,14 +463,23 @@ fun ChatScreen(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = when {
-                                            presence.presence == "online" -> "в сети"
-                                            presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 1 -> "был(а) только что"
-                                            presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 60 ->
-                                                "был(а) ${presence.lastActiveAgoMinutes} мин назад"
-                                            presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 1440 ->
-                                                "был(а) ${presence.lastActiveAgoMinutes / 60} ч назад"
-                                            else -> "не в сети"
+                                        text = buildString {
+                                            append(
+                                                when {
+                                                    presence.presence == "online" -> "в сети"
+                                                    presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 1 ->
+                                                        "был(а) только что"
+                                                    presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 60 ->
+                                                        "был(а) ${presence.lastActiveAgoMinutes} мин назад"
+                                                    presence.lastActiveAgoMinutes != null && presence.lastActiveAgoMinutes < 1440 ->
+                                                        "был(а) ${presence.lastActiveAgoMinutes / 60} ч назад"
+                                                    else -> "не в сети"
+                                                }
+                                            )
+                                            presence.statusMessage?.takeIf { it.isNotBlank() }?.let {
+                                                append(" · ")
+                                                append(it)
+                                            }
                                         },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -604,7 +618,9 @@ fun ChatScreen(
                 },
                 onPickLocation = { requestLocation() },
                 onPickLiveLocation = { requestLiveLocation() },
-                onPickVideo = { captureVideo() }
+                onPickVideo = { captureVideo() },
+                activeBeaconCount = activeBeacons.size,
+                onShowActiveBeacons = { showActiveBeaconsDialog = true }
             )
         }
     ) { paddingValues ->
@@ -704,6 +720,7 @@ fun ChatScreen(
                                             viewModel.toggleReaction(item.message, emoji)
                                         },
                                         recentReactions = recentReactions,
+                                        customEmotes = uiState.reactionEmotes,
                                         readers = readReceipts[item.message.eventId].orEmpty(),
                                         threadReplyCount = threadReplyCounts[item.message.eventId] ?: 0,
                                         voicePlayback = voicePlayback.takeIf { it?.sourceId == item.message.eventId },
@@ -1230,6 +1247,14 @@ fun ChatScreen(
         )
     }
 
+    // MSC3488: who is broadcasting their location right now (attach menu summary).
+    if (showActiveBeaconsDialog) {
+        ActiveBeaconsDialog(
+            beacons = activeBeacons,
+            onDismiss = { showActiveBeaconsDialog = false }
+        )
+    }
+
     // In-chat SAS verification (triggered by "Верифицировать" on a key verification request)
     when (val vs = verificationState) {
         is com.matrix.messenger.data.model.VerificationUiState.Waiting,
@@ -1303,6 +1328,8 @@ internal fun MessageItem(
     groupedWithNext: Boolean,
     isPinned: Boolean,
     recentReactions: List<String> = emptyList(),
+    /** Room custom emoji (MSC2545) for reaction picker and ":shortcode:" reaction chips. */
+    customEmotes: List<StickerItem> = emptyList(),
     readers: List<ReadReceipt> = emptyList(),
     threadReplyCount: Int = 0,
     voicePlayback: com.matrix.messenger.platform.VoicePlaybackState? = null,
@@ -1758,17 +1785,43 @@ internal fun MessageItem(
                         ) {
                             message.reactions.forEach { (emoji, count) ->
                                 val isMine = emoji in message.myReactions
+                                // ":shortcode:" keys resolve to a room custom emote image when possible.
+                                val emoteUrl = emoji.takeIf { it.length > 2 && it.startsWith(":") && it.endsWith(":") }
+                                    ?.let { key ->
+                                        customEmotes.firstOrNull { emote ->
+                                            emote.shortcode == key.substring(1, key.length - 1)
+                                        }?.url
+                                    }
                                 Surface(
                                     shape = MaterialTheme.shapes.extraLarge,
                                     color = if (isMine) MaterialTheme.colorScheme.primaryContainer
                                     else MaterialTheme.colorScheme.surfaceContainerHigh,
                                     modifier = Modifier.clickable(enabled = onReaction != null) { onReaction?.invoke(emoji) }
                                 ) {
-                                    Text(
-                                        text = "$emoji $count",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
+                                    if (emoteUrl != null) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(start = 5.dp, end = 7.dp, top = 2.dp, bottom = 2.dp)
+                                        ) {
+                                            AsyncImage(
+                                                model = MatrixMedia(emoteUrl, null),
+                                                contentDescription = emoji,
+                                                modifier = Modifier.size(16.dp),
+                                                contentScale = ContentScale.Fit
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = "$count",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            text = "$emoji $count",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1882,6 +1935,7 @@ internal fun MessageItem(
                         expanded = showReactionPicker,
                         myReactions = message.myReactions,
                         recentReactions = recentReactions,
+                        customEmotes = customEmotes,
                         onDismiss = { showReactionPicker = false },
                         onSelect = onReaction
                     )
@@ -2069,7 +2123,10 @@ private fun MessageInputBar(
     onPickSticker: () -> Unit = {},
     onPickLocation: () -> Unit = {},
     onPickLiveLocation: () -> Unit = {},
-    onPickVideo: () -> Unit = {}
+    onPickVideo: () -> Unit = {},
+    /** Number of live location beacons currently broadcasting (0 hides the summary item). */
+    activeBeaconCount: Int = 0,
+    onShowActiveBeacons: () -> Unit = {}
 ) {
     var emojiVisible by remember { mutableStateOf(false) }
     var attachMenuVisible by remember { mutableStateOf(false) }
@@ -2206,6 +2263,16 @@ private fun MessageInputBar(
                                     onPickLiveLocation()
                                 }
                             )
+                            if (activeBeaconCount > 0) {
+                                DropdownMenuItem(
+                                    text = { Text("Активные трансляции") },
+                                    leadingIcon = { Icon(Icons.Default.ShareLocation, contentDescription = null) },
+                                    onClick = {
+                                        attachMenuVisible = false
+                                        onShowActiveBeacons()
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Видео") },
                                 leadingIcon = { Icon(Icons.Default.Videocam, contentDescription = null) },
@@ -2514,6 +2581,115 @@ private fun LocationSendDialog(
             TextButton(onClick = onDismiss) { Text("Отмена") }
         }
     )
+}
+
+/** Summary of the room's currently-broadcasting live location beacons (MSC3488). */
+@Composable
+private fun ActiveBeaconsDialog(
+    beacons: List<ActiveBeaconInfo>,
+    onDismiss: () -> Unit
+) {
+    // Ticking clock so the "осталось …" labels stay fresh.
+    var nowMs by remember { mutableStateOf(kotlinx.datetime.Clock.System.now().toEpochMilliseconds()) }
+    LaunchedEffect(beacons) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            nowMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Кто сейчас транслирует") },
+        text = {
+            if (beacons.isEmpty()) {
+                Text(
+                    text = "Нет активных трансляций",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Column {
+                    beacons.forEach { beacon ->
+                        ActiveBeaconRow(beacon = beacon, nowMs = nowMs)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Закрыть") }
+        }
+    )
+}
+
+@Composable
+private fun ActiveBeaconRow(beacon: ActiveBeaconInfo, nowMs: Long) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { openUrl(GeoUri.toOsmUrl(beacon.location)) }
+            .padding(vertical = 6.dp)
+    ) {
+        val tileUrl = remember(beacon.location) { GeoUri.toTileUrl(beacon.location, zoom = 15) }
+        if (tileUrl != null) {
+            AsyncImage(
+                model = tileUrl,
+                contentDescription = "Карта",
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.LocationOn,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = beacon.senderName,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            beacon.description?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Text(
+                text = beacon.endTimestamp
+                    ?.let { end -> formatBeaconRemaining(end - nowMs) }
+                    ?: "трансляция активна",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+/** Human-readable countdown for a live beacon, e.g. "осталось 7 мин". */
+private fun formatBeaconRemaining(msRemaining: Long): String {
+    val totalMinutes = (msRemaining / 60_000).coerceAtLeast(0)
+    return when {
+        totalMinutes >= 60 -> "осталось ${totalMinutes / 60} ч ${totalMinutes % 60} мин"
+        totalMinutes >= 1 -> "осталось $totalMinutes мин"
+        else -> "осталось меньше минуты"
+    }
 }
 
 /** Element X palette: deterministic per-sender accent for names and replies. */

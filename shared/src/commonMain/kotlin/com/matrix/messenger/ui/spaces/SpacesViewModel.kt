@@ -150,6 +150,14 @@ class SpaceDetailViewModel(private val matrixRepository: MatrixRepository, priva
         }
     }
 
+    /** Persists a drag-reordered display order (spaces section first, then rooms) — same persistence as moveChild. */
+    fun persistChildOrder(fullOrder: List<String>) {
+        launchManaged("Не удалось изменить порядок") {
+            matrixRepository.reorderSpaceChildren(spaceId, fullOrder)
+            reload()
+        }
+    }
+
     fun toggleChildSuggested(childRoomId: String) {
         val current = _uiState.value.childStates[childRoomId]
         launchManaged("Не удалось изменить статус") {

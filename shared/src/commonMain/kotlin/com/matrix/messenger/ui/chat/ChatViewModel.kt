@@ -3,10 +3,12 @@ package com.matrix.messenger.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.matrix.messenger.data.model.ChatRoom
+import com.matrix.messenger.data.model.GeoLocation
 import com.matrix.messenger.data.model.PresenceInfo
 import com.matrix.messenger.data.model.ReadReceipt
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.RoomTrust
+import com.matrix.messenger.data.model.StickerItem
 import com.matrix.messenger.data.model.StickerPack
 import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.model.UiState
@@ -66,6 +68,22 @@ data class ChatUiState(
     val packRooms: List<String> = emptyList(),
     /** Multi-select mode: event ids currently ticked for delete/forward. */
     val selectedEventIds: Set<String> = emptySet()
+) {
+    /** Custom emoji (MSC2545 usage "emoticon") usable in reactions, deduped by shortcode. */
+    val reactionEmotes: List<StickerItem>
+        get() = stickerPacks
+            .flatMap { pack -> pack.stickers.filter { it.isEmoticon } }
+            .distinctBy { it.shortcode }
+}
+
+/** One currently-broadcasting live location beacon (MSC3488), latest per sender. */
+data class ActiveBeaconInfo(
+    val senderId: String,
+    val senderName: String,
+    val location: GeoLocation,
+    /** Beacon broadcast end (epoch ms), null when the server gave no timeout. */
+    val endTimestamp: Long?,
+    val description: String?
 )
 
 class ChatViewModel(
@@ -547,6 +565,32 @@ class ChatViewModel(
             matrixRepository.startLiveLocationShare(_uiState.value.roomId, durationMs)
             _events.send(UiEvent.ShowSnackbar("Трансляция геолокации запущена"))
         }
+    }
+
+    /**
+     * Live location beacons still broadcasting in this room, newest message per
+     * sender (for the «Активные трансляции» attach-menu summary).
+     */
+    fun activeLocationBeacons(): List<ActiveBeaconInfo> {
+        val now = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+        return _uiState.value.messages
+            .asReversed()
+            .filter { message ->
+                val beacon = message.liveBeacon
+                !message.isDeleted && beacon != null && beacon.live &&
+                    (beacon.endTimestamp == null || beacon.endTimestamp > now)
+            }
+            .distinctBy { it.senderId }
+            .map { message ->
+                val beacon = message.liveBeacon!!
+                ActiveBeaconInfo(
+                    senderId = message.senderId,
+                    senderName = message.senderName?.substringBefore(":") ?: message.senderId,
+                    location = beacon.location,
+                    endTimestamp = beacon.endTimestamp,
+                    description = beacon.description
+                )
+            }
     }
 
     fun stopLiveLocationShare() {

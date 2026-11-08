@@ -5,9 +5,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,8 +36,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
+import coil3.compose.AsyncImage
+import com.matrix.messenger.data.model.StickerItem
+import com.matrix.messenger.media.MatrixMedia
 
 /** Emoji palette offered by the reaction picker, grouped like Element X. */
 data class PickerEmoji(val emoji: String, val keywords: List<String>)
@@ -93,13 +101,16 @@ private val PickerEmojis = listOf(
 
 /**
  * Popup reaction picker (Element X style): frequently used row, keyword search
- * over the palette, and highlight of the reactions already set by the user.
+ * over the palette, custom emotes of the room (MSC2545) and highlight of the
+ * reactions already set by the user.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReactionPicker(
     expanded: Boolean,
     myReactions: Set<String>,
     recentReactions: List<String> = emptyList(),
+    customEmotes: List<StickerItem> = emptyList(),
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit
 ) {
@@ -114,6 +125,11 @@ fun ReactionPicker(
             candidate.emoji.contains(query) ||
                 candidate.keywords.any { it.contains(query) }
         }
+    }
+    val emotes = if (query.isEmpty()) {
+        customEmotes
+    } else {
+        customEmotes.filter { it.shortcode.lowercase().contains(query) }
     }
     val recent = recentReactions.mapNotNull { recent ->
         PickerEmojis.firstOrNull { it.emoji == recent }?.emoji
@@ -173,7 +189,41 @@ fun ReactionPicker(
                         )
                     }
                 }
-                if (filtered.isEmpty()) {
+                // Room custom emoji (MSC2545 packs, usage "emoticon") — sent as ":shortcode:".
+                if (emotes.isNotEmpty()) {
+                    Text(
+                        text = "Кастомные эмодзи",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                    )
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 120.dp)
+                            .verticalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        emotes.forEach { emote ->
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { onSelect(":${emote.shortcode}:") },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = MatrixMedia(emote.url, null),
+                                    contentDescription = emote.shortcode,
+                                    modifier = Modifier.size(32.dp),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
+                        }
+                    }
+                }
+                if (filtered.isEmpty() && emotes.isEmpty()) {
                     Text(
                         text = "Ничего не найдено",
                         style = MaterialTheme.typography.bodySmall,

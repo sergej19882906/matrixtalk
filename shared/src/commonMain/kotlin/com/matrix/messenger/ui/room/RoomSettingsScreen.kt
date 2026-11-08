@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Logout
@@ -111,6 +112,7 @@ fun RoomSettingsScreen(
     var reportUserReason by remember { mutableStateOf("") }
     var confirmLeave by remember { mutableStateOf(false) }
     var memberSearch by remember { mutableStateOf("") }
+    var showExportDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(message) {
         message?.let {
@@ -341,6 +343,35 @@ fun RoomSettingsScreen(
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
 
+            // Export the room history as HTML / JSON
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !busy) { showExportDialog = true }
+                    .padding(vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.FileDownload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Экспорт переписки", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = "Сохранить историю комнаты в файл",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (busy) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+
             Spacer(Modifier.height(20.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -533,6 +564,34 @@ fun RoomSettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { reportingMember = null }) { Text("Отмена") }
+            }
+        )
+    }
+
+    // Export history: pick the output format.
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = { Text("Экспорт переписки") },
+            text = { Text("Экспортируется вся доступная история комнаты") },
+            confirmButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            showExportDialog = false
+                            viewModel.exportHistory(html = true)
+                        },
+                        enabled = !busy
+                    ) { Text("HTML") }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(
+                        onClick = {
+                            showExportDialog = false
+                            viewModel.exportHistory(html = false)
+                        },
+                        enabled = !busy
+                    ) { Text("JSON") }
+                }
             }
         )
     }

@@ -56,6 +56,9 @@ data class SettingsUiState(
     val proxyDirty: Boolean = false,
     /** One-shot confirmation for the proxy save. */
     val proxyMessage: String? = null,
+    /** Own presence status (status_msg) input + one-shot save confirmation. */
+    val isSavingStatus: Boolean = false,
+    val statusMessage: String? = null,
     val isLoggingOut: Boolean = false,
     val isDeactivating: Boolean = false,
     val isChangingPassword: Boolean = false,
@@ -444,6 +447,31 @@ class SettingsViewModel(
             } finally {
                 _uiState.update { it.copy(isSavingName = false) }
             }
+        }
+    }
+
+    /** Sets the own presence status_msg (empty string clears it). */
+    fun setOwnStatus(text: String) {
+        if (_uiState.value.isSavingStatus) return
+        _uiState.update { it.copy(isSavingStatus = true, statusMessage = null) }
+        viewModelScope.launch {
+            try {
+                runCatching { matrixRepository.setOwnStatus(text.ifBlank { null }) }
+                    .onSuccess { _uiState.update { it.copy(statusMessage = "Статус обновлён") } }
+                    .onFailure { e ->
+                        _uiState.update {
+                            it.copy(statusMessage = "Не удалось сохранить статус: ${e.message ?: "ошибка"}")
+                        }
+                    }
+            } finally {
+                _uiState.update { it.copy(isSavingStatus = false) }
+            }
+        }
+    }
+
+    fun consumeStatusMessage() {
+        if (_uiState.value.statusMessage != null) {
+            _uiState.value = _uiState.value.copy(statusMessage = null)
         }
     }
 

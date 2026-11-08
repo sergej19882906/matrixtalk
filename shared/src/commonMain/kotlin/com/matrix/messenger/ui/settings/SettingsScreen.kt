@@ -98,6 +98,12 @@ fun SettingsScreen(
             viewModel.consumeAccountMessage()
         }
     }
+    LaunchedEffect(uiState.statusMessage) {
+        uiState.statusMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeStatusMessage()
+        }
+    }
 
     var pinDialog by remember { mutableStateOf(false) }
     LaunchedEffect(viewModel) {
@@ -388,6 +394,31 @@ fun SettingsScreen(
                     onClick = viewModel::saveDisplayName,
                     enabled = !uiState.isSavingName &&
                         uiState.displayNameInput.trim() != uiState.user?.displayName
+                ) {
+                    Text("Сохранить")
+                }
+            }
+            // Статус (presence status_msg, виден другим в списке чатов)
+            var statusInput by remember { mutableStateOf("") }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = statusInput,
+                    onValueChange = { statusInput = it },
+                    label = { Text("Статус (виден другим)") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(
+                    onClick = {
+                        viewModel.setOwnStatus(statusInput)
+                        statusInput = ""
+                    },
+                    enabled = !uiState.isSavingStatus
                 ) {
                     Text("Сохранить")
                 }

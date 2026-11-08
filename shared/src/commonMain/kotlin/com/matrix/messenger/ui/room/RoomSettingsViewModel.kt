@@ -167,6 +167,20 @@ class RoomSettingsViewModel(
         }
     }
 
+    /** Dumps the full available room history to a file via the platform save dialog. */
+    fun exportHistory(html: Boolean) {
+        launchAction("Не удалось экспортировать переписку") {
+            val bytes = matrixRepository.exportRoomHistory(roomId, html)
+            com.matrix.messenger.platform.exportFile(
+                fileName = "matrixtalk-export-" +
+                    roomId.removePrefix("!").substringBefore(":") +
+                    if (html) ".html" else ".json",
+                bytes = bytes
+            )
+            _message.value = "Экспорт готов"
+        }
+    }
+
     private fun launchAction(errorText: String, block: suspend () -> Unit) {
         if (_busy.value) return
         viewModelScope.launch {

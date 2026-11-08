@@ -211,6 +211,12 @@ interface MatrixRepository {
     /** Reports a user to the homeserver administrators (spec user report endpoint). */
     suspend fun reportUser(userId: String, reason: String?)
 
+    /** Sets or clears the user's presence status message (spec presence status_msg). */
+    suspend fun setOwnStatus(status: String?)
+
+    /** Exports room history as HTML or JSON bytes (Element Web-style export). */
+    suspend fun exportRoomHistory(roomId: String, html: Boolean): ByteArray
+
     /** Adds a user to the ignore list (m.ignored_user_list): their messages hide everywhere. */
     suspend fun ignoreUser(userId: String)
 

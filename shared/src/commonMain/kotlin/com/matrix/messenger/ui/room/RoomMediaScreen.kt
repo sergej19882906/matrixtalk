@@ -59,14 +59,17 @@ import coil3.compose.AsyncImage
 import com.matrix.messenger.data.model.Message
 import com.matrix.messenger.data.model.MessageType
 import com.matrix.messenger.data.model.RoomMediaItem
+import com.matrix.messenger.data.model.UiEvent
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.media.MatrixMedia
 import com.matrix.messenger.ui.components.ImageViewer
 import com.matrix.messenger.ui.components.TimeFormat
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -91,10 +94,31 @@ class RoomMediaViewModel(
     private val _uiState = MutableStateFlow(RoomMediaUiState())
     val uiState = _uiState.asStateFlow()
 
+    private val _events = Channel<UiEvent>(Channel.BUFFERED)
+    val events = _events.receiveAsFlow()
+
     private var nextFrom: String? = null
 
     init {
         loadFirstPage()
+    }
+
+    /** Opens an attachment with the OS default application for its type. */
+    fun openItem(item: RoomMediaItem) {
+        viewModelScope.launch {
+            runCatching {
+                val path = matrixRepository.resolveMediaFile(
+                    item.eventId,
+                    item.body.ifBlank { "file" },
+                    roomId
+                )
+                checkNotNull(path) { "файл недоступен" }
+                com.matrix.messenger.platform.openLocalFile(path)
+            }.onFailure { e ->
+                if (e is CancellationException) throw e
+                _events.send(UiEvent.ShowSnackbar("Не удалось открыть: ${e.message ?: "неизвестная ошибка"}"))
+            }
+        }
     }
 
     fun loadFirstPage() {
@@ -167,6 +191,12 @@ fun RoomMediaScreen(
 
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            if (event is UiEvent.ShowSnackbar) snackbarHostState.showSnackbar(event.message)
+        }
+    }
 
     // Infinite scroll: load the next page when the end of the list approaches.
     LaunchedEffect(currentTab) {
@@ -278,11 +308,7 @@ fun RoomMediaScreen(
                                             .aspectRatio(1f)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                            .clickable {
-                                                coroutineScope.launch {
-                                                    snackbarHostState.showSnackbar("Открытие видео в панели — скоро")
-                                                }
-                                            },
+                                            .clickable { viewModel.openItem(item) },
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
@@ -339,11 +365,7 @@ fun RoomMediaScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable {
-                                            coroutineScope.launch {
-                                                snackbarHostState.showSnackbar("Открытие файлов в панели — скоро")
-                                            }
-                                        }
+                                        .clickable { viewModel.openItem(item) }
                                         .padding(vertical = 8.dp)
                                 ) {
                                     Icon(

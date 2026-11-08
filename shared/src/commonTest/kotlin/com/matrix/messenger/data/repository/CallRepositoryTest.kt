@@ -167,6 +167,8 @@ class CallRepositoryTest {
         override suspend fun startLiveLocationShare(roomId: String, durationMs: Long, description: String?) = Unit
         override suspend fun stopLiveLocationShare(roomId: String) = Unit
         override suspend fun reportUser(userId: String, reason: String?) = Unit
+        override suspend fun setOwnStatus(status: String?) = Unit
+        override suspend fun exportRoomHistory(roomId: String, html: Boolean): ByteArray = ByteArray(0)
         override suspend fun ignoreUser(userId: String) = Unit
         override suspend fun unignoreUser(userId: String) = Unit
         override fun getIgnoredUsersFlow(): Flow<Set<String>> = MutableStateFlow(emptySet())
