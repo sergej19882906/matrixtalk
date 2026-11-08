@@ -21,6 +21,11 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -356,7 +361,16 @@ private fun TwoPaneHome(navController: NavHostController) {
         }
 
         Row(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.width(TwoPaneListWidth)) {
+            // Draggable split: the saved width is clamped on every relayout so
+            // resizing the window can never squeeze either pane away.
+            var savedListWidth by androidx.compose.runtime.saveable.rememberSaveable {
+                mutableStateOf(TwoPaneListWidth.value)
+            }
+            val minListWidth = 280.dp
+            val minChatWidth = 360.dp
+            val maxListWidth = (this@BoxWithConstraints.maxWidth - minChatWidth).coerceAtLeast(minListWidth)
+            val listWidth = savedListWidth.dp.coerceIn(minListWidth, maxListWidth)
+            Box(modifier = Modifier.width(listWidth)) {
                 HomeScreen(
                     onRoomClick = { roomId -> selectedRoomId = roomId },
                     onLogout = {
@@ -374,7 +388,11 @@ private fun TwoPaneHome(navController: NavHostController) {
                     }
                 )
             }
-            VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            TwoPaneDragHandle(
+                onDrag = { delta ->
+                    savedListWidth = (savedListWidth + delta).coerceIn(minListWidth.value, maxListWidth.value)
+                }
+            )
             Box(modifier = Modifier.weight(1f)) {
                 val roomId = selectedRoomId
                 if (roomId == null) {
@@ -400,9 +418,39 @@ private fun TwoPaneHome(navController: NavHostController) {
     }
 }
 
+/** Draggable split divider: drag left/right to resize the chat-list pane. */
 @Composable
-private fun TwoPanePlaceholder() {
+private fun TwoPaneDragHandle(onDrag: (Float) -> Unit) {
+    var dragging by remember { mutableStateOf(false) }
     Box(
+        modifier = Modifier
+            .width(8.dp)
+            .fillMaxHeight()
+            .background(if (dragging) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else Color.Transparent)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { dragging = true },
+                    onDragEnd = { dragging = false },
+                    onDragCancel = { dragging = false }
+                ) { change, dragAmount ->
+                    change.consume()
+                    onDrag(dragAmount)
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .fillMaxHeight()
+                .background(MaterialTheme.colorScheme.outlineVariant)
+        )
+    }
+}
+
+@Composable
+private fun TwoPanePlaceholder() {    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
