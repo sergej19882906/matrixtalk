@@ -537,6 +537,20 @@ class ChatViewModel(
         }
     }
 
+    /** Direct forward of one message via its context menu (Element «Переслать»). */
+    fun forwardMessage(message: Message, targetRoomId: String) {
+        roomScope?.launch {
+            try {
+                matrixRepository.forwardMessages(targetRoomId, listOf(message))
+                _events.send(UiEvent.ShowSnackbar("Переслано"))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Ошибка пересылки: ${e.message}"))
+            }
+        }
+    }
+
     /** Room list snapshot for the forward dialog, fetched on demand. */
     private val _chatListPreview = MutableStateFlow<List<ChatRoom>>(emptyList())
     val chatListPreview: StateFlow<List<ChatRoom>> = _chatListPreview.asStateFlow()

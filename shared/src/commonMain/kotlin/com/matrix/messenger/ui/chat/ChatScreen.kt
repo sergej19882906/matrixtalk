@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Forward
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Groups
@@ -100,6 +101,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.matrix.messenger.data.model.ChatRoom
 import com.matrix.messenger.data.model.GeoLocation
 import com.matrix.messenger.data.model.GeoUri
 import com.matrix.messenger.data.model.LiveLocationBeacon
@@ -204,6 +206,8 @@ fun ChatScreen(
     var reportingMessage by remember { mutableStateOf<Message?>(null) }
     var reportReason by remember { mutableStateOf("") }
     var showForwardDialog by remember { mutableStateOf(false) }
+    /** Message being forwarded directly from its context menu (Element «Переслать»). */
+    var singleForwardMessage by remember { mutableStateOf<Message?>(null) }
     var confirmDeleteSelected by remember { mutableStateOf(false) }
     var showLiveLocationDialog by remember { mutableStateOf(false) }
     // MSC3488: beacons still broadcasting in this room, latest per sender.
@@ -745,7 +749,11 @@ fun ChatScreen(
                                         onReport = { reportingMessage = item.message },
                                         isSelected = item.message.eventId in uiState.selectedEventIds,
                                         selectionMode = selectionMode,
-                                        onSelect = { viewModel.toggleSelection(item.message.eventId) }
+                                        onSelect = { viewModel.toggleSelection(item.message.eventId) },
+                                        onForward = {
+                                            singleForwardMessage = item.message
+                                            viewModel.loadChatListPreview()
+                                        }
                                     )
                                 }
                             }
@@ -1138,56 +1146,28 @@ fun ChatScreen(
 
     // Multi-select: pick a target room for forwarding.
     if (showForwardDialog) {
-        AlertDialog(
-            onDismissRequest = { showForwardDialog = false },
-            title = { Text("Переслать в…") },
-            text = {
-                if (chatListPreview.isEmpty()) {
-                    Text(
-                        text = "Список чатов загружается…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)
-                    ) {
-                        items(
-                            items = chatListPreview,
-                            key = { it.roomId }
-                        ) { room ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        showForwardDialog = false
-                                        viewModel.forwardSelected(room.roomId)
-                                    }
-                                    .padding(vertical = 8.dp)
-                            ) {
-                                MatrixAvatar(
-                                    name = room.name ?: room.roomId,
-                                    avatarUrl = room.avatarUrl,
-                                    size = 32.dp,
-                                    shape = CircleShape
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = room.name ?: room.roomId,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-                }
+        ForwardRoomPickerDialog(
+            title = "Переслать в…",
+            rooms = chatListPreview,
+            onPick = { roomId ->
+                showForwardDialog = false
+                viewModel.forwardSelected(roomId)
             },
-            confirmButton = {
-                TextButton(onClick = { showForwardDialog = false }) { Text("Отмена") }
-            }
+            onDismiss = { showForwardDialog = false }
+        )
+    }
+
+    // Direct forward from a message's context menu.
+    singleForwardMessage?.let { message ->
+        ForwardRoomPickerDialog(
+            title = "Переслать в…",
+            rooms = chatListPreview,
+            onPick = { roomId ->
+                singleForwardMessage = null
+                viewModel.clearSelection()
+                viewModel.forwardMessage(message, roomId)
+            },
+            onDismiss = { singleForwardMessage = null }
         )
     }
 
@@ -1349,7 +1329,8 @@ internal fun MessageItem(
     onReport: (() -> Unit)? = null,
     isSelected: Boolean = false,
     selectionMode: Boolean = false,
-    onSelect: (() -> Unit)? = null
+    onSelect: (() -> Unit)? = null,
+    onForward: (() -> Unit)? = null
 ) {
     if (message.messageType == MessageType.SYSTEM) {
         Text(
@@ -1921,6 +1902,14 @@ internal fun MessageItem(
                                 onSelect?.invoke()
                             }
                         )
+                        if (onSelect != null) DropdownMenuItem(
+                            text = { Text("Переслать") },
+                            leadingIcon = { Icon(Icons.Default.Forward, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                onForward?.invoke()
+                            }
+                        )
                         if (!message.isDeleted) {
                             if (onReply != null) DropdownMenuItem(
                                 text = { Text("Ответить") },
@@ -2152,6 +2141,64 @@ private fun SelectionModeBar(
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "Удалить")
             }
+        }
+    )
+}
+
+/** Shared target-room picker for forwarding (multi-select bar and the message menu). */
+@Composable
+private fun ForwardRoomPickerDialog(
+    title: String,
+    rooms: List<ChatRoom>,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            if (rooms.isEmpty()) {
+                Text(
+                    text = "Список чатов загружается…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)
+                ) {
+                    items(
+                        items = rooms,
+                        key = { it.roomId }
+                    ) { room ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(room.roomId) }
+                                .padding(vertical = 8.dp)
+                        ) {
+                            MatrixAvatar(
+                                name = room.name ?: room.roomId,
+                                avatarUrl = room.avatarUrl,
+                                size = 32.dp,
+                                shape = CircleShape
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = room.name ?: room.roomId,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
         }
     )
 }
