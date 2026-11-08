@@ -1,5 +1,18 @@
 # Matrix Talk — История версий
 
+## 1.46.0
+**Дата:** 2026-11-08 — галерея цветовых палитр из element-themes.
+
+### 🎨 Оформление
+- **Палитры из element-themes** — Nord, Dracula, Catppuccin (Mocha/Latte), Gruvbox (Dark/Light), Solarized (Dark/Light), Monokai Pro, Everforest — каждая со своей тёмной и светлой версией
+- Выбор палитры в «Настройки → Внешний вид»: карточки с превью-цветами рядом с выбором SYSTEM/LIGHT/DARK; палитра применяется поверх режима и сохраняется между запусками (SessionStore)
+- Палитры портированы в Material 3: primary/secondary/tertiary, фоны, контейнеры поверхностей и outline берутся из цветовых схем Element
+
+### Сборка
+- `versionCode`: 68, `versionName`: 1.46.0, Desktop `packageVersion`: 1.46.0
+
+---
+
 ## 1.45.1
 **Дата:** 2026-11-08 — исправление воспроизведения голосовых на Windows.
 
