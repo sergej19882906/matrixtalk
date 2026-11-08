@@ -129,8 +129,23 @@ internal class DesktopVoicePlaybackController(
         }
         // An unsupported source must also replace/stop the previous controllable session.
         stopNow()
-        val audio = runCatching { decode(command.source) }.getOrNull()
+        val audio = runCatching { decode(command.source) }
+            .onFailure {
+                // Why did the external player take over? This line is the answer.
+                logError("VoicePlayback", "decode failed for $command.source", it)
+            }
+            .getOrNull()
         if (audio == null || audio.pcm.isEmpty()) {
+            val file = if (command.source.startsWith("file:")) {
+                runCatching { File(java.net.URI(command.source)) }.getOrNull()
+            } else File(command.source)
+            logError(
+                "VoicePlayback",
+                "built-in playback unavailable: decoded=${audio != null}, " +
+                    "pcmBytes=${audio?.pcm?.size ?: 0}, file=${file?.absolutePath}, " +
+                    "exists=${file?.isFile}, size=${file?.length()}",
+                null
+            )
             runCatching { fallback(command.source) }
             return
         }
@@ -163,13 +178,33 @@ internal class DesktopVoicePlaybackController(
     }
 
     private fun startSession(sourceId: String, audio: DecodedAudio, startFrame: Long, paused: Boolean): Boolean {
-        var line: SourceDataLine? = null
-        return runCatching {
-            require(audio.sampleRate > 0 && audio.channels > 0 && audio.frameBytes == audio.channels * 2)
-            val format = AudioFormat(audio.sampleRate.toFloat(), 16, audio.channels, true, false)
-            val target = createLine(format)
-            line = target
+        require(audio.sampleRate > 0 && audio.channels > 0 && audio.frameBytes == audio.channels * 2)
+        val format = AudioFormat(audio.sampleRate.toFloat(), 16, audio.channels, true, false)
+        val target: SourceDataLine = try {
+            createLine(format)
+        } catch (t: Throwable) {
+            logError(
+                "VoicePlayback",
+                "line acquire failed (${audio.sampleRate}Hz ${audio.channels}ch): " +
+                    "${t.javaClass.simpleName}: ${t.message}",
+                t
+            )
+            return false
+        }
+        try {
             target.open(format, 8192 * audio.frameBytes)
+        } catch (t: Throwable) {
+            // A line that failed to open must be released before the fallback takes over.
+            runCatching { target.close() }
+            logError(
+                "VoicePlayback",
+                "line open failed (${audio.sampleRate}Hz ${audio.channels}ch): " +
+                    "${t.javaClass.simpleName}: ${t.message}",
+                t
+            )
+            return false
+        }
+        return runCatching {
             val current = Session(sourceId, audio, target, startFrame, target.longFramePosition, paused)
             current.job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                 try {
@@ -226,7 +261,7 @@ internal class DesktopVoicePlaybackController(
             true
         }.getOrElse {
             val failed = synchronized(lock) {
-                val failed = session?.takeIf { it.line === line }
+                val failed = session?.takeIf { it.line === target }
                 if (failed != null) {
                     session = null
                     _state.value = null
@@ -234,8 +269,8 @@ internal class DesktopVoicePlaybackController(
                 failed
             }
             failed?.job?.cancel()
-            runCatching { line?.stop() }
-            runCatching { line?.close() }
+            runCatching { target.stop() }
+            runCatching { target.close() }
             false
         }
     }

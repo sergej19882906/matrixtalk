@@ -62,7 +62,12 @@ object AudioDecode {
                     val info = opusFile.info
                     val sampleRate = 48000
                     val channels = info.numChannels
-                    if (channels !in 1..2 || info.channelMappingFamily.toInt() != 0) return@runCatching null
+                    // Mapping family 0 = mono/stereo without mapping; family 1 with
+                    // 1-2 channels is still plain interleaved Opus for the decoder —
+                    // some producers use it even for mono.
+                    val mappingFamily = info.channelMappingFamily.toInt()
+                    val supportedMapping = mappingFamily == 0 || (mappingFamily == 1 && channels in 1..2)
+                    if (channels !in 1..2 || !supportedMapping) return@runCatching null
                     val decoder = io.github.jaredmdobson.concentus.OpusDecoder(sampleRate, channels)
                     decoder.gain = info.outputGain
                     val maxFrames = 5760 // Decoder frame_size is per channel, not the interleaved sample count.
