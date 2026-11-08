@@ -99,6 +99,22 @@ jobs:
               fi
             done
           fi
+      # Same CDN-fallback as the desktop matrix: let the wrapper use a healthy mirror.
+      - name: Point wrapper at mirror when Gradle CDN is degraded
+        shell: bash
+        run: |
+          if curl -sIL -m 20 "https://services.gradle.org/distributions/gradle-9.3.1-bin.zip" -o /dev/null; then
+            echo "primary Gradle CDN is healthy"
+          else
+            echo "primary Gradle CDN degraded — pointing wrapper at tencent mirror"
+            python - <<'PY'
+            p = 'gradle/wrapper/gradle-wrapper.properties'
+            s = open(p, encoding='utf-8').read()
+            open(p, 'w', encoding='utf-8', newline='').write(
+                s.replace('https\\://services.gradle.org/distributions', 'https://mirrors.cloud.tencent.com/gradle')
+            )
+            PY
+          fi
       - name: Set up Android signing
         run: python -I scripts/android-release.py prepare
       - name: Build APK and validate release metadata
@@ -194,6 +210,23 @@ jobs:
       - name: Prepare macOS signing before packaging
         if: runner.os == 'macOS'
         run: python -I scripts/mac-release.py prepare
+      # Belt and braces: if the warm prefill was not accepted (platform-specific
+      # wrapper validation), let the wrapper itself download from a healthy mirror.
+      - name: Point wrapper at mirror when Gradle CDN is degraded
+        shell: bash
+        run: |
+          if curl -sIL -m 20 "https://services.gradle.org/distributions/gradle-9.3.1-bin.zip" -o /dev/null; then
+            echo "primary Gradle CDN is healthy"
+          else
+            echo "primary Gradle CDN degraded — pointing wrapper at tencent mirror"
+            python - <<'PY'
+            p = 'gradle/wrapper/gradle-wrapper.properties'
+            s = open(p, encoding='utf-8').read()
+            open(p, 'w', encoding='utf-8', newline='').write(
+                s.replace('https\\://services.gradle.org/distributions', 'https://mirrors.cloud.tencent.com/gradle')
+            )
+            PY
+          fi
       - name: Package ${{ matrix.format }}
         shell: bash
         env:
