@@ -80,35 +80,14 @@ jobs:
           distribution: 'temurin'
           cache: gradle
       - run: chmod +x gradlew
-      # Same wrapper-dists prefill as the desktop matrix (see below for rationale).
-      - name: Warm Gradle wrapper distribution
+      # services.gradle.org degrades in long 504 waves and the wrapper gives up
+      # after 10s, so the distribution always comes from the stable Tencent mirror
+      # (unconditional: a healthy-at-HEAD primary can still die mid-download).
+      - name: Point wrapper at the Gradle distribution mirror
         shell: bash
         run: |
-          url=$(sed -n 's/^distributionUrl=//p' gradle/wrapper/gradle-wrapper.properties | tr -d '\r' | sed 's#\\:#:#g')
-          name=$(basename "$url" .zip)
-          version=$(printf '%s' "$name" | sed 's/^gradle-//; s/-bin$//; s/-all$//')
-          hash=$(printf '%s' "$url" | md5sum | cut -d' ' -f1)
-          dir="$HOME/.gradle/wrapper/dists/$name/$hash"
-          marker="$dir/$name.zip.ok"
-          if [ ! -f "$marker" ]; then
-            mkdir -p "$dir"
-            for src in "$url" "https://mirrors.cloud.tencent.com/gradle/$name.zip" "https://mirrors.huaweicloud.com/gradle/$name.zip"; do
-              if curl -fL --retry 10 --retry-all-errors --retry-delay 5 --connect-timeout 15 -o "$dir/$name.zip" "$src"; then
-                (cd "$dir" && python -c "import zipfile; zipfile.ZipFile('$name.zip').extractall('.')" && touch "$marker" "gradle-$version/$name.zip.ok")
-                break
-              fi
-            done
-          fi
-      # Same CDN-fallback as the desktop matrix: let the wrapper use a healthy mirror.
-      - name: Point wrapper at mirror when Gradle CDN is degraded
-        shell: bash
-        run: |
-          if curl -sIL -m 20 "https://services.gradle.org/distributions/gradle-9.3.1-bin.zip" -o /dev/null; then
-            echo "primary Gradle CDN is healthy"
-          else
-            echo "primary Gradle CDN degraded — pointing wrapper at tencent mirror"
-            python -c "p='gradle/wrapper/gradle-wrapper.properties'; s=open(p,encoding='utf-8').read(); open(p,'w',encoding='utf-8',newline='').write(s.replace('https\\://services.gradle.org/distributions','https://mirrors.cloud.tencent.com/gradle'))"
-          fi
+          python -c "p='gradle/wrapper/gradle-wrapper.properties'; s=open(p,encoding='utf-8').read(); open(p,'w',encoding='utf-8',newline='').write(s.replace('https\\://services.gradle.org/distributions','https://mirrors.cloud.tencent.com/gradle'))"
+          grep distributionUrl gradle/wrapper/gradle-wrapper.properties
       - name: Set up Android signing
         run: python -I scripts/android-release.py prepare
       - name: Build APK and validate release metadata
@@ -168,53 +147,18 @@ jobs:
       - name: Grant execute permission for gradlew
         if: runner.os != 'Windows'
         run: chmod +x gradlew
-      # services.gradle.org had long 504/timeout waves: the wrapper gives up after 10s.
-      # Prefill the wrapper dists cache from the primary URL or cloud mirrors
-      # (Tencent/Huawei are reachable when the Gradle CDN degrades).
-      - name: Warm Gradle wrapper distribution
+      # services.gradle.org degrades in long 504 waves and the wrapper gives up
+      # after 10s, so the distribution always comes from the stable Tencent mirror
+      # (unconditional: a healthy-at-HEAD primary can still die mid-download; the
+      # manual wrapper-dists prefill is not accepted by the wrapper on Windows).
+      - name: Point wrapper at the Gradle distribution mirror
         shell: bash
         run: |
-          url=$(sed -n 's/^distributionUrl=//p' gradle/wrapper/gradle-wrapper.properties | tr -d '\r' | sed 's#\\:#:#g')
-          name=$(basename "$url" .zip)
-          version=$(printf '%s' "$name" | sed 's/^gradle-//; s/-bin$//; s/-all$//')
-          hash=$(printf '%s' "$url" | md5sum | cut -d' ' -f1)
-          dir="$HOME/.gradle/wrapper/dists/$name/$hash"
-          marker="$dir/$name.zip.ok"
-          if [ ! -f "$marker" ]; then
-            mkdir -p "$dir"
-            ok=""
-            for src in \
-              "$url" \
-              "https://mirrors.cloud.tencent.com/gradle/$name.zip" \
-              "https://mirrors.huaweicloud.com/gradle/$name.zip"; do
-              echo "trying $src"
-              if curl -fL --retry 10 --retry-all-errors --retry-delay 5 --connect-timeout 15 -o "$dir/$name.zip" "$src"; then
-                ok=1
-                echo "downloaded from $src"
-                break
-              fi
-            done
-            if [ -z "$ok" ]; then
-              echo "All sources failed; letting the wrapper try the primary URL itself"
-              exit 1
-            fi
-            (cd "$dir" && python -c "import zipfile; zipfile.ZipFile('$name.zip').extractall('.')" && touch "$marker" "gradle-$version/$name.zip.ok")
-          fi
-          echo "gradle dist warmed at $dir"
+          python -c "p='gradle/wrapper/gradle-wrapper.properties'; s=open(p,encoding='utf-8').read(); open(p,'w',encoding='utf-8',newline='').write(s.replace('https\\://services.gradle.org/distributions','https://mirrors.cloud.tencent.com/gradle'))"
+          grep distributionUrl gradle/wrapper/gradle-wrapper.properties
       - name: Prepare macOS signing before packaging
         if: runner.os == 'macOS'
         run: python -I scripts/mac-release.py prepare
-      # Belt and braces: if the warm prefill was not accepted (platform-specific
-      # wrapper validation), let the wrapper itself download from a healthy mirror.
-      - name: Point wrapper at mirror when Gradle CDN is degraded
-        shell: bash
-        run: |
-          if curl -sIL -m 20 "https://services.gradle.org/distributions/gradle-9.3.1-bin.zip" -o /dev/null; then
-            echo "primary Gradle CDN is healthy"
-          else
-            echo "primary Gradle CDN degraded — pointing wrapper at tencent mirror"
-            python -c "p='gradle/wrapper/gradle-wrapper.properties'; s=open(p,encoding='utf-8').read(); open(p,'w',encoding='utf-8',newline='').write(s.replace('https\\://services.gradle.org/distributions','https://mirrors.cloud.tencent.com/gradle'))"
-          fi
       - name: Package ${{ matrix.format }}
         shell: bash
         env:
