@@ -5,6 +5,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.key
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -97,34 +113,7 @@ fun AppNavigation(
         }
 
         composable(Screen.Home.route) {
-            HomeScreen(
-                onRoomClick = { roomId ->
-                    navController.navigate(Screen.Chat.createRoute(roomId))
-                },
-                onLogout = {
-                    navController.navigate(Screen.Login.route) {
-                        popUpTo(Screen.Home.route) { inclusive = true }
-                    }
-                },
-                onOpenSpaces = {
-                    navController.navigate(Screen.Spaces.route)
-                },
-                onBridges = {
-                    navController.navigate(Screen.Bridges.route)
-                },
-                onSettings = {
-                    navController.navigate(Screen.Settings.route)
-                },
-                onSearch = {
-                    navController.navigate(Screen.Search.route)
-                },
-                onRoomsCatalog = {
-                    navController.navigate(Screen.RoomsCatalog.route)
-                },
-                onOpenSpace = { spaceId ->
-                    navController.navigate(Screen.SpaceChildren.createRoute(spaceId, ""))
-                }
-            )
+            TwoPaneHome(navController)
         }
 
         composable(Screen.Bridges.route) {
@@ -329,3 +318,112 @@ fun AppNavigation(
         }
     }
 }
+
+/**
+ * Element-style adaptive layout: on wide windows the chat list stays on the left
+ * and the selected room opens on the right; narrow windows keep single-pane
+ * push navigation. The same ChatScreen instance is reused in the right pane —
+ * ChatScreen switches rooms itself via setRoomId.
+ */
+@Composable
+private fun TwoPaneHome(navController: NavHostController) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val wide = maxWidth >= TwoPaneMinWidth
+        var selectedRoomId by androidx.compose.runtime.saveable.rememberSaveable {
+            mutableStateOf<String?>(null)
+        }
+
+        if (!wide) {
+            HomeScreen(
+                onRoomClick = { roomId ->
+                    navController.navigate(Screen.Chat.createRoute(roomId))
+                },
+                onLogout = {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(Screen.Home.route) { inclusive = true }
+                    }
+                },
+                onOpenSpaces = { navController.navigate(Screen.Spaces.route) },
+                onBridges = { navController.navigate(Screen.Bridges.route) },
+                onSettings = { navController.navigate(Screen.Settings.route) },
+                onSearch = { navController.navigate(Screen.Search.route) },
+                onRoomsCatalog = { navController.navigate(Screen.RoomsCatalog.route) },
+                onOpenSpace = { spaceId ->
+                    navController.navigate(Screen.SpaceChildren.createRoute(spaceId, ""))
+                }
+            )
+            return@BoxWithConstraints
+        }
+
+        Row(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.width(TwoPaneListWidth)) {
+                HomeScreen(
+                    onRoomClick = { roomId -> selectedRoomId = roomId },
+                    onLogout = {
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(Screen.Home.route) { inclusive = true }
+                        }
+                    },
+                    onOpenSpaces = { navController.navigate(Screen.Spaces.route) },
+                    onBridges = { navController.navigate(Screen.Bridges.route) },
+                    onSettings = { navController.navigate(Screen.Settings.route) },
+                    onSearch = { navController.navigate(Screen.Search.route) },
+                    onRoomsCatalog = { navController.navigate(Screen.RoomsCatalog.route) },
+                    onOpenSpace = { spaceId ->
+                        navController.navigate(Screen.SpaceChildren.createRoute(spaceId, ""))
+                    }
+                )
+            }
+            VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Box(modifier = Modifier.weight(1f)) {
+                val roomId = selectedRoomId
+                if (roomId == null) {
+                    TwoPanePlaceholder()
+                } else {
+                    key(roomId) {
+                        ChatScreen(
+                            roomId = roomId,
+                            onNavigateBack = { selectedRoomId = null },
+                            onStartCall = {
+                                if (navController.currentDestination?.route != Screen.Call.route) {
+                                    navController.navigate(Screen.Call.route)
+                                }
+                            },
+                            onOpenRoomSettings = { navController.navigate(Screen.RoomSettings.createRoute(roomId)) },
+                            onOpenThread = { rootId -> navController.navigate(Screen.Thread.createRoute(roomId, rootId)) },
+                            onStartGroupCall = { navController.navigate(Screen.CallWidget.createRoute(roomId)) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TwoPanePlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Default.ChatBubbleOutline,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.outline
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                "Выберите чат слева",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private val TwoPaneMinWidth = 900.dp
+private val TwoPaneListWidth = 360.dp
