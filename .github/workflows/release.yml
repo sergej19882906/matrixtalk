@@ -23,7 +23,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GRADLE_OPTS: -Dorg.gradle.daemon=false
+  GRADLE_OPTS: -Dorg.gradle.daemon=false -Xmx4096m
+  ORG_GRADLE_PROJECT_orgGradleJvmArgs: -Xmx4096m -Dfile.encoding=UTF-8
 
 jobs:
   metadata:
