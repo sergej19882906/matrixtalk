@@ -119,4 +119,25 @@ class ElementParityContentTest {
         }
         assertIs<UnknownEventContent>(json.decodeFromJsonElement(message, poll))
     }
+
+    @Test
+    fun voiceBroadcastInfoStateRoundTrips() {
+        val content = com.matrix.messenger.data.broadcast.VoiceBroadcastInfoEventContent(
+            deviceId = "ABCD1234", live = true, timeout = 4 * 3600_000L,
+        )
+        val raw = json.encodeToJsonElement(state, content).jsonObject
+        val decoded = assertIs<com.matrix.messenger.data.broadcast.VoiceBroadcastInfoEventContent>(
+            json.decodeFromJsonElement(state, withType(raw, "m.voice_broadcast_info")),
+        )
+        assertEquals("ABCD1234", decoded.deviceId)
+        assertTrue(decoded.live)
+        assertEquals(4 * 3600_000L, decoded.timeout)
+        val stopped = assertIs<com.matrix.messenger.data.broadcast.VoiceBroadcastInfoEventContent>(
+            json.decodeFromJsonElement(
+                state,
+                withType(json.encodeToJsonElement(state, content.copy(live = false)).jsonObject, "m.voice_broadcast_info"),
+            ),
+        )
+        assertEquals(false, stopped.live)
+    }
 }

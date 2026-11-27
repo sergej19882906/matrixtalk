@@ -1,5 +1,11 @@
 package com.matrix.messenger.ui.chat
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.FlowRow
@@ -41,6 +47,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Forward
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Groups
@@ -60,6 +67,7 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.ShareLocation
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
@@ -168,6 +176,8 @@ fun ChatScreen(
     val recentReactions by viewModel.recentReactions.collectAsState()
     val readReceipts by viewModel.readReceipts.collectAsState()
     val voicePlayback by viewModel.voicePlayback.collectAsState()
+    val broadcastPlaybackState by viewModel.broadcastPlayback.collectAsState()
+    val myBroadcastState by viewModel.myBroadcast.collectAsState()
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     var editingMessage by remember { mutableStateOf<Message?>(null) }
@@ -186,6 +196,15 @@ fun ChatScreen(
         } else {
             coroutineScope.launch {
                 snackbarHostState.showSnackbar("Нет доступа к микрофону — запись невозможна")
+            }
+        }
+    }
+    val requestBroadcastMicPermission = rememberCallPermissionRequester { granted ->
+        if (granted) {
+            viewModel.startVoiceBroadcast()
+        } else {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("Нет доступа к микрофону — трансляция невозможна")
             }
         }
     }
@@ -303,6 +322,30 @@ fun ChatScreen(
             .filter { it.threadRootId != null && !it.isDeleted }
             .groupBy { it.threadRootId!! }
             .mapValues { (_, replies) -> replies.size }
+    }
+
+    // MSC3401: received chunk counts per broadcast info event (bubble progress).
+    val broadcastChunkCounts = remember(uiState.messages) {
+        uiState.messages
+            .filter { it.broadcastChunkRef != null }
+            .groupingBy { it.broadcastChunkRef!! }
+            .eachCount()
+    }
+    // Stopping a broadcast sends a NEW live=false state event; its chunks still
+    // reference the original live=true info event of the same sender, so the
+    // finished card maps to that event's count and playback.
+    val broadcastChunkInfoIds = remember(uiState.messages) {
+        val ids = mutableMapOf<String, String>()
+        val lastLiveId = mutableMapOf<String, String>()
+        uiState.messages.forEach { msg ->
+            val info = msg.broadcastInfo ?: return@forEach
+            if (info.live) {
+                lastLiveId[msg.senderId] = info.infoEventId
+            } else {
+                lastLiveId[msg.senderId]?.let { ids[info.infoEventId] = it }
+            }
+        }
+        ids
     }
 
     // In-chat search state.
@@ -602,30 +645,41 @@ fun ChatScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            MessageInputBar(
-                value = uiState.messageInput,
-                onValueChange = viewModel::onMessageInputChange,
-                onSend = viewModel::sendMessage,
-                onFileSelected = pickAttachment,
-                replyingTo = uiState.replyingTo,
-                onCancelReply = viewModel::cancelReply,
-                isRecordingVoice = uiState.isRecordingVoice,
-                recordingSeconds = uiState.recordingSeconds,
-                onStartVoice = { requestMicPermission(false) },
-                onStopVoice = { send -> viewModel.stopVoiceRecording(send) },
-                onCreatePoll = { showPollDialog = true },
-                markdownEnabled = uiState.markdownEnabled,
-                onToggleMarkdown = { viewModel.toggleMarkdown() },
-                onPickSticker = {
-                    showStickerSheet = true
-                    viewModel.loadStickerPacks()
-                },
-                onPickLocation = { requestLocation() },
-                onPickLiveLocation = { requestLiveLocation() },
-                onPickVideo = { captureVideo() },
-                activeBeaconCount = activeBeacons.size,
-                onShowActiveBeacons = { showActiveBeaconsDialog = true }
-            )
+            Column {
+                // MSC3401: persistent bar while THIS user records a broadcast in this room.
+                if (myBroadcastState != null || uiState.isRecordingBroadcast) {
+                    BroadcastRecordingBar(
+                        chunkCount = myBroadcastState?.chunkCount ?: 0,
+                        onStop = viewModel::stopVoiceBroadcast
+                    )
+                }
+                MessageInputBar(
+                    value = uiState.messageInput,
+                    onValueChange = viewModel::onMessageInputChange,
+                    onSend = viewModel::sendMessage,
+                    onFileSelected = pickAttachment,
+                    replyingTo = uiState.replyingTo,
+                    onCancelReply = viewModel::cancelReply,
+                    isRecordingVoice = uiState.isRecordingVoice,
+                    recordingSeconds = uiState.recordingSeconds,
+                    onStartVoice = { requestMicPermission(false) },
+                    onStopVoice = { send -> viewModel.stopVoiceRecording(send) },
+                    onCreatePoll = { showPollDialog = true },
+                    markdownEnabled = uiState.markdownEnabled,
+                    onToggleMarkdown = { viewModel.toggleMarkdown() },
+                    onPickSticker = {
+                        showStickerSheet = true
+                        viewModel.loadStickerPacks()
+                    },
+                    onPickLocation = { requestLocation() },
+                    onPickLiveLocation = { requestLiveLocation() },
+                    onPickVideo = { captureVideo() },
+                    activeBeaconCount = activeBeacons.size,
+                    onShowActiveBeacons = { showActiveBeaconsDialog = true },
+                    canStartBroadcast = myBroadcastState == null && !uiState.isRecordingBroadcast,
+                    onStartBroadcast = { requestBroadcastMicPermission(false) }
+                )
+            }
         }
     ) { paddingValues ->
         Column(Modifier.fillMaxSize().padding(paddingValues)) {
@@ -729,6 +783,17 @@ fun ChatScreen(
                                         threadReplyCount = threadReplyCounts[item.message.eventId] ?: 0,
                                         voicePlayback = voicePlayback.takeIf { it?.sourceId == item.message.eventId },
                                         onSeekVoice = { fraction -> viewModel.seekVoice(fraction) },
+                                        broadcastPlayback = item.message.broadcastInfo?.let { info ->
+                                            val chunkInfoId = broadcastChunkInfoIds[info.infoEventId]
+                                                ?: info.infoEventId
+                                            broadcastPlaybackState?.takeIf { it.infoEventId == chunkInfoId }
+                                        },
+                                        broadcastChunkTotal = item.message.broadcastInfo?.let { info ->
+                                            val chunkInfoId = broadcastChunkInfoIds[info.infoEventId]
+                                                ?: info.infoEventId
+                                            broadcastChunkCounts[chunkInfoId] ?: 0
+                                        } ?: 0,
+                                        onToggleBroadcastPlayback = { viewModel.toggleBroadcastPlayback(item.message) },
                                         onEdit = {
                                             editText = item.message.body
                                             editingMessage = item.message
@@ -1314,6 +1379,11 @@ internal fun MessageItem(
     threadReplyCount: Int = 0,
     voicePlayback: com.matrix.messenger.platform.VoicePlaybackState? = null,
     onSeekVoice: ((Float) -> Unit)? = null,
+    /** MSC3401 broadcast playback progress when this broadcast is played from the chat. */
+    broadcastPlayback: BroadcastPlaybackState? = null,
+    /** Voice message chunks already received for this broadcast (idle bubble progress). */
+    broadcastChunkTotal: Int = 0,
+    onToggleBroadcastPlayback: (() -> Unit)? = null,
     onReaction: ((String) -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
@@ -1401,7 +1471,18 @@ internal fun MessageItem(
                         MessageType.IMAGE, MessageType.STICKER, MessageType.LOCATION
                     ) && !message.isDeleted
 
-                    if (isMediaOnly) {
+                    if (message.broadcastInfo != null) {
+                        // MSC3401: broadcast info events get a dedicated card instead
+                        // of a text bubble (playback chained from the view model).
+                        BroadcastCard(
+                            message = message,
+                            chunkTotal = broadcastChunkTotal,
+                            playback = broadcastPlayback,
+                            clickEnabled = itemClickEnabled,
+                            onClick = itemClick,
+                            onTogglePlayback = onToggleBroadcastPlayback
+                        )
+                    } else if (isMediaOnly) {
                         Column(
                             modifier = Modifier.clickable(enabled = itemClickEnabled) { itemClick() },
                             horizontalAlignment = if (message.isMine) Alignment.End else Alignment.Start
@@ -2224,7 +2305,10 @@ private fun MessageInputBar(
     onPickVideo: () -> Unit = {},
     /** Number of live location beacons currently broadcasting (0 hides the summary item). */
     activeBeaconCount: Int = 0,
-    onShowActiveBeacons: () -> Unit = {}
+    onShowActiveBeacons: () -> Unit = {},
+    /** MSC3401: shown only when THIS user has no live broadcast in this room. */
+    canStartBroadcast: Boolean = false,
+    onStartBroadcast: () -> Unit = {}
 ) {
     var emojiVisible by remember { mutableStateOf(false) }
     var attachMenuVisible by remember { mutableStateOf(false) }
@@ -2368,6 +2452,16 @@ private fun MessageInputBar(
                                     onClick = {
                                         attachMenuVisible = false
                                         onShowActiveBeacons()
+                                    }
+                                )
+                            }
+                            if (canStartBroadcast) {
+                                DropdownMenuItem(
+                                    text = { Text("Голосовая трансляция") },
+                                    leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null) },
+                                    onClick = {
+                                        attachMenuVisible = false
+                                        onStartBroadcast()
                                     }
                                 )
                             }
@@ -2908,6 +3002,206 @@ private fun VoiceMessageRow(
                 color = if (isMine) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f)
                 else MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+/** Russian plural for chunk counts: 1 чанк / 2 чанка / 5 чанков. */
+internal fun chunkCountLabel(count: Int): String = when {
+    count % 10 == 1 && count % 100 != 11 -> "$count чанк"
+    count % 10 in 2..4 && count % 100 !in 12..14 -> "$count чанка"
+    else -> "$count чанков"
+}
+
+/**
+ * MSC3401 broadcast tile replacing the text bubble: play/pause with chunk
+ * progress, or the REC state for THIS user's live broadcast.
+ */
+@Composable
+private fun BroadcastCard(
+    message: Message,
+    chunkTotal: Int,
+    playback: BroadcastPlaybackState?,
+    clickEnabled: Boolean,
+    onClick: () -> Unit,
+    onTogglePlayback: (() -> Unit)?
+) {
+    val info = message.broadcastInfo ?: return
+    val isMyLive = info.live && info.isMine
+    val active = playback != null && playback.infoEventId == info.infoEventId
+    val buffering = active && playback.buffering
+    val playing = active && playback.playing
+
+    // Same color convention as text bubbles: outgoing = primary, incoming = surfaceContainerHigh.
+    val cardColor = if (message.isMine) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.surfaceContainerHigh
+    val contentColor = if (message.isMine) MaterialTheme.colorScheme.onPrimary
+    else MaterialTheme.colorScheme.onSurface
+    val secondaryColor = if (message.isMine) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+    else MaterialTheme.colorScheme.onSurfaceVariant
+    val accentColor = if (message.isMine) MaterialTheme.colorScheme.onPrimary
+    else MaterialTheme.colorScheme.primary
+    val playCircleColor = if (message.isMine) MaterialTheme.colorScheme.onPrimary
+    else MaterialTheme.colorScheme.primary
+    val playIconColor = if (message.isMine) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.onPrimary
+
+    val title = when {
+        info.live -> "Голосовая трансляция"
+        info.isMine -> "Трансляция остановлена"
+        else -> "Трансляция завершена"
+    }
+    val statusText = when {
+        isMyLive -> if (chunkTotal > 0) "REC · ${chunkCountLabel(chunkTotal)}" else "REC"
+        buffering -> "Загрузка чанка ${(playback?.currentIndex ?: 0) + 1}/${playback?.totalChunks ?: 0}…"
+        active -> buildString {
+            if (!playing) append("Пауза · ")
+            append("Чанк ${(playback?.currentIndex ?: 0) + 1}/${playback?.totalChunks ?: 0}")
+        }
+        chunkTotal > 0 -> chunkCountLabel(chunkTotal)
+        info.live -> "Ожидание аудио…"
+        else -> "Записей нет"
+    }
+    // A live own broadcast has nothing to play back; otherwise any received chunk is playable.
+    val playEnabled = onTogglePlayback != null && !isMyLive && (chunkTotal > 0 || active)
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = cardColor,
+        contentColor = contentColor,
+        modifier = Modifier.clickable(enabled = clickEnabled) { onClick() }
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isMyLive) {
+                    // Recording state: red mic circle instead of a play button.
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = "Идёт запись трансляции",
+                                tint = MaterialTheme.colorScheme.onError,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                } else {
+                    Surface(
+                        shape = CircleShape,
+                        color = playCircleColor,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clickable(enabled = playEnabled) { onTogglePlayback?.invoke() }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (playing) "Пауза" else "Воспроизвести",
+                                tint = if (playEnabled) playIconColor else playIconColor.copy(alpha = 0.45f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = contentColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = secondaryColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                when {
+                    buffering -> CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = accentColor
+                    )
+                    !isMyLive -> Icon(
+                        Icons.Default.GraphicEq,
+                        contentDescription = null,
+                        tint = secondaryColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = TimeFormat.timeOnly(message.timestamp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = secondaryColor
+                )
+            }
+        }
+    }
+}
+
+/** Persistent bar above the composer while THIS user records a broadcast in this room. */
+@Composable
+private fun BroadcastRecordingBar(
+    chunkCount: Int,
+    onStop: () -> Unit
+) {
+    val pulse = rememberInfiniteTransition(label = "broadcastRecording").animateFloat(
+        initialValue = 1f,
+        targetValue = 0.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 600, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "broadcastRecordingPulse"
+    )
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.error.copy(alpha = pulse.value))
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "Трансляция идёт · ${chunkCountLabel(chunkCount)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onStop) {
+                Icon(
+                    Icons.Default.Stop,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Остановить",
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
         }
     }
 }

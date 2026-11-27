@@ -209,3 +209,8 @@ actual suspend fun listScreenSources(): List<ScreenSource> = runCatching {
 actual fun startLiveLocationForeground(durationMs: Long, description: String?) = Unit
 
 actual fun stopLiveLocationForeground() = Unit
+
+// Desktop has no background service requirement for recording; broadcast runs while the app is open.
+actual fun startVoiceBroadcastForeground(description: String?) = Unit
+
+actual fun stopVoiceBroadcastForeground() = Unit

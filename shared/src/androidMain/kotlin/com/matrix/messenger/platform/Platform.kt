@@ -231,6 +231,16 @@ actual fun startLiveLocationForeground(durationMs: Long, description: String?) {
     com.matrix.messenger.service.LiveLocationService.start(context, durationMs, description)
 }
 
+actual fun startVoiceBroadcastForeground(description: String?) {
+    val context = appContext ?: return
+    com.matrix.messenger.service.VoiceBroadcastService.start(context, description)
+}
+
+actual fun stopVoiceBroadcastForeground() {
+    val context = appContext ?: return
+    com.matrix.messenger.service.VoiceBroadcastService.stop(context)
+}
+
 actual fun stopLiveLocationForeground() {
     val context = appContext ?: return
     com.matrix.messenger.service.LiveLocationService.stop(context)

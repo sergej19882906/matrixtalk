@@ -6,6 +6,7 @@ import com.matrix.messenger.data.location.PinLocationEventContent
 import com.matrix.messenger.data.location.beaconEventContentSerializerMappings
 import com.matrix.messenger.data.location.locationAssetEventContentSerializerMappings
 import com.matrix.messenger.data.sticker.stickerEventContentSerializerMappings
+import com.matrix.messenger.data.broadcast.voiceBroadcastEventContentSerializerMappings
 import com.matrix.messenger.data.voice.voiceEventContentSerializerMappings
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -93,7 +94,8 @@ val customEventContentSerializerMappings: EventContentSerializerMappings =
         override val state = DefaultEventContentSerializerMappings.state +
             bridgeStateEventContentMappings +
             emoteEventContentSerializerMappings.state.filter { it.type.startsWith("im.ponies.") } +
-            beaconEventContentSerializerMappings.state.filter { it.type == "m.beacon_info" }
+            beaconEventContentSerializerMappings.state.filter { it.type == "m.beacon_info" } +
+            voiceBroadcastEventContentSerializerMappings.state.filter { it.type == "m.voice_broadcast_info" }
         override val globalAccountData = DefaultEventContentSerializerMappings.globalAccountData +
             emoteEventContentSerializerMappings.globalAccountData.filter { it.type.startsWith("im.ponies.") }
     }

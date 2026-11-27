@@ -70,3 +70,12 @@ expect fun startLiveLocationForeground(durationMs: Long, description: String?)
 
 /** Ends the live location foreground state (user stop or share expiry). */
 expect fun stopLiveLocationForeground()
+
+/**
+ * Keeps an MSC3401 voice broadcast recording while the app is backgrounded:
+ * a type=microphone foreground service with a stop action on Android; no-op on desktop.
+ */
+expect fun startVoiceBroadcastForeground(description: String? = null)
+
+/** Ends the voice broadcast foreground state. */
+expect fun stopVoiceBroadcastForeground()

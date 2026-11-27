@@ -276,7 +276,12 @@ interface MatrixRepository {
     suspend fun sendLocation(roomId: String, latitude: Double, longitude: Double, accuracyMeters: Double? = null)
 
     /** Sends a voice message (m.audio) with an MSC3245 waveform. */
-    suspend fun sendVoiceMessage(roomId: String, filePath: String, durationMs: Long?, waveform: List<Int>)
+    suspend fun sendVoiceMessage(roomId: String, filePath: String, durationMs: Long?, waveform: List<Int>, referenceEventId: String? = null)
+    /** Starts an MSC3401 voice broadcast: m.voice_broadcast_info + periodic chunk voice messages. */
+    suspend fun startVoiceBroadcast(roomId: String, chunkMs: Long = 30000L)
+
+    /** Stops the user's voice broadcast in this room (live=false). */
+    suspend fun stopVoiceBroadcast(roomId: String)
 
     /** Read receipts of other members: eventId -> readers (reactive). */
     fun getReadReceiptsFlow(roomId: String): Flow<Map<String, List<ReadReceipt>>>

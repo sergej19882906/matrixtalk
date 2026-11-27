@@ -139,6 +139,7 @@ enum class MessageType {
     TEXT,
     IMAGE,
     STICKER,
+    VOICE_BROADCAST,
     LOCATION,
     /** Room state event rendered as a centered system row (joins, renames, ...). */
     SYSTEM,
@@ -199,7 +200,19 @@ data class Message(
     val pollTotalVoters: Int = 0,
     val pollMyAnswers: List<String> = emptyList(),
     /** MSC3488 live location beacon payload when this message is an m.beacon. */
-    val liveBeacon: LiveLocationBeacon? = null
+    val liveBeacon: LiveLocationBeacon? = null,
+    /** MSC3401 voice broadcast state summary when this message is m.voice_broadcast_info. */
+    val broadcastInfo: VoiceBroadcastInfo? = null,
+    /** Info event id when this voice message is a chunk of an MSC3401 broadcast. */
+    val broadcastChunkRef: String? = null
+)
+
+/** MSC3401 voice broadcast state summary. */
+data class VoiceBroadcastInfo(
+    val infoEventId: String,
+    val live: Boolean,
+    val timeoutMs: Long,
+    val isMine: Boolean
 )
 
 /** Live location beacon state attached to m.beacon messages. */

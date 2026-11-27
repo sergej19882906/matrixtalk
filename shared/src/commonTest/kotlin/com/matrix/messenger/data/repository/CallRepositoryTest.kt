@@ -116,7 +116,9 @@ class CallRepositoryTest {
         override suspend fun sendPollEnd(roomId: String, pollEventId: String) = Unit
         override suspend fun getRoomShareLink(roomId: String): String? = null
         override suspend fun setDefaultNotificationLevel(level: RoomNotificationLevel) = Unit
-        override suspend fun sendVoiceMessage(roomId: String, filePath: String, durationMs: Long?, waveform: List<Int>) = Unit
+        override suspend fun sendVoiceMessage(roomId: String, filePath: String, durationMs: Long?, waveform: List<Int>, referenceEventId: String?) = Unit
+        override suspend fun startVoiceBroadcast(roomId: String, chunkMs: Long) = Unit
+        override suspend fun stopVoiceBroadcast(roomId: String) = Unit
         override suspend fun getAccountNotificationMode(): AccountNotificationMode = AccountNotificationMode.ALL_MESSAGES
         override suspend fun setAccountNotificationMode(mode: AccountNotificationMode) = Unit
         override suspend fun getKeywords(): List<PushRule.Content> = emptyList()

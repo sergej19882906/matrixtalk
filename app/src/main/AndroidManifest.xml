@@ -127,6 +127,12 @@
             android:exported="false"
             android:foregroundServiceType="location" />
 
+        <!-- MSC3401 voice broadcast recorder: mic access while backgrounded. -->
+        <service
+            android:name=".service.VoiceBroadcastService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <!-- 🆕 Telecom-интеграция: звонки в системном UI Android -->
         <service
             android:name=".telecom.MatrixCallConnectionService"

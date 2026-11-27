@@ -15,6 +15,8 @@ import com.matrix.messenger.data.model.UiState
 import com.matrix.messenger.data.model.VerificationUiState
 import com.matrix.messenger.data.repository.MatrixRepository
 import com.matrix.messenger.data.repository.SessionStore
+import com.matrix.messenger.platform.VoicePlayback
+import com.matrix.messenger.platform.VoicePlaybackState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -26,8 +28,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.currentCoroutineContext
@@ -49,6 +53,8 @@ data class ChatUiState(
     val pinnedMessages: List<Message> = emptyList(),
     val isRecordingVoice: Boolean = false,
     val recordingSeconds: Int = 0,
+    /** True while this device records an MSC3401 voice broadcast in this room. */
+    val isRecordingBroadcast: Boolean = false,
     val error: String? = null,
     val replyingTo: Message? = null,
     /** Composer markdown mode: send text with org.matrix.custom.html formatting. */
@@ -84,6 +90,26 @@ data class ActiveBeaconInfo(
     /** Beacon broadcast end (epoch ms), null when the server gave no timeout. */
     val endTimestamp: Long?,
     val description: String?
+)
+
+/** Playback progress of a chained MSC3401 voice broadcast (one chunk at a time). */
+data class BroadcastPlaybackState(
+    val infoEventId: String,
+    /** Zero-based index of the chunk currently loaded into the player. */
+    val currentIndex: Int,
+    val totalChunks: Int,
+    val playing: Boolean,
+    /** True while the next chunk file is still being downloaded/decrypted. */
+    val buffering: Boolean
+)
+
+/** THIS user's live voice broadcast in the open room, derived from the timeline. */
+data class BroadcastState(
+    val infoEventId: String,
+    /** Start timestamp (origin_server_ts) of the live info event. */
+    val startedAt: Long,
+    /** Voice message chunks already received for this broadcast. */
+    val chunkCount: Int
 )
 
 class ChatViewModel(
@@ -129,6 +155,7 @@ class ChatViewModel(
             recordingTimerJob?.cancel()
             voiceRecorder?.cancel()
             voiceRecorder = null
+            stopBroadcastPlayback()
             _uiState.value = ChatUiState(roomId = roomId)
             _uiStateSealed.value = UiState.Loading
             _readReceipts.value = emptyMap()
@@ -644,6 +671,7 @@ class ChatViewModel(
         viewModelScope.launch {
             _recentReactions.value = runCatching { SessionStore.readRecentReactions() }.getOrDefault(emptyList())
         }
+        observeVoicePlaybackForBroadcast()
     }
 
     private suspend fun rememberReaction(reaction: String) {
@@ -811,6 +839,283 @@ class ChatViewModel(
                 throw e
             } catch (e: Exception) {
                 _events.send(UiEvent.ShowSnackbar("Ошибка воспроизведения: ${e.message}"))
+            }
+        }
+    }
+
+    // --- Voice broadcast (MSC3401) ---
+
+    /** THIS user's live broadcast in the open room (recording bar + attach menu state). */
+    val myBroadcast: StateFlow<BroadcastState?> = _uiState
+        .map { state ->
+            // The live=false replacement arrives as a newer info event; only the
+            // newest info event of mine counts, otherwise a stopped broadcast
+            // would still look live through its older live=true event.
+            val latestMine = state.messages.lastOrNull { it.broadcastInfo?.isMine == true }
+            val info = latestMine?.broadcastInfo?.takeIf { it.live }
+            info?.let {
+                BroadcastState(
+                    infoEventId = it.infoEventId,
+                    startedAt = latestMine.timestamp,
+                    chunkCount = state.messages.count { msg -> msg.broadcastChunkRef == it.infoEventId }
+                )
+            }
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Playback progress of the broadcast currently played from this chat (null = idle). */
+    private val _broadcastPlayback = MutableStateFlow<BroadcastPlaybackState?>(null)
+    val broadcastPlayback: StateFlow<BroadcastPlaybackState?> = _broadcastPlayback.asStateFlow()
+
+    // Chained single-source playback: one chunk loaded into VoicePlayback at a time.
+    private var bcastPlaying = false
+    private var bcastInfoEventId: String? = null
+    private var bcastQueue: List<Message> = emptyList()
+    private var bcastIndex = 0
+    /** Resolved local path of the current chunk (pause/resume must re-toggle it). */
+    private var bcastChunkPath: String? = null
+    private var bcastAdvanceJob: Job? = null
+
+    /** Ordered chunk list of a broadcast as currently present in the timeline. */
+    private fun broadcastChunkQueue(infoEventId: String): List<Message> =
+        _uiState.value.messages
+            .filter { !it.isDeleted && it.broadcastChunkRef == infoEventId }
+            .sortedBy { it.timestamp }
+
+    /**
+     * Info event id whose chunks a broadcast card plays. Stopping a broadcast
+     * sends a NEW live=false state event, so the stopped card carries a different
+     * event id while its chunks still reference the original live=true event.
+     */
+    private fun resolveBroadcastChunkInfoId(message: Message): String {
+        val info = message.broadcastInfo ?: return message.eventId
+        if (info.live || broadcastChunkQueue(info.infoEventId).isNotEmpty()) return info.infoEventId
+        return _uiState.value.messages
+            .asReversed()
+            .firstOrNull { prev ->
+                prev.timestamp <= message.timestamp &&
+                    prev.senderId == message.senderId &&
+                    prev.broadcastInfo?.live == true
+            }
+            ?.broadcastInfo?.infoEventId
+            ?: info.infoEventId
+    }
+
+    /** Play / pause / resume tap on a broadcast bubble. */
+    fun toggleBroadcastPlayback(message: Message) {
+        val info = message.broadcastInfo ?: return
+        // My own live broadcast has no recorded audio to play back yet.
+        if (info.isMine && info.live) return
+        val chunkInfoId = resolveBroadcastChunkInfoId(message)
+        val current = _broadcastPlayback.value
+        if (current?.infoEventId == chunkInfoId) {
+            when {
+                // While a chunk is still loading a tap means "cancel".
+                current.buffering -> stopBroadcastPlayback()
+                bcastPlaying -> pauseBroadcast()
+                else -> resumeBroadcast()
+            }
+            return
+        }
+        startBroadcastPlayback(chunkInfoId)
+    }
+
+    private fun startBroadcastPlayback(infoEventId: String) {
+        // Starting another broadcast always tears down the previous chain first.
+        stopBroadcastPlayback()
+        val queue = broadcastChunkQueue(infoEventId)
+        if (queue.isEmpty()) return
+        bcastInfoEventId = infoEventId
+        bcastQueue = queue
+        bcastIndex = 0
+        bcastPlaying = true
+        playCurrentChunk()
+    }
+
+    private fun pauseBroadcast() {
+        val infoId = bcastInfoEventId ?: return
+        val chunk = bcastQueue.getOrNull(bcastIndex) ?: return
+        bcastPlaying = false
+        _broadcastPlayback.value = BroadcastPlaybackState(
+            infoEventId = infoId,
+            currentIndex = bcastIndex,
+            totalChunks = bcastQueue.size,
+            playing = false,
+            buffering = false
+        )
+        bcastChunkPath?.let { VoicePlayback.toggle(chunk.eventId, it) }
+    }
+
+    private fun resumeBroadcast() {
+        val infoId = bcastInfoEventId ?: return
+        val chunk = bcastQueue.getOrNull(bcastIndex) ?: return
+        bcastPlaying = true
+        _broadcastPlayback.value = BroadcastPlaybackState(
+            infoEventId = infoId,
+            currentIndex = bcastIndex,
+            totalChunks = bcastQueue.size,
+            playing = true,
+            buffering = false
+        )
+        val path = bcastChunkPath
+        if (path == null) {
+            playCurrentChunk()
+        } else {
+            VoicePlayback.toggle(chunk.eventId, path)
+        }
+    }
+
+    private fun stopBroadcastPlayback(sendStop: Boolean = true) {
+        val wasActive = bcastInfoEventId != null
+        bcastPlaying = false
+        bcastAdvanceJob?.cancel()
+        bcastAdvanceJob = null
+        bcastInfoEventId = null
+        bcastQueue = emptyList()
+        bcastIndex = 0
+        bcastChunkPath = null
+        _broadcastPlayback.value = null
+        // Only stop the shared player when a broadcast chain actually owned it,
+        // so a plain voice message keeps playing across room switches.
+        if (sendStop && wasActive) VoicePlayback.stop()
+    }
+
+    /** Resolves and starts the chunk at [bcastIndex]; shows buffering while loading. */
+    private fun playCurrentChunk() {
+        val infoId = bcastInfoEventId ?: return
+        val chunk = bcastQueue.getOrNull(bcastIndex) ?: run {
+            stopBroadcastPlayback()
+            return
+        }
+        val roomId = _uiState.value.roomId
+        bcastAdvanceJob?.cancel()
+        bcastAdvanceJob = roomScope?.launch {
+            _broadcastPlayback.value = BroadcastPlaybackState(
+                infoEventId = infoId,
+                currentIndex = bcastIndex,
+                totalChunks = bcastQueue.size,
+                playing = false,
+                buffering = true
+            )
+            val path = try {
+                matrixRepository.resolveMediaFile(chunk.eventId, chunk.body.ifBlank { "chunk.ogg" }, roomId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                com.matrix.messenger.platform.logError("Chat", "Broadcast chunk ${chunk.eventId} resolve failed", e)
+                null
+            }
+            if (!bcastPlaying) return@launch
+            if (path == null) {
+                // Skip a broken chunk instead of dropping the whole broadcast.
+                _events.send(UiEvent.ShowSnackbar("Не удалось загрузить фрагмент трансляции"))
+                advanceToNextChunk()
+                return@launch
+            }
+            bcastChunkPath = path
+            _broadcastPlayback.value = BroadcastPlaybackState(
+                infoEventId = infoId,
+                currentIndex = bcastIndex,
+                totalChunks = bcastQueue.size,
+                playing = true,
+                buffering = false
+            )
+            VoicePlayback.toggle(chunk.eventId, path)
+        }
+    }
+
+    private fun advanceToNextChunk() {
+        if (!bcastPlaying) return
+        if (bcastIndex + 1 >= bcastQueue.size) {
+            // A live broadcast keeps producing chunks — refresh the queue before giving up.
+            val infoId = bcastInfoEventId ?: return
+            bcastQueue = broadcastChunkQueue(infoId)
+        }
+        val next = bcastIndex + 1
+        if (next >= bcastQueue.size) {
+            // Everything currently sent has been played.
+            stopBroadcastPlayback()
+            return
+        }
+        bcastIndex = next
+        playCurrentChunk()
+    }
+
+    /**
+     * Chains the shared single-source player: when the current broadcast chunk
+     * finishes (state back to null), the next one starts automatically. Foreign
+     * playback (a plain voice message) detaches the chain instead.
+     */
+    private fun observeVoicePlaybackForBroadcast() {
+        viewModelScope.launch {
+            var previous: VoicePlaybackState? = null
+            VoicePlayback.state.collect { current ->
+                handleBroadcastPlaybackTransition(previous, current)
+                previous = current
+            }
+        }
+    }
+
+    private suspend fun handleBroadcastPlaybackTransition(previous: VoicePlaybackState?, current: VoicePlaybackState?) {
+        if (current != null) {
+            val expected = bcastQueue.getOrNull(bcastIndex)?.eventId
+            if (bcastPlaying && expected != null && current.sourceId != expected) {
+                // A plain voice/audio message took over the shared player —
+                // detach the broadcast chain without stopping the new audio.
+                stopBroadcastPlayback(sendStop = false)
+            }
+            return
+        }
+        val ended = previous ?: return
+        val expectedChunk = bcastQueue.getOrNull(bcastIndex) ?: return
+        if (!bcastPlaying || ended.sourceId != expectedChunk.eventId) return
+        // A foreign toggle also passes through null before its own state
+        // appears; give it a moment to surface before advancing the queue.
+        kotlinx.coroutines.delay(300)
+        if (!bcastPlaying) return
+        val after = VoicePlayback.state.value
+        if (after != null && after.sourceId != expectedChunk.eventId) {
+            stopBroadcastPlayback(sendStop = false)
+            return
+        }
+        advanceToNextChunk()
+    }
+
+    /** Starts recording an MSC3401 voice broadcast in this room (mic permission required). */
+    fun startVoiceBroadcast() {
+        // A running voice recording or broadcast playback would fight over the mic/player.
+        if (_uiState.value.isRecordingVoice) stopVoiceRecording(send = false)
+        stopBroadcastPlayback()
+        if (_uiState.value.isRecordingBroadcast) return
+        val roomId = _uiState.value.roomId
+        if (roomId.isBlank()) return
+        _uiState.value = _uiState.value.copy(isRecordingBroadcast = true)
+        roomScope?.launch {
+            try {
+                matrixRepository.startVoiceBroadcast(roomId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isRecordingBroadcast = false)
+                _events.send(UiEvent.ShowSnackbar("Не удалось начать трансляцию: ${e.message ?: "неизвестная ошибка"}"))
+            }
+        }
+    }
+
+    /** Stops THIS user's voice broadcast (recording bar stop button). */
+    fun stopVoiceBroadcast() {
+        val roomId = _uiState.value.roomId
+        if (roomId.isBlank()) return
+        _uiState.value = _uiState.value.copy(isRecordingBroadcast = false)
+        roomScope?.launch {
+            try {
+                matrixRepository.stopVoiceBroadcast(roomId)
+                _events.send(UiEvent.ShowSnackbar("Трансляция остановлена"))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.send(UiEvent.ShowSnackbar("Не удалось остановить трансляцию: ${e.message ?: "неизвестная ошибка"}"))
             }
         }
     }

@@ -162,11 +162,15 @@ import com.matrix.messenger.data.emote.UserEmotesEventContent
 import com.matrix.messenger.data.location.BeaconEventContent
 import com.matrix.messenger.data.location.BeaconInfoEventContent
 import com.matrix.messenger.data.location.PinLocationEventContent
+import com.matrix.messenger.data.broadcast.VoiceBroadcastInfoEventContent
 import com.matrix.messenger.data.sticker.StickerEventContent
 import com.matrix.messenger.platform.deleteFileIfExists
+import com.matrix.messenger.platform.createVoiceRecorder
 import com.matrix.messenger.platform.getCurrentLocation
 import com.matrix.messenger.platform.startLiveLocationForeground
 import com.matrix.messenger.platform.stopLiveLocationForeground
+import com.matrix.messenger.platform.startVoiceBroadcastForeground
+import com.matrix.messenger.platform.stopVoiceBroadcastForeground
 import net.folivo.trixnity.core.model.events.InitialStateEvent
 import net.folivo.trixnity.core.model.events.m.room.AudioInfo
 import net.folivo.trixnity.core.model.events.m.room.EncryptedFile
@@ -206,6 +210,11 @@ class MatrixRepositoryImpl : MatrixRepository {
 
     /** MSC3488 live location broadcaster for the current user's share. */
     private var liveLocationJob: Job? = null
+
+    /** MSC3401 voice broadcast recorder/sender loop. */
+    private var broadcastJob: Job? = null
+    private var broadcastRecorder: com.matrix.messenger.platform.VoiceRecorder? = null
+    private var broadcastChunkIndex = 0
 
     /** Ignored users (m.ignored_user_list): their messages are hidden everywhere. */
     private val ignoredUsers = MutableStateFlow<Set<String>>(emptySet())
@@ -990,7 +999,7 @@ class MatrixRepositoryImpl : MatrixRepository {
         return info to encryptedBytes
     }
 
-    override suspend fun sendVoiceMessage(roomId: String, filePath: String, durationMs: Long?, waveform: List<Int>) {
+    override suspend fun sendVoiceMessage(roomId: String, filePath: String, durationMs: Long?, waveform: List<Int>, referenceEventId: String?) {
         val c = requireClient()
         val rId = RoomId(roomId)
         var bytes = readFileBytes(filePath)
@@ -1014,7 +1023,8 @@ class MatrixRepositoryImpl : MatrixRepository {
             body = "Голосовое сообщение",
             info = AudioInfo(mimeType = mime, size = bytes.size.toLong(), duration = durationMs),
             url = if (fileInfo == null) mxc else null,
-            file = fileInfo
+            file = fileInfo,
+            relatesTo = referenceEventId?.let { RelatesTo.Reference(EventId(it)) }
         )
         sendRoomEvent(c, rId, com.matrix.messenger.data.voice.VoiceAudioContent.fromAudio(audio, durationMs, waveform))
     }
@@ -1533,6 +1543,72 @@ class MatrixRepositoryImpl : MatrixRepository {
                 "{\"sender\":\"${e.sender}\",\"ts\":${e.ts},\"body\":\"$safeBody\"}"
             }
             "{\"room\":\"$roomId\",\"events\":[$list]}".encodeToByteArray()
+        }
+    }
+
+    override suspend fun startVoiceBroadcast(roomId: String, chunkMs: Long) {
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        requireJoinedRoom(c, rId)
+        if (broadcastJob?.isActive == true) error("Трансляция уже идёт в другой комнате")
+        val deviceId = runCatching { c.api.devices.getDevice(c.deviceId).getOrNull()?.deviceId }
+            .getOrNull() ?: c.deviceId
+        val infoId = c.api.room.sendStateEvent(
+            rId,
+            VoiceBroadcastInfoEventContent(deviceId = deviceId, live = true),
+            stateKey = c.userId.full,
+        ).getOrThrow().full
+        broadcastChunkIndex = 0
+        startVoiceBroadcastForeground()
+        broadcastJob = repositoryScope.launch {
+            try {
+                while (isActive) {
+                    val recorder = createVoiceRecorder()
+                    if (!recorder.start()) {
+                        logError("VoiceBroadcast", "recorder failed to start", null)
+                        break
+                    }
+                    broadcastRecorder = recorder
+                    delay(chunkMs)
+                    broadcastRecorder = null
+                    val path = recorder.stop()
+                    if (path == null) {
+                        logError("VoiceBroadcast", "chunk " + (broadcastChunkIndex + 1) + " empty", null)
+                        continue
+                    }
+                    val wave = recorder.waveform
+                    runCatching {
+                        sendVoiceMessage(roomId, path, chunkMs, wave, referenceEventId = infoId)
+                    }.onFailure { logError("VoiceBroadcast", "chunk " + (broadcastChunkIndex + 1) + " send failed", it) }
+                    broadcastChunkIndex++
+                    runCatching { com.matrix.messenger.platform.deleteFileIfExists(path) }
+                }
+            } finally {
+                broadcastRecorder?.cancel()
+                broadcastRecorder = null
+                stopVoiceBroadcastForeground()
+            }
+        }
+    }
+
+    override suspend fun stopVoiceBroadcast(roomId: String) {
+        broadcastJob?.cancel()
+        broadcastJob = null
+        val c = requireClient()
+        val rId = RoomId(roomId)
+        val current = runCatching {
+            c.room.getState<VoiceBroadcastInfoEventContent>(rId, c.userId.full)
+                .firstOrNull()?.content
+        }.getOrNull() ?: return
+        if (current.live) {
+            c.api.room.sendStateEvent(
+                rId,
+                current.copy(
+                    live = false,
+                    lastChunkTs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+                ),
+                stateKey = c.userId.full,
+            ).getOrThrow()
         }
     }
 
@@ -2785,6 +2861,27 @@ class MatrixRepositoryImpl : MatrixRepository {
             // beacon_info state updates are service events: surfaced through beacons only.
             return null
         }
+        if (eventContent is VoiceBroadcastInfoEventContent) {
+            val infoId = eventId.full
+            return Message(
+                eventId = infoId,
+                senderId = sender.full,
+                senderName = c.resolveSenderName(roomId, sender),
+                senderAvatarUrl = c.resolveSenderAvatar(roomId, sender),
+                body = if (eventContent.live) "Начал голосовую трансляцию" else "Завершил голосовую трансляцию",
+                timestamp = originTimestamp,
+                messageType = MessageType.VOICE_BROADCAST,
+                isMine = sender == c.userId,
+                isEdited = false,
+                isDeleted = false,
+                broadcastInfo = com.matrix.messenger.data.model.VoiceBroadcastInfo(
+                    infoEventId = infoId,
+                    live = eventContent.live,
+                    timeoutMs = eventContent.timeout,
+                    isMine = sender == c.userId
+                )
+            )
+        }
         if (eventContent is StickerEventContent) {
             val mxc = eventContent.url ?: eventContent.file?.url ?: return null
             return Message(
@@ -3025,6 +3122,7 @@ class MatrixRepositoryImpl : MatrixRepository {
             videoThumbnailFile = videoInfo?.thumbnailFile,
             mediaDurationMs = voice?.duration ?: videoInfo?.duration ?: audioInfo?.duration,
             voiceWaveform = voice?.waveform,
+            broadcastChunkRef = (voice?.stockAudio?.relatesTo as? RelatesTo.Reference)?.eventId?.full,
             replyTo = replyTo,
             formattedBody = (messageContent as? RoomMessageEventContent.TextBased)?.formattedBody,
             threadRootId = (messageContent?.relatesTo as? RelatesTo.Thread)?.eventId?.full
